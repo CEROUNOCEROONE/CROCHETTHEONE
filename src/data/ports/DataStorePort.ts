@@ -68,6 +68,13 @@ export interface DemoPurgeOutcome {
   readonly preservedRealCount: number;
 }
 
+import type {
+  CreateComponentInput,
+  CreateProjectInput,
+  UpdateComponentInput,
+  UpdateProjectInput,
+} from '@/src/domain/services/projectService.ts';
+
 export interface WorkshopDataEngine {
   readonly settings: DataStorePort<WorkshopSettings>;
   readonly projects: DataStorePort<Project>;
@@ -97,6 +104,19 @@ export interface WorkshopDataEngine {
       >
     >,
   ): Promise<WorkshopSettings>;
+  createProject(input: CreateProjectInput): Promise<Project>;
+  updateProject(projectId: string, updates: UpdateProjectInput): Promise<Project>;
+  deleteProjectCascade(projectId: string): Promise<void>;
+  createComponent(input: CreateComponentInput): Promise<ProjectComponent>;
+  updateComponent(
+    componentId: string,
+    updates: UpdateComponentInput,
+  ): Promise<ProjectComponent>;
+  reorderComponent(
+    componentId: string,
+    direction: 'up' | 'down',
+  ): Promise<void>;
+  deleteComponent(componentId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope>;

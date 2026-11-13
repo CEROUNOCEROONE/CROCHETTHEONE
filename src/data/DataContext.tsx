@@ -6,7 +6,19 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import type { SchemaMeta, WorkshopSettings } from '@/src/domain/models/index.ts';
+import type {
+  Client,
+  Project,
+  ProjectComponent,
+  SchemaMeta,
+  WorkshopSettings,
+} from '@/src/domain/models/index.ts';
+import type {
+  CreateComponentInput,
+  CreateProjectInput,
+  UpdateComponentInput,
+  UpdateProjectInput,
+} from '@/src/domain/services/projectService.ts';
 import {
   computeWorkshopStats,
   type WorkshopDashboardStats,
@@ -27,6 +39,9 @@ interface DataContextValue {
   readonly isLoading: boolean;
   readonly error: string | null;
   readonly settings: WorkshopSettings;
+  readonly projects: Project[];
+  readonly components: ProjectComponent[];
+  readonly clients: Client[];
   readonly stats: WorkshopDashboardStats;
   readonly schemaMeta: SchemaMeta | null;
   refresh(): Promise<void>;
@@ -43,6 +58,19 @@ interface DataContextValue {
       >
     >,
   ): Promise<WorkshopSettings>;
+  createProject(input: CreateProjectInput): Promise<Project>;
+  updateProject(projectId: string, updates: UpdateProjectInput): Promise<Project>;
+  deleteProject(projectId: string): Promise<void>;
+  createComponent(input: CreateComponentInput): Promise<ProjectComponent>;
+  updateComponent(
+    componentId: string,
+    updates: UpdateComponentInput,
+  ): Promise<ProjectComponent>;
+  reorderComponent(
+    componentId: string,
+    direction: 'up' | 'down',
+  ): Promise<void>;
+  deleteComponent(componentId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(includeDemo: boolean): Promise<BackupEnvelope>;
@@ -73,6 +101,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<WorkshopSettings>(EMPTY_SETTINGS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [components, setComponents] = useState<ProjectComponent[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
   const [schemaMeta, setSchemaMeta] = useState<SchemaMeta | null>(null);
 
@@ -84,6 +115,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localWorkshopEngine.getSchemaMeta(),
       ]);
       setSettings(snapshot.settings);
+      setProjects(snapshot.projects);
+      setComponents(snapshot.components);
+      setClients(snapshot.clients);
       setStats(computeWorkshopStats(snapshot));
       setSchemaMeta(meta);
     } catch (err) {
@@ -118,6 +152,69 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated = await localWorkshopEngine.saveWorkshopSettings(partial);
       await refresh();
       return updated;
+    },
+    [refresh],
+  );
+
+  const createProject = useCallback(
+    async (input: CreateProjectInput) => {
+      const created = await localWorkshopEngine.createProject(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateProject = useCallback(
+    async (projectId: string, updates: UpdateProjectInput) => {
+      const updated = await localWorkshopEngine.updateProject(projectId, updates);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      await localWorkshopEngine.deleteProjectCascade(projectId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createComponent = useCallback(
+    async (input: CreateComponentInput) => {
+      const created = await localWorkshopEngine.createComponent(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateComponent = useCallback(
+    async (componentId: string, updates: UpdateComponentInput) => {
+      const updated = await localWorkshopEngine.updateComponent(
+        componentId,
+        updates,
+      );
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const reorderComponent = useCallback(
+    async (componentId: string, direction: 'up' | 'down') => {
+      await localWorkshopEngine.reorderComponent(componentId, direction);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const deleteComponent = useCallback(
+    async (componentId: string) => {
+      await localWorkshopEngine.deleteComponent(componentId);
+      await refresh();
     },
     [refresh],
   );
@@ -162,10 +259,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isLoading,
       error,
       settings,
+      projects,
+      components,
+      clients,
       stats,
       schemaMeta,
       refresh,
       updateSettings,
+      createProject,
+      updateProject,
+      deleteProject,
+      createComponent,
+      updateComponent,
+      reorderComponent,
+      deleteComponent,
       loadDemoData,
       purgeDemoData,
       exportBackup,
@@ -176,10 +283,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isLoading,
       error,
       settings,
+      projects,
+      components,
+      clients,
       stats,
       schemaMeta,
       refresh,
       updateSettings,
+      createProject,
+      updateProject,
+      deleteProject,
+      createComponent,
+      updateComponent,
+      reorderComponent,
+      deleteComponent,
       loadDemoData,
       purgeDemoData,
       exportBackup,

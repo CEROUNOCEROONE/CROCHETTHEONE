@@ -70,7 +70,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Creación de proyectos, componentes por piezas y seguimiento de avance.',
     group: 'Operación',
     phase: 2,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: FolderKanban,
     showInMobileBottomBar: true,
     plannedCapabilities: [

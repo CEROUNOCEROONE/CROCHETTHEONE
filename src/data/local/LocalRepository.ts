@@ -31,6 +31,16 @@ import type {
   WorkshopDataEngine,
 } from '@/src/data/ports/DataStorePort.ts';
 import {
+  applyComponentUpdates,
+  applyProjectUpdates,
+  buildNewComponentEntity,
+  buildNewProjectEntity,
+  type CreateComponentInput,
+  type CreateProjectInput,
+  type UpdateComponentInput,
+  type UpdateProjectInput,
+} from '@/src/domain/services/projectService.ts';
+import {
   createDefaultWorkshopSettings,
   getIndexedDb,
   idbRequestToPromise,
@@ -379,6 +389,369 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       ),
     };
     return this.settings.upsert(updated);
+  }
+
+  async createProject(input: CreateProjectInput): Promise<Project> {
+    const nowIso = new Date().toISOString();
+    const project = buildNewProjectEntity(input, nowIso);
+    const initialComps = (input.initialComponents ?? [])
+      .filter((c) => c.name.trim().length > 0)
+      .map((c, idx) =>
+        buildNewComponentEntity(
+          {
+            projectId: project.id,
+            name: c.name,
+            estimatedMinutes: c.estimatedMinutes,
+            notes: c.notes,
+          },
+          idx + 1,
+          false,
+          nowIso,
+        ),
+      );
+
+    return runAtomicTransaction<Project>(
+      ['projects', 'project_components', 'clients'],
+      'readwrite',
+      (tx, done, fail) => {
+        const writeProjectAndComponents = () => {
+          tx.objectStore('projects').put(project);
+          const compStore = tx.objectStore('project_components');
+          for (const comp of initialComps) {
+            compStore.put(comp);
+          }
+          done(project);
+        };
+
+        if (project.clientId) {
+          const clientReq = tx.objectStore('clients').get(project.clientId);
+          clientReq.onerror = () => fail(clientReq.error);
+          clientReq.onsuccess = () => {
+            const client = clientReq.result as Client | undefined;
+            if (!client) {
+              fail(new Error('El cliente seleccionado no existe en el taller.'));
+              return;
+            }
+            if (client.isDemo && !project.isDemo) {
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: no puedes vincular un proyecto real con un cliente de demostración.',
+                ),
+              );
+              return;
+            }
+            writeProjectAndComponents();
+          };
+        } else {
+          writeProjectAndComponents();
+        }
+      },
+    );
+  }
+
+  async updateProject(
+    projectId: string,
+    updates: UpdateProjectInput,
+  ): Promise<Project> {
+    const existing = await this.projects.getById(projectId);
+    if (!existing) {
+      throw new Error('El proyecto que intentas editar no existe.');
+    }
+    const updated = applyProjectUpdates(existing, updates);
+    return this.projects.upsert(updated);
+  }
+
+  async deleteProjectCascade(projectId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      [
+        'projects',
+        'project_components',
+        'work_sessions',
+        'inventory_reservations',
+        'inventory_movements',
+        'payment_plans',
+        'financial_transactions',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').get(projectId);
+        projReq.onerror = () => fail(projReq.error);
+        projReq.onsuccess = () => {
+          const proj = projReq.result as Project | undefined;
+          if (!proj) {
+            done(undefined);
+            return;
+          }
+
+          // Verificar que no tenga movimientos inmutables de Kardex ni pagos reales
+          // ni reservas activas antes de permitir eliminar.
+          const movReq = tx.objectStore('inventory_movements').getAll();
+          const txReq = tx.objectStore('financial_transactions').getAll();
+          const resReq = tx.objectStore('inventory_reservations').getAll();
+          const planReq = tx.objectStore('payment_plans').getAll();
+          const sessReq = tx.objectStore('work_sessions').getAll();
+          const compReq = tx.objectStore('project_components').getAll();
+
+          let completedReads = 0;
+          let aborted = false;
+
+          const checkDone = () => {
+            completedReads += 1;
+            if (completedReads < 6 || aborted) return;
+
+            const movements = (movReq.result as InventoryMovement[]) ?? [];
+            const transactions = (txReq.result as FinancialTransaction[]) ?? [];
+            const reservations = (resReq.result as InventoryReservation[]) ?? [];
+            const plans = (planReq.result as PaymentPlan[]) ?? [];
+            const sessions = (sessReq.result as WorkSession[]) ?? [];
+            const comps = (compReq.result as ProjectComponent[]) ?? [];
+
+            const hasMovements = movements.some((m) => m.projectId === projectId);
+            const hasTransactions = transactions.some((t) => t.projectId === projectId);
+            const hasActiveReservations = reservations.some(
+              (r) => r.projectId === projectId && r.status === 'active',
+            );
+            const hasPlans = plans.some((p) => p.projectId === projectId);
+
+            if (hasMovements || hasTransactions || hasActiveReservations || hasPlans) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Este proyecto tiene reservas de material, movimientos en Kardex o un plan de pagos asociado. Para conservar la trazabilidad histórica, cámbialo a estado "Cancelado" en lugar de eliminarlo.',
+                ),
+              );
+              return;
+            }
+
+            const sessStore = tx.objectStore('work_sessions');
+            for (const s of sessions) {
+              if (s.projectId === projectId) {
+                sessStore.delete(s.id);
+              }
+            }
+
+            const compStore = tx.objectStore('project_components');
+            for (const c of comps) {
+              if (c.projectId === projectId) {
+                compStore.delete(c.id);
+              }
+            }
+
+            tx.objectStore('projects').delete(projectId);
+            done(undefined);
+          };
+
+          for (const req of [movReq, txReq, resReq, planReq, sessReq, compReq]) {
+            req.onerror = () => {
+              if (!aborted) {
+                aborted = true;
+                fail(req.error);
+              }
+            };
+            req.onsuccess = checkDone;
+          }
+        };
+      },
+    );
+  }
+
+  async createComponent(input: CreateComponentInput): Promise<ProjectComponent> {
+    return runAtomicTransaction<ProjectComponent>(
+      ['projects', 'project_components'],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').get(input.projectId);
+        projReq.onerror = () => fail(projReq.error);
+        projReq.onsuccess = () => {
+          const project = projReq.result as Project | undefined;
+          if (!project) {
+            fail(new Error('El proyecto seleccionado no existe.'));
+            return;
+          }
+
+          const compStore = tx.objectStore('project_components');
+          const indexReq = compStore.index('projectId').getAll(input.projectId);
+          indexReq.onerror = () => fail(indexReq.error);
+          indexReq.onsuccess = () => {
+            const existing = (indexReq.result as ProjectComponent[]) ?? [];
+            const maxOrder = existing.reduce(
+              (max, c) => Math.max(max, c.orderIndex),
+              0,
+            );
+            try {
+              const component = buildNewComponentEntity(
+                input,
+                maxOrder + 1,
+                project.isDemo,
+              );
+              compStore.put(component);
+              done(component);
+            } catch (err) {
+              fail(err);
+            }
+          };
+        };
+      },
+    );
+  }
+
+  async updateComponent(
+    componentId: string,
+    updates: UpdateComponentInput,
+  ): Promise<ProjectComponent> {
+    const existing = await this.components.getById(componentId);
+    if (!existing) {
+      throw new Error('La pieza o componente no existe.');
+    }
+    const updated = applyComponentUpdates(existing, updates);
+    return this.components.upsert(updated);
+  }
+
+  async reorderComponent(
+    componentId: string,
+    direction: 'up' | 'down',
+  ): Promise<void> {
+    return runAtomicTransaction<void>(
+      ['project_components'],
+      'readwrite',
+      (tx, done, fail) => {
+        const store = tx.objectStore('project_components');
+        const getReq = store.get(componentId);
+        getReq.onerror = () => fail(getReq.error);
+        getReq.onsuccess = () => {
+          const target = getReq.result as ProjectComponent | undefined;
+          if (!target) {
+            done(undefined);
+            return;
+          }
+
+          const allReq = store.index('projectId').getAll(target.projectId);
+          allReq.onerror = () => fail(allReq.error);
+          allReq.onsuccess = () => {
+            const siblings = ((allReq.result as ProjectComponent[]) ?? []).sort(
+              (a, b) => a.orderIndex - b.orderIndex,
+            );
+            const currentIdx = siblings.findIndex((c) => c.id === componentId);
+            if (currentIdx === -1) {
+              done(undefined);
+              return;
+            }
+            const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+            if (swapIdx < 0 || swapIdx >= siblings.length) {
+              done(undefined);
+              return;
+            }
+
+            const reordered = [...siblings];
+            const [moved] = reordered.splice(currentIdx, 1);
+            reordered.splice(swapIdx, 0, moved);
+
+            const nowIso = new Date().toISOString();
+            reordered.forEach((comp, idx) => {
+              store.put({
+                ...comp,
+                orderIndex: idx + 1,
+                version: comp.version + 1,
+                updatedAt: nowIso,
+              });
+            });
+
+            done(undefined);
+          };
+        };
+      },
+    );
+  }
+
+  async deleteComponent(componentId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      ['project_components', 'work_sessions', 'inventory_reservations'],
+      'readwrite',
+      (tx, done, fail) => {
+        const compStore = tx.objectStore('project_components');
+        const getReq = compStore.get(componentId);
+        getReq.onerror = () => fail(getReq.error);
+        getReq.onsuccess = () => {
+          const target = getReq.result as ProjectComponent | undefined;
+          if (!target) {
+            done(undefined);
+            return;
+          }
+
+          const sessReq = tx
+            .objectStore('work_sessions')
+            .index('componentId')
+            .getAll(componentId);
+          const resReq = tx.objectStore('inventory_reservations').getAll();
+
+          let reads = 0;
+          let aborted = false;
+
+          const finishCheck = () => {
+            reads += 1;
+            if (reads < 2 || aborted) return;
+
+            const sessions = (sessReq.result as WorkSession[]) ?? [];
+            const reservations = (resReq.result as InventoryReservation[]) ?? [];
+            const hasReservation = reservations.some(
+              (r) => r.componentId === componentId && r.status === 'active',
+            );
+
+            if (sessions.length > 0 || hasReservation) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Esta pieza ya tiene sesiones de tiempo o reservas de material asociadas y no puede eliminarse.',
+                ),
+              );
+              return;
+            }
+
+            compStore.delete(componentId);
+
+            // Reindexar el orden de los hermanos restantes
+            const siblingsReq = compStore
+              .index('projectId')
+              .getAll(target.projectId);
+            siblingsReq.onerror = () => fail(siblingsReq.error);
+            siblingsReq.onsuccess = () => {
+              const remaining = (
+                (siblingsReq.result as ProjectComponent[]) ?? []
+              )
+                .filter((c) => c.id !== componentId)
+                .sort((a, b) => a.orderIndex - b.orderIndex);
+
+              const nowIso = new Date().toISOString();
+              remaining.forEach((comp, idx) => {
+                if (comp.orderIndex !== idx + 1) {
+                  compStore.put({
+                    ...comp,
+                    orderIndex: idx + 1,
+                    updatedAt: nowIso,
+                  });
+                }
+              });
+              done(undefined);
+            };
+          };
+
+          sessReq.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(sessReq.error);
+            }
+          };
+          resReq.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(resReq.error);
+            }
+          };
+          sessReq.onsuccess = finishCheck;
+          resReq.onsuccess = finishCheck;
+        };
+      },
+    );
   }
 
   loadDemoData(): Promise<{ insertedCount: number }> {

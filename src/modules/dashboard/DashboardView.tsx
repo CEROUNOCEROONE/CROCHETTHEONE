@@ -20,6 +20,7 @@ import type { ModuleRouteId } from '@/src/shared/navigation/routes.ts';
 
 interface DashboardViewProps {
   onNavigate(routeId: ModuleRouteId): void;
+  onOpenProject?(projectId: string): void;
 }
 
 const PROJECT_STATUS_LABEL: Record<string, { label: string; tone: 'active' | 'warning' | 'success' | 'neutral' }> = {
@@ -32,7 +33,10 @@ const PROJECT_STATUS_LABEL: Record<string, { label: string; tone: 'active' | 'wa
   cancelled: { label: 'Cancelado', tone: 'neutral' },
 };
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({
+  onNavigate,
+  onOpenProject,
+}) => {
   const { isLoading, error, settings, stats, loadDemoData, refresh } =
     useWorkshopData();
   const [seeding, setSeeding] = React.useState(false);
@@ -179,7 +183,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                   onClick={() => onNavigate('projects')}
                   className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800 whitespace-nowrap"
                 >
-                  <span>Ver módulo Fase 2</span>
+                  <span>Gestionar proyectos</span>
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
@@ -201,9 +205,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="font-display text-sm font-semibold text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onOpenProject) {
+                                  onOpenProject(item.project.id);
+                                } else {
+                                  onNavigate('projects');
+                                }
+                              }}
+                              className="font-display text-sm font-semibold text-slate-900 hover:text-teal-700 text-left"
+                            >
                               {item.project.name}
-                            </h4>
+                            </button>
                             {item.project.isDemo && (
                               <span className="text-xs font-medium text-slate-400">
                                 · Ejemplo
