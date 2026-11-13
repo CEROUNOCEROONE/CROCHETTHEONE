@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "App Crochet",
+  "description": "Sistema integral de gestión artesanal para talleres de crochet: proyectos, tiempos, inventario por colores, cotizaciones y finanzas en COP.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
