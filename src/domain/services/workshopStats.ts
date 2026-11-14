@@ -9,6 +9,7 @@ import type {
   PaymentPlan,
   Project,
   ProjectComponent,
+  WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
 
@@ -40,6 +41,8 @@ export interface WorkshopDashboardStats {
   readonly pendingProjectsCount: number;
   readonly completedProjectsCount: number;
   readonly totalProjectsCount: number;
+  readonly todayEffectiveMinutes: number;
+  readonly totalEffectiveMinutes: number;
   readonly nextDeliveryProject: Project | null;
   readonly featuredProject: ProjectSummaryCardData | null;
   readonly projectSummaries: ProjectSummaryCardData[];
@@ -62,6 +65,7 @@ export interface WorkshopSnapshotInput {
   readonly settings: WorkshopSettings;
   readonly projects: Project[];
   readonly components: ProjectComponent[];
+  readonly workSessions?: WorkSession[];
   readonly materials: Material[];
   readonly variants: MaterialVariant[];
   readonly reservations: InventoryReservation[];
@@ -175,11 +179,32 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
     snapshot.materials.some((m) => !m.isDemo) ||
     snapshot.clients.some((c) => !c.isDemo);
 
+  const nowDate = new Date();
+  const todayKey = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}-${String(nowDate.getDate()).padStart(2, '0')}`;
+  const toLocalDateKey = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const workSessions = snapshot.workSessions ?? [];
+  const todayCompletedSeconds = workSessions
+    .filter((s) => s.status === 'completed' && toLocalDateKey(s.endTime ?? s.startTime) === todayKey)
+    .reduce((sum, s) => sum + Math.max(0, s.effectiveSeconds), 0);
+  const todayEffectiveMinutes = Math.round(todayCompletedSeconds / 60);
+
+  const totalEffectiveMinutes = snapshot.components.reduce(
+    (sum, c) => sum + Math.max(0, c.effectiveMinutesSpent),
+    0,
+  );
+
   return {
     activeProjectsCount,
     pendingProjectsCount,
     completedProjectsCount,
     totalProjectsCount: snapshot.projects.length,
+    todayEffectiveMinutes,
+    totalEffectiveMinutes,
     nextDeliveryProject,
     featuredProject,
     projectSummaries,

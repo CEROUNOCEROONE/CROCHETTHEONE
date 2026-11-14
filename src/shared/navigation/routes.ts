@@ -86,7 +86,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Medición persistente de tiempo real y efectivo por componente.',
     group: 'Operación',
     phase: 3,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: Clock,
     showInMobileBottomBar: true,
     plannedCapabilities: [
@@ -102,7 +102,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Stock por color, reservas compartidas entre proyectos y Kardex inmutable.',
     group: 'Materiales',
     phase: 4,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: Package,
     showInMobileBottomBar: true,
     plannedCapabilities: [

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Calendar,
+  Clock,
   FolderKanban,
   Package,
   Sparkles,
@@ -37,8 +38,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onOpenProject,
 }) => {
-  const { isLoading, error, settings, stats, loadDemoData, refresh } =
-    useWorkshopData();
+  const {
+    isLoading,
+    error,
+    settings,
+    stats,
+    activeTimerSession,
+    loadDemoData,
+    refresh,
+  } = useWorkshopData();
   const [seeding, setSeeding] = React.useState(false);
 
   const handleLoadDemo = async () => {
@@ -87,7 +95,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-medium text-slate-500">
-              {settings.workshopName} · Tarifa hora: {formatCOP(settings.hourlyRateCOP)} · Meta diaria:{' '}
+              {settings.workshopName} · Tarifa hora: {formatCOP(settings.hourlyRateCOP)} · Hoy:{' '}
+              {formatDurationMinutes(stats.todayEffectiveMinutes)} / meta{' '}
               {formatDurationMinutes(settings.dailyGoalMinutes)}
             </p>
             <h2 className="mt-1 font-display text-xl font-bold text-slate-900 sm:text-2xl">
@@ -100,6 +109,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {stats.totalProjectsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onNavigate('timer')}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
+              >
+                <Clock className="h-4 w-4" aria-hidden="true" />
+                <span>
+                  {activeTimerSession ? 'Ver cronómetro activo' : 'Continuar tejiendo'}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onNavigate('settings')}
@@ -274,7 +295,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   onClick={() => onNavigate('inventory')}
                   className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800 whitespace-nowrap"
                 >
-                  <span>Ver módulo Fase 4</span>
+                  <span>Gestionar inventario</span>
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>

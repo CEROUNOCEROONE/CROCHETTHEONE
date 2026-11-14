@@ -5,9 +5,11 @@ import {
   ArrowLeft,
   ArrowUp,
   CheckCircle2,
+  Clock,
   Edit3,
   FolderKanban,
   Layers,
+  Package,
   Plus,
   Search,
   Trash2,
@@ -33,6 +35,11 @@ import {
   PROJECT_STATUS_OPTIONS,
   type CreateProjectInput,
 } from '@/src/domain/services/projectService.ts';
+import {
+  formatUnitQuantity,
+  getReservationRemaining,
+  RESERVATION_STATUS_META,
+} from '@/src/domain/services/inventoryService.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
@@ -40,6 +47,8 @@ import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 interface ProjectsViewProps {
   readonly initialSelectedProjectId?: string | null;
   onClearInitialSelection?(): void;
+  onStartTimerForComponent?(projectId: string, componentId: string): void;
+  onNavigateToInventory?(): void;
 }
 
 type StatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'cancelled';
@@ -59,12 +68,18 @@ function dateInputToIso(dateStr: string): string | null {
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   initialSelectedProjectId = null,
   onClearInitialSelection,
+  onStartTimerForComponent,
+  onNavigateToInventory,
 }) => {
   const {
     settings,
     projects,
     components,
     clients,
+    materials,
+    variants,
+    reservations,
+    activeTimerSession,
     createProject,
     updateProject,
     deleteProject,
@@ -723,6 +738,32 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                              {onStartTimerForComponent && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onStartTimerForComponent(
+                                      selectedProject.id,
+                                      comp.id,
+                                    )
+                                  }
+                                  className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+                                    activeTimerSession?.componentId === comp.id
+                                      ? 'border-teal-700 bg-teal-700 text-white hover:bg-teal-800'
+                                      : 'border-teal-200 bg-teal-50 text-teal-800 hover:bg-teal-100'
+                                  }`}
+                                >
+                                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                                  <span>
+                                    {activeTimerSession?.componentId === comp.id
+                                      ? activeTimerSession.status === 'running'
+                                        ? 'Tejiendo'
+                                        : 'En pausa'
+                                      : 'Cronómetro'}
+                                  </span>
+                                </button>
+                              )}
+
                               <select
                                 aria-label={`Estado de ${comp.name}`}
                                 value={comp.status}
@@ -791,6 +832,92 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       })}
                     </div>
                   )}
+                </section>
+
+                {/* Materiales reservados y consumidos para este proyecto */}
+                <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <Package className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                      <div>
+                        <h3 className="font-display text-base font-semibold text-slate-900">
+                          Materiales asignados al proyecto
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Colores reservados y consumos registrados desde tu inventario.
+                        </p>
+                      </div>
+                    </div>
+
+                    {onNavigateToInventory && (
+                      <button
+                        type="button"
+                        onClick={onNavigateToInventory}
+                        className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 text-xs font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap shrink-0"
+                      >
+                        <Package className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                        <span>Gestionar en Inventario</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {(() => {
+                    const projectReservations = reservations.filter(
+                      (r) => r.projectId === selectedProject.id,
+                    );
+                    if (projectReservations.length === 0) {
+                      return (
+                        <p className="py-5 text-center text-xs text-slate-500">
+                          Este proyecto aún no tiene reservas de material asociadas. Puedes apartar hilos o lanas desde el módulo Inventario.
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="divide-y divide-slate-100">
+                        {projectReservations.map((res) => {
+                          const variant = variants.find((v) => v.id === res.variantId);
+                          const mat = variant
+                            ? materials.find((m) => m.id === variant.materialId)
+                            : undefined;
+                          const unit = mat?.unit ?? 'unit';
+                          const statusMeta = RESERVATION_STATUS_META[res.status];
+                          const remaining = getReservationRemaining(res);
+
+                          return (
+                            <div
+                              key={res.id}
+                              className="flex flex-col gap-2 py-3.5 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span
+                                  className="h-6 w-6 shrink-0 rounded-md border border-slate-300"
+                                  style={{
+                                    backgroundColor: variant?.colorHex ?? '#E2E8F0',
+                                  }}
+                                  aria-hidden="true"
+                                />
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-slate-900">
+                                    {mat?.name ?? 'Material'} ·{' '}
+                                    {variant?.colorName ?? 'Color'}
+                                  </p>
+                                  <p className="text-xs text-slate-500 tabular-nums">
+                                    Reservado: {formatUnitQuantity(res.reservedQuantity, unit)} ·
+                                    Consumido: {formatUnitQuantity(res.consumedQuantity, unit)} ·
+                                    Pendiente: {formatUnitQuantity(remaining, unit)}
+                                  </p>
+                                </div>
+                              </div>
+                              <StatusBadge
+                                label={statusMeta.label}
+                                tone={statusMeta.tone}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </section>
               </>
             );

@@ -74,6 +74,30 @@ import type {
   UpdateComponentInput,
   UpdateProjectInput,
 } from '@/src/domain/services/projectService.ts';
+import type {
+  AdjustStockInput,
+  ConsumeFromReservationInput,
+  CreateMaterialInput,
+  CreateReservationInput,
+  CreateVariantInput,
+  DirectConsumptionInput,
+  UpdateMaterialInput,
+  UpdateVariantMetadataInput,
+} from '@/src/domain/services/inventoryService.ts';
+
+export interface FinishTimerSessionOptions {
+  readonly overrideEffectiveMinutes?: number;
+  readonly adjustmentReason?: string;
+  readonly notes?: string;
+}
+
+export interface ManualWorkSessionInput {
+  readonly projectId: string;
+  readonly componentId: string;
+  readonly effectiveMinutes: number;
+  readonly workDateIso?: string;
+  readonly notes?: string;
+}
 
 export interface WorkshopDataEngine {
   readonly settings: DataStorePort<WorkshopSettings>;
@@ -117,6 +141,52 @@ export interface WorkshopDataEngine {
     direction: 'up' | 'down',
   ): Promise<void>;
   deleteComponent(componentId: string): Promise<void>;
+  startTimerSession(
+    projectId: string,
+    componentId: string,
+    notes?: string,
+  ): Promise<WorkSession>;
+  pauseTimerSession(sessionId: string): Promise<WorkSession>;
+  resumeTimerSession(sessionId: string): Promise<WorkSession>;
+  finishTimerSession(
+    sessionId: string,
+    options?: FinishTimerSessionOptions,
+  ): Promise<WorkSession>;
+  logManualWorkSession(input: ManualWorkSessionInput): Promise<WorkSession>;
+  adjustCompletedWorkSession(
+    sessionId: string,
+    newEffectiveMinutes: number,
+    adjustmentReason: string,
+  ): Promise<WorkSession>;
+  createMaterial(input: CreateMaterialInput): Promise<Material>;
+  updateMaterial(
+    materialId: string,
+    updates: UpdateMaterialInput,
+  ): Promise<Material>;
+  deleteMaterial(materialId: string): Promise<void>;
+  createVariant(input: CreateVariantInput): Promise<MaterialVariant>;
+  updateVariantMetadata(
+    variantId: string,
+    updates: UpdateVariantMetadataInput,
+  ): Promise<MaterialVariant>;
+  deleteVariant(variantId: string): Promise<void>;
+  adjustVariantStock(input: AdjustStockInput): Promise<MaterialVariant>;
+  createReservation(input: CreateReservationInput): Promise<InventoryReservation>;
+  modifyReservationQuantity(
+    reservationId: string,
+    nextReservedQuantity: number,
+    notes?: string,
+  ): Promise<InventoryReservation>;
+  consumeFromReservation(
+    input: ConsumeFromReservationInput,
+  ): Promise<InventoryReservation>;
+  releaseReservation(
+    reservationId: string,
+    notes?: string,
+  ): Promise<InventoryReservation>;
+  recordDirectProjectConsumption(
+    input: DirectConsumptionInput,
+  ): Promise<InventoryMovement>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope>;

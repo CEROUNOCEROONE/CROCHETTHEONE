@@ -258,7 +258,7 @@ function createDemoBundle(): DemoBundle {
     },
   ];
 
-  // 5. Sesiones completadas de ejemplo (sin activar cronómetro en Fase 1)
+  // 5. Sesiones completadas de ejemplo (coherentes con effectiveMinutesSpent de cada pieza)
   const workSessions: WorkSession[] = [
     {
       ...buildDemoMeta('demo_sess_1', isoNow),
@@ -287,6 +287,34 @@ function createDemoBundle(): DemoBundle {
       entryType: 'timer',
       adjustmentReason: null,
       notes: 'Sesión completada en Ala izquierda.',
+    },
+    {
+      ...buildDemoMeta('demo_sess_3', isoNow),
+      projectId: 'demo_proj_mariposa',
+      componentId: 'demo_comp_mar_ala_der',
+      startTime: new Date(now.getTime() - 45 * 60000).toISOString(),
+      endTime: new Date(now.getTime() - 30 * 60000).toISOString(),
+      status: 'completed',
+      pauseIntervals: [],
+      elapsedSeconds: 900,
+      effectiveSeconds: 900,
+      entryType: 'timer',
+      adjustmentReason: null,
+      notes: 'Avance inicial en Ala derecha.',
+    },
+    {
+      ...buildDemoMeta('demo_sess_4', isoNow),
+      projectId: 'demo_proj_amigurumi',
+      componentId: 'demo_comp_ami_cabeza',
+      startTime: new Date(now.getTime() - 180 * 60000).toISOString(),
+      endTime: new Date(now.getTime() - 115 * 60000).toISOString(),
+      status: 'completed',
+      pauseIntervals: [],
+      elapsedSeconds: 3900,
+      effectiveSeconds: 3900,
+      entryType: 'timer',
+      adjustmentReason: null,
+      notes: 'Tejido base de cabeza y colocación de ojos.',
     },
   ];
 
