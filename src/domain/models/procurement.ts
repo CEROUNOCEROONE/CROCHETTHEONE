@@ -41,6 +41,7 @@ export interface NoteOrList extends BaseEntity {
 export interface ShoppingListItem extends BaseEntity {
   readonly listId: string;
   readonly variantId: string | null;
+  readonly pendingMaterialId?: string | null;
   readonly customName: string;
   readonly colorName: string;
   readonly unit: MeasurementUnit;
@@ -56,6 +57,10 @@ export interface ShoppingListItem extends BaseEntity {
 export interface PurchaseReceiptItem {
   readonly variantId: string;
   readonly shoppingListItemId: string | null;
+  readonly pendingMaterialId?: string | null;
+  readonly materialNameSnapshot?: string;
+  readonly colorNameSnapshot?: string;
+  readonly unitSnapshot?: MeasurementUnit;
   readonly quantityReceived: number;
   readonly unitCostCOP: MoneyCOP;
 }
@@ -66,5 +71,6 @@ export interface PurchaseReceipt extends BaseEntity {
   readonly referenceCode: string | null;
   readonly items: PurchaseReceiptItem[];
   readonly totalCostCOP: MoneyCOP;
+  readonly idempotencyKey?: string;
   readonly notes: string;
 }

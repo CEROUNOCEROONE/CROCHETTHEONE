@@ -23,10 +23,24 @@ export const STORE_FOREIGN_KEYS: Partial<Record<WorkshopStoreName, ForeignKeyCon
     { field: 'componentId', targetStore: 'project_components', required: false },
     { field: 'variantId', targetStore: 'material_variants', required: true },
   ],
+  pending_materials: [
+    { field: 'variantId', targetStore: 'material_variants', required: true },
+    { field: 'projectId', targetStore: 'projects', required: true },
+    { field: 'componentId', targetStore: 'project_components', required: false },
+  ],
+  notes_and_lists: [
+    { field: 'projectId', targetStore: 'projects', required: false },
+  ],
+  shopping_list_items: [
+    { field: 'listId', targetStore: 'notes_and_lists', required: true },
+    { field: 'variantId', targetStore: 'material_variants', required: false },
+    { field: 'pendingMaterialId', targetStore: 'pending_materials', required: false },
+  ],
   inventory_movements: [
     { field: 'variantId', targetStore: 'material_variants', required: true },
     { field: 'projectId', targetStore: 'projects', required: false },
     { field: 'reservationId', targetStore: 'inventory_reservations', required: false },
+    { field: 'purchaseReceiptId', targetStore: 'purchase_receipts', required: false },
   ],
   payment_plans: [
     { field: 'projectId', targetStore: 'projects', required: true },
@@ -54,6 +68,10 @@ export const DATA_STORES_TOPOLOGICAL_ORDER: WorkshopStoreName[] = [
   'project_components',
   'work_sessions',
   'inventory_reservations',
+  'pending_materials',
+  'notes_and_lists',
+  'shopping_list_items',
+  'purchase_receipts',
   'inventory_movements',
   'payment_plans',
   'payment_installments',
@@ -143,6 +161,52 @@ export function validateCrossRecordIntegrity(
         if (parentInBundle && !record.isDemo && parentInBundle.isDemo) {
           errors.push(
             `Aislamiento violado en "${storeName}" (${record.id}): un registro real no puede depender del registro de ejemplo "${rawValue}".`,
+          );
+        }
+      }
+    }
+  }
+
+  // Validación referencial de líneas embebidas en purchase_receipts.items[]
+  const receipts = recordsByStore.purchase_receipts ?? [];
+  for (const receipt of receipts) {
+    const obj = receipt as unknown as { items?: unknown };
+    if (!Array.isArray(obj.items)) {
+      errors.push(`Registro "${receipt.id}" en "purchase_receipts" requiere lista items.`);
+      continue;
+    }
+    for (const rawItem of obj.items) {
+      if (!rawItem || typeof rawItem !== 'object') {
+        errors.push(`Ítem inválido en recepción "${receipt.id}".`);
+        continue;
+      }
+      const line = rawItem as Record<string, unknown>;
+      const lineChecks: Array<{ field: string; target: WorkshopStoreName; required: boolean }> = [
+        { field: 'variantId', target: 'material_variants', required: true },
+        { field: 'shoppingListItemId', target: 'shopping_list_items', required: false },
+        { field: 'pendingMaterialId', target: 'pending_materials', required: false },
+      ];
+      for (const check of lineChecks) {
+        const val = line[check.field];
+        if (val === null || val === undefined || val === '') {
+          if (check.required) {
+            errors.push(`Ítem sin "${check.field}" en recepción "${receipt.id}".`);
+          }
+          continue;
+        }
+        if (typeof val !== 'string') {
+          errors.push(`"${check.field}" inválido en recepción "${receipt.id}".`);
+          continue;
+        }
+        const inBundle = idIndex.get(check.target)?.get(val);
+        const inExternal = externalIdLookup?.[check.target]?.has(val) ?? false;
+        if (!inBundle && !inExternal) {
+          errors.push(
+            `Referencia rota en recepción "${receipt.id}": "${check.field}" (${val}) no existe en "${check.target}".`,
+          );
+        } else if (inBundle && !receipt.isDemo && inBundle.isDemo) {
+          errors.push(
+            `Aislamiento violado en recepción "${receipt.id}": referencia un elemento de ejemplo "${val}".`,
           );
         }
       }

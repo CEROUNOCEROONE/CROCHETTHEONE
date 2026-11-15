@@ -7,11 +7,16 @@ import type {
   InventoryReservation,
   Material,
   MaterialVariant,
+  NoteOrList,
   PaymentInstallment,
   PaymentPlan,
+  PendingMaterial,
   Project,
   ProjectComponent,
+  PurchaseReceipt,
+  PurchaseReceiptItem,
   SchemaMeta,
+  ShoppingListItem,
   WorkSession,
   WorkshopSettings,
   WorkshopStoreName,
@@ -58,6 +63,15 @@ import type {
   UpdateMaterialInput,
   UpdateVariantMetadataInput,
 } from '@/src/domain/services/inventoryService.ts';
+import type {
+  CreateNoteOrListInput,
+  CreatePendingMaterialInput,
+  CreatePurchaseReceiptInput,
+  CreateShoppingListItemInput,
+  UpdateNoteOrListInput,
+  UpdatePendingMaterialInput,
+  UpdateShoppingListItemInput,
+} from '@/src/domain/services/procurementService.ts';
 import {
   createDefaultWorkshopSettings,
   getIndexedDb,
@@ -74,6 +88,7 @@ import {
 const IMMUTABLE_LEDGER_STORES = new Set<WorkshopStoreName>([
   'inventory_movements',
   'financial_transactions',
+  'purchase_receipts',
 ]);
 
 class IndexedDbStoreRepository<T extends BaseEntity> implements DataStorePort<T> {
@@ -305,6 +320,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   readonly reservations = new IndexedDbStoreRepository<InventoryReservation>(
     'inventory_reservations',
   );
+  readonly pendingMaterials = new IndexedDbStoreRepository<PendingMaterial>(
+    'pending_materials',
+  );
+  readonly notesAndLists = new IndexedDbStoreRepository<NoteOrList>(
+    'notes_and_lists',
+  );
+  readonly shoppingListItems = new IndexedDbStoreRepository<ShoppingListItem>(
+    'shopping_list_items',
+  );
+  readonly purchaseReceipts = new IndexedDbStoreRepository<PurchaseReceipt>(
+    'purchase_receipts',
+  );
   readonly movements = new IndexedDbStoreRepository<InventoryMovement>('inventory_movements');
   readonly clients = new IndexedDbStoreRepository<Client>('clients');
   readonly paymentPlans = new IndexedDbStoreRepository<PaymentPlan>('payment_plans');
@@ -359,6 +386,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 materials: (result.materials as Material[]) ?? [],
                 variants: (result.material_variants as MaterialVariant[]) ?? [],
                 reservations: (result.inventory_reservations as InventoryReservation[]) ?? [],
+                pendingMaterials: (result.pending_materials as PendingMaterial[]) ?? [],
+                notesAndLists: (result.notes_and_lists as NoteOrList[]) ?? [],
+                shoppingItems: (result.shopping_list_items as ShoppingListItem[]) ?? [],
+                purchaseReceipts: (result.purchase_receipts as PurchaseReceipt[]) ?? [],
                 movements: (result.inventory_movements as InventoryMovement[]) ?? [],
                 clients: (result.clients as Client[]) ?? [],
                 paymentPlans: (result.payment_plans as PaymentPlan[]) ?? [],
@@ -487,6 +518,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         'project_components',
         'work_sessions',
         'inventory_reservations',
+        'pending_materials',
+        'notes_and_lists',
+        'shopping_list_items',
         'inventory_movements',
         'payment_plans',
         'financial_transactions',
@@ -510,13 +544,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           const planReq = tx.objectStore('payment_plans').getAll();
           const sessReq = tx.objectStore('work_sessions').getAll();
           const compReq = tx.objectStore('project_components').getAll();
+          const pendReq = tx.objectStore('pending_materials').getAll();
+          const noteReq = tx.objectStore('notes_and_lists').getAll();
+          const sliReq = tx.objectStore('shopping_list_items').getAll();
 
           let completedReads = 0;
           let aborted = false;
 
           const checkDone = () => {
             completedReads += 1;
-            if (completedReads < 6 || aborted) return;
+            if (completedReads < 9 || aborted) return;
 
             const movements = (movReq.result as InventoryMovement[]) ?? [];
             const transactions = (txReq.result as FinancialTransaction[]) ?? [];
@@ -524,6 +561,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             const plans = (planReq.result as PaymentPlan[]) ?? [];
             const sessions = (sessReq.result as WorkSession[]) ?? [];
             const comps = (compReq.result as ProjectComponent[]) ?? [];
+            const pendings = (pendReq.result as PendingMaterial[]) ?? [];
+            const notes = (noteReq.result as NoteOrList[]) ?? [];
+            const shoppingItems = (sliReq.result as ShoppingListItem[]) ?? [];
 
             const hasMovements = movements.some((m) => m.projectId === projectId);
             const hasTransactions = transactions.some((t) => t.projectId === projectId);
@@ -531,15 +571,60 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               (r) => r.projectId === projectId && r.status === 'active',
             );
             const hasPlans = plans.some((p) => p.projectId === projectId);
+            const projPendings = pendings.filter((p) => p.projectId === projectId);
+            const hasReceivedPendings = projPendings.some(
+              (p) => p.quantityReceived > 0,
+            );
 
-            if (hasMovements || hasTransactions || hasActiveReservations || hasPlans) {
+            if (
+              hasMovements ||
+              hasTransactions ||
+              hasActiveReservations ||
+              hasPlans ||
+              hasReceivedPendings
+            ) {
               aborted = true;
               fail(
                 new Error(
-                  'Este proyecto tiene reservas de material, movimientos en Kardex o un plan de pagos asociado. Para conservar la trazabilidad histórica, cámbialo a estado "Cancelado" en lugar de eliminarlo.',
+                  'Este proyecto tiene reservas de material, recepciones de compra, movimientos en Kardex o un plan de pagos asociado. Para conservar la trazabilidad histórica, cámbialo a estado "Cancelado" en lugar de eliminarlo.',
                 ),
               );
               return;
+            }
+
+            const nowIso = new Date().toISOString();
+            const projPendingIds = new Set(projPendings.map((p) => p.id));
+
+            // Desvincular ítems de listas de compra que apuntaban a pendientes del proyecto eliminado
+            const sliStore = tx.objectStore('shopping_list_items');
+            for (const sli of shoppingItems) {
+              if (sli.pendingMaterialId && projPendingIds.has(sli.pendingMaterialId)) {
+                sliStore.put({
+                  ...sli,
+                  pendingMaterialId: null,
+                  version: sli.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
+            }
+
+            // Eliminar materiales pendientes sin recepciones del proyecto
+            const pendStore = tx.objectStore('pending_materials');
+            for (const p of projPendings) {
+              pendStore.delete(p.id);
+            }
+
+            // Desvincular notas/listas que estaban asociadas al proyecto
+            const noteStore = tx.objectStore('notes_and_lists');
+            for (const n of notes) {
+              if (n.projectId === projectId) {
+                noteStore.put({
+                  ...n,
+                  projectId: null,
+                  version: n.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
             }
 
             const sessStore = tx.objectStore('work_sessions');
@@ -560,7 +645,17 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             done(undefined);
           };
 
-          for (const req of [movReq, txReq, resReq, planReq, sessReq, compReq]) {
+          for (const req of [
+            movReq,
+            txReq,
+            resReq,
+            planReq,
+            sessReq,
+            compReq,
+            pendReq,
+            noteReq,
+            sliReq,
+          ]) {
             req.onerror = () => {
               if (!aborted) {
                 aborted = true;
@@ -684,7 +779,12 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
 
   async deleteComponent(componentId: string): Promise<void> {
     return runAtomicTransaction<void>(
-      ['project_components', 'work_sessions', 'inventory_reservations'],
+      [
+        'project_components',
+        'work_sessions',
+        'inventory_reservations',
+        'pending_materials',
+      ],
       'readwrite',
       (tx, done, fail) => {
         const compStore = tx.objectStore('project_components');
@@ -702,16 +802,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             .index('componentId')
             .getAll(componentId);
           const resReq = tx.objectStore('inventory_reservations').getAll();
+          const pendReq = tx.objectStore('pending_materials').getAll();
 
           let reads = 0;
           let aborted = false;
 
           const finishCheck = () => {
             reads += 1;
-            if (reads < 2 || aborted) return;
+            if (reads < 3 || aborted) return;
 
             const sessions = (sessReq.result as WorkSession[]) ?? [];
             const reservations = (resReq.result as InventoryReservation[]) ?? [];
+            const pendings = (pendReq.result as PendingMaterial[]) ?? [];
             const hasReservation = reservations.some(
               (r) => r.componentId === componentId && r.status === 'active',
             );
@@ -724,6 +826,19 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 ),
               );
               return;
+            }
+
+            const nowIso = new Date().toISOString();
+            const pendStore = tx.objectStore('pending_materials');
+            for (const pm of pendings) {
+              if (pm.componentId === componentId) {
+                pendStore.put({
+                  ...pm,
+                  componentId: null,
+                  version: pm.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
             }
 
             compStore.delete(componentId);
@@ -740,7 +855,6 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 .filter((c) => c.id !== componentId)
                 .sort((a, b) => a.orderIndex - b.orderIndex);
 
-              const nowIso = new Date().toISOString();
               remaining.forEach((comp, idx) => {
                 if (comp.orderIndex !== idx + 1) {
                   compStore.put({
@@ -754,20 +868,15 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             };
           };
 
-          sessReq.onerror = () => {
-            if (!aborted) {
-              aborted = true;
-              fail(sessReq.error);
-            }
-          };
-          resReq.onerror = () => {
-            if (!aborted) {
-              aborted = true;
-              fail(resReq.error);
-            }
-          };
-          sessReq.onsuccess = finishCheck;
-          resReq.onsuccess = finishCheck;
+          for (const req of [sessReq, resReq, pendReq]) {
+            req.onerror = () => {
+              if (!aborted) {
+                aborted = true;
+                fail(req.error);
+              }
+            };
+            req.onsuccess = finishCheck;
+          }
         };
       },
     );
@@ -1381,6 +1490,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     variantId: string;
     projectId: string | null;
     reservationId: string | null;
+    purchaseReceiptId?: string | null;
     type: InventoryMovementType;
     quantityDelta: number;
     previousPhysicalStock: number;
@@ -1404,7 +1514,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       variantId: params.variantId,
       projectId: params.projectId,
       reservationId: params.reservationId,
-      purchaseReceiptId: null,
+      purchaseReceiptId: params.purchaseReceiptId ?? null,
       type: params.type,
       quantityDelta: this.roundQuantity(params.quantityDelta),
       previousPhysicalStock: this.roundQuantity(params.previousPhysicalStock),
@@ -1621,7 +1731,14 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
 
   async deleteVariant(variantId: string): Promise<void> {
     return runAtomicTransaction<void>(
-      ['material_variants', 'inventory_reservations', 'inventory_movements'],
+      [
+        'material_variants',
+        'inventory_reservations',
+        'inventory_movements',
+        'pending_materials',
+        'shopping_list_items',
+        'purchase_receipts',
+      ],
       'readwrite',
       (tx, done, fail) => {
         const resReq = tx
@@ -1632,20 +1749,42 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           .objectStore('inventory_movements')
           .index('variantId')
           .getAll(variantId);
+        const pendReq = tx
+          .objectStore('pending_materials')
+          .index('variantId')
+          .getAll(variantId);
+        const sliReq = tx
+          .objectStore('shopping_list_items')
+          .index('variantId')
+          .getAll(variantId);
+        const recReq = tx.objectStore('purchase_receipts').getAll();
 
         let reads = 0;
         let aborted = false;
 
         const onRead = () => {
           reads += 1;
-          if (reads < 2 || aborted) return;
+          if (reads < 5 || aborted) return;
           const reservations = (resReq.result as InventoryReservation[]) ?? [];
           const movements = (movReq.result as InventoryMovement[]) ?? [];
-          if (reservations.length > 0 || movements.length > 0) {
+          const pendings = (pendReq.result as PendingMaterial[]) ?? [];
+          const shoppingItems = (sliReq.result as ShoppingListItem[]) ?? [];
+          const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const hasReceiptRef = receipts.some((r) =>
+            r.items.some((item) => item.variantId === variantId),
+          );
+
+          if (
+            reservations.length > 0 ||
+            movements.length > 0 ||
+            pendings.length > 0 ||
+            shoppingItems.length > 0 ||
+            hasReceiptRef
+          ) {
             aborted = true;
             fail(
               new Error(
-                'Este color ya tiene reservas o movimientos históricos en el Kardex y no puede eliminarse para preservar la trazabilidad.',
+                'Este color ya tiene reservas, compras pendientes, listas o movimientos históricos y no puede eliminarse para preservar la trazabilidad.',
               ),
             );
             return;
@@ -1655,20 +1794,15 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           delReq.onsuccess = () => done(undefined);
         };
 
-        resReq.onerror = () => {
-          if (!aborted) {
-            aborted = true;
-            fail(resReq.error);
-          }
-        };
-        movReq.onerror = () => {
-          if (!aborted) {
-            aborted = true;
-            fail(movReq.error);
-          }
-        };
-        resReq.onsuccess = onRead;
-        movReq.onsuccess = onRead;
+        for (const req of [resReq, movReq, pendReq, sliReq, recReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
       },
     );
   }
@@ -2293,6 +2427,951 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         };
 
         for (const req of [projReq, varReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async createPendingMaterial(
+    input: CreatePendingMaterialInput,
+  ): Promise<PendingMaterial> {
+    if (!Number.isFinite(input.quantityNeeded) || input.quantityNeeded <= 0) {
+      throw new Error('La cantidad necesaria debe ser mayor a 0.');
+    }
+    const qtyNeeded = this.roundQuantity(input.quantityNeeded);
+    const nowIso = new Date().toISOString();
+
+    return runAtomicTransaction<PendingMaterial>(
+      ['projects', 'project_components', 'material_variants', 'pending_materials'],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').get(input.projectId);
+        const varReq = tx.objectStore('material_variants').get(input.variantId);
+        const compReq = input.componentId
+          ? tx.objectStore('project_components').get(input.componentId)
+          : null;
+
+        const neededReads = compReq ? 3 : 2;
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < neededReads || aborted) return;
+
+          const project = projReq.result as Project | undefined;
+          const variant = varReq.result as MaterialVariant | undefined;
+          const component = compReq
+            ? (compReq.result as ProjectComponent | undefined)
+            : undefined;
+
+          if (!project) {
+            fail(new Error('El proyecto seleccionado no existe.'));
+            return;
+          }
+          if (!variant) {
+            fail(new Error('El material o color seleccionado no existe.'));
+            return;
+          }
+          if (!project.isDemo && variant.isDemo) {
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: un proyecto real no puede asociar un material de demostración.',
+              ),
+            );
+            return;
+          }
+          if (input.componentId && (!component || component.projectId !== project.id)) {
+            fail(new Error('La pieza seleccionada no pertenece al proyecto elegido.'));
+            return;
+          }
+
+          const initialStatus = input.status ?? 'pending_order';
+          const pending: PendingMaterial = {
+            id: this.createLocalId('pend'),
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo: project.isDemo,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            variantId: variant.id,
+            projectId: project.id,
+            componentId: component?.id ?? null,
+            quantityNeeded: qtyNeeded,
+            quantityReceived: 0,
+            provider: input.provider.trim() || variant.provider,
+            orderedDate:
+              initialStatus === 'ordered' ? input.orderedDate ?? nowIso : null,
+            estimatedArrivalDate: input.estimatedArrivalDate ?? null,
+            status: initialStatus,
+            notes: (input.notes ?? '').trim(),
+          };
+          tx.objectStore('pending_materials').put(pending);
+
+          if (
+            component &&
+            input.markComponentBlocked &&
+            component.status !== 'completed' &&
+            component.status !== 'blocked_by_material'
+          ) {
+            tx.objectStore('project_components').put({
+              ...component,
+              status: 'blocked_by_material',
+              version: component.version + 1,
+              updatedAt: nowIso,
+            });
+          }
+
+          done(pending);
+        };
+
+        for (const req of [projReq, varReq, ...(compReq ? [compReq] : [])]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async updatePendingMaterial(
+    pendingId: string,
+    updates: UpdatePendingMaterialInput,
+  ): Promise<PendingMaterial> {
+    const existing = await this.pendingMaterials.getById(pendingId);
+    if (!existing) {
+      throw new Error('El material pendiente no existe.');
+    }
+    const nextQty =
+      updates.quantityNeeded !== undefined
+        ? this.roundQuantity(updates.quantityNeeded)
+        : existing.quantityNeeded;
+    if (!Number.isFinite(nextQty) || nextQty <= 0) {
+      throw new Error('La cantidad necesaria debe ser mayor a 0.');
+    }
+    if (nextQty < existing.quantityReceived) {
+      throw new Error(
+        `La cantidad necesaria no puede ser menor a lo ya recibido (${existing.quantityReceived}).`,
+      );
+    }
+
+    const nextStatus = updates.status ?? existing.status;
+    const nowIso = new Date().toISOString();
+    const nextOrderedDate =
+      updates.orderedDate !== undefined
+        ? updates.orderedDate
+        : nextStatus === 'ordered' && !existing.orderedDate
+          ? nowIso
+          : existing.orderedDate;
+
+    return this.pendingMaterials.upsert({
+      ...existing,
+      quantityNeeded: nextQty,
+      provider:
+        updates.provider !== undefined ? updates.provider.trim() : existing.provider,
+      orderedDate: nextOrderedDate,
+      estimatedArrivalDate:
+        updates.estimatedArrivalDate !== undefined
+          ? updates.estimatedArrivalDate
+          : existing.estimatedArrivalDate,
+      status: nextStatus,
+      notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
+    });
+  }
+
+  async deletePendingMaterial(pendingId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      ['pending_materials', 'shopping_list_items', 'purchase_receipts'],
+      'readwrite',
+      (tx, done, fail) => {
+        const getReq = tx.objectStore('pending_materials').get(pendingId);
+        const sliReq = tx
+          .objectStore('shopping_list_items')
+          .index('pendingMaterialId')
+          .getAll(pendingId);
+        const recReq = tx.objectStore('purchase_receipts').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 3 || aborted) return;
+          const existing = getReq.result as PendingMaterial | undefined;
+          if (!existing) {
+            done(undefined);
+            return;
+          }
+          const linkedItems = (sliReq.result as ShoppingListItem[]) ?? [];
+          const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const hasReceipt =
+            existing.quantityReceived > 0 ||
+            receipts.some((r) =>
+              r.items.some((it) => it.pendingMaterialId === pendingId),
+            );
+
+          if (hasReceipt) {
+            aborted = true;
+            fail(
+              new Error(
+                'Este material pendiente ya registra recepciones en inventario y no puede eliminarse. Puedes cancelarlo o dejarlo en el historial.',
+              ),
+            );
+            return;
+          }
+
+          const nowIso = new Date().toISOString();
+          const sliStore = tx.objectStore('shopping_list_items');
+          for (const item of linkedItems) {
+            sliStore.put({
+              ...item,
+              pendingMaterialId: null,
+              version: item.version + 1,
+              updatedAt: nowIso,
+            });
+          }
+
+          tx.objectStore('pending_materials').delete(pendingId);
+          done(undefined);
+        };
+
+        for (const req of [getReq, sliReq, recReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async createNoteOrList(input: CreateNoteOrListInput): Promise<NoteOrList> {
+    const cleanTitle = input.title.trim();
+    if (!cleanTitle) {
+      throw new Error('El título de la nota o lista es obligatorio.');
+    }
+    const nowIso = new Date().toISOString();
+    let isDemo = false;
+    if (input.projectId) {
+      const proj = await this.projects.getById(input.projectId);
+      if (!proj) {
+        throw new Error('El proyecto seleccionado no existe.');
+      }
+      isDemo = proj.isDemo;
+    }
+
+    const note: NoteOrList = {
+      id: this.createLocalId(input.type === 'shopping_list' ? 'list' : 'note'),
+      ownerId: 'local-workshop',
+      syncStatus: 'local_only',
+      version: 1,
+      isDemo,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      title: cleanTitle,
+      type: input.type,
+      projectId: input.projectId || null,
+      content: input.content.trim(),
+      status: 'active',
+    };
+    return this.notesAndLists.upsert(note);
+  }
+
+  async updateNoteOrList(
+    noteId: string,
+    updates: UpdateNoteOrListInput,
+  ): Promise<NoteOrList> {
+    const existing = await this.notesAndLists.getById(noteId);
+    if (!existing) {
+      throw new Error('La nota o lista no existe.');
+    }
+    const nextTitle =
+      updates.title !== undefined ? updates.title.trim() : existing.title;
+    if (!nextTitle) {
+      throw new Error('El título no puede quedar vacío.');
+    }
+    return this.notesAndLists.upsert({
+      ...existing,
+      title: nextTitle,
+      type: updates.type ?? existing.type,
+      projectId:
+        updates.projectId !== undefined
+          ? updates.projectId || null
+          : existing.projectId,
+      content:
+        updates.content !== undefined ? updates.content.trim() : existing.content,
+      status: updates.status ?? existing.status,
+    });
+  }
+
+  async deleteNoteOrList(noteId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      ['notes_and_lists', 'shopping_list_items', 'purchase_receipts'],
+      'readwrite',
+      (tx, done, fail) => {
+        const listReq = tx.objectStore('notes_and_lists').get(noteId);
+        const itemsReq = tx
+          .objectStore('shopping_list_items')
+          .index('listId')
+          .getAll(noteId);
+        const recReq = tx.objectStore('purchase_receipts').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 3 || aborted) return;
+          const note = listReq.result as NoteOrList | undefined;
+          if (!note) {
+            done(undefined);
+            return;
+          }
+          const items = (itemsReq.result as ShoppingListItem[]) ?? [];
+          const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const itemIds = new Set(items.map((i) => i.id));
+          const hasReceived =
+            items.some((i) => i.receivedQuantity > 0) ||
+            receipts.some((r) =>
+              r.items.some(
+                (it) => it.shoppingListItemId && itemIds.has(it.shoppingListItemId),
+              ),
+            );
+
+          if (hasReceived) {
+            aborted = true;
+            fail(
+              new Error(
+                'Esta lista tiene recepciones de compra registradas en el historial y no puede eliminarse. Puedes archivarla en su lugar.',
+              ),
+            );
+            return;
+          }
+
+          const itemStore = tx.objectStore('shopping_list_items');
+          for (const item of items) {
+            itemStore.delete(item.id);
+          }
+          tx.objectStore('notes_and_lists').delete(noteId);
+          done(undefined);
+        };
+
+        for (const req of [listReq, itemsReq, recReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async createShoppingListItem(
+    input: CreateShoppingListItemInput,
+  ): Promise<ShoppingListItem> {
+    if (!Number.isFinite(input.plannedQuantity) || input.plannedQuantity <= 0) {
+      throw new Error('La cantidad planificada debe ser mayor a 0.');
+    }
+    if (
+      !Number.isFinite(input.estimatedUnitPriceCOP) ||
+      input.estimatedUnitPriceCOP < 0
+    ) {
+      throw new Error('El precio unitario estimado en COP debe ser mayor o igual a 0.');
+    }
+
+    const list = await this.notesAndLists.getById(input.listId);
+    if (!list) {
+      throw new Error('La lista de compras seleccionada no existe.');
+    }
+
+    let cleanName = input.customName.trim();
+    let cleanColor = input.colorName.trim();
+    let unit = input.unit;
+    let provider = input.provider.trim();
+    let isDemo = list.isDemo;
+
+    if (input.variantId) {
+      const variant = await this.variants.getById(input.variantId);
+      if (!variant) {
+        throw new Error('La variante de material seleccionada no existe.');
+      }
+      if (!list.isDemo && variant.isDemo) {
+        throw new Error(
+          'Aislamiento de ejemplos: una lista real no puede incluir un material de demostración.',
+        );
+      }
+      const material = await this.materials.getById(variant.materialId);
+      if (!cleanName) cleanName = material?.name ?? 'Material';
+      if (!cleanColor) cleanColor = variant.colorName;
+      unit = material?.unit ?? unit;
+      if (!provider) provider = variant.provider;
+      isDemo = list.isDemo || variant.isDemo;
+    }
+
+    if (!cleanName) {
+      throw new Error('El nombre del material o ítem de compra es obligatorio.');
+    }
+
+    const planned = this.roundQuantity(input.plannedQuantity);
+    const status = input.status ?? 'pending';
+    const purchased =
+      input.purchasedQuantity !== undefined
+        ? this.roundQuantity(Math.max(0, input.purchasedQuantity))
+        : status === 'purchased_waiting_delivery'
+          ? planned
+          : 0;
+
+    const nowIso = new Date().toISOString();
+    const item: ShoppingListItem = {
+      id: this.createLocalId('sli'),
+      ownerId: 'local-workshop',
+      syncStatus: 'local_only',
+      version: 1,
+      isDemo,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      listId: list.id,
+      variantId: input.variantId || null,
+      pendingMaterialId: input.pendingMaterialId ?? null,
+      customName: cleanName,
+      colorName: cleanColor || 'Estándar',
+      unit,
+      plannedQuantity: planned,
+      purchasedQuantity: purchased,
+      receivedQuantity: 0,
+      estimatedUnitPriceCOP: Math.round(input.estimatedUnitPriceCOP),
+      provider,
+      status,
+      notes: (input.notes ?? '').trim(),
+    };
+    return this.shoppingListItems.upsert(item);
+  }
+
+  async updateShoppingListItem(
+    itemId: string,
+    updates: UpdateShoppingListItemInput,
+  ): Promise<ShoppingListItem> {
+    const existing = await this.shoppingListItems.getById(itemId);
+    if (!existing) {
+      throw new Error('El ítem de la lista de compras no existe.');
+    }
+    const nextPlanned =
+      updates.plannedQuantity !== undefined
+        ? this.roundQuantity(updates.plannedQuantity)
+        : existing.plannedQuantity;
+    if (!Number.isFinite(nextPlanned) || nextPlanned <= 0) {
+      throw new Error('La cantidad planificada debe ser mayor a 0.');
+    }
+    if (nextPlanned < existing.receivedQuantity) {
+      throw new Error(
+        `No puedes reducir la cantidad planificada por debajo de lo ya recibido (${existing.receivedQuantity}).`,
+      );
+    }
+
+    const nextStatus = updates.status ?? existing.status;
+    let nextPurchased =
+      updates.purchasedQuantity !== undefined
+        ? this.roundQuantity(Math.max(0, updates.purchasedQuantity))
+        : existing.purchasedQuantity;
+
+    if (
+      updates.status === 'purchased_waiting_delivery' &&
+      updates.purchasedQuantity === undefined &&
+      nextPurchased < nextPlanned
+    ) {
+      nextPurchased = nextPlanned;
+    }
+
+    return this.shoppingListItems.upsert({
+      ...existing,
+      variantId:
+        updates.variantId !== undefined ? updates.variantId : existing.variantId,
+      customName:
+        updates.customName !== undefined
+          ? updates.customName.trim() || existing.customName
+          : existing.customName,
+      colorName:
+        updates.colorName !== undefined
+          ? updates.colorName.trim() || existing.colorName
+          : existing.colorName,
+      unit: updates.unit ?? existing.unit,
+      plannedQuantity: nextPlanned,
+      purchasedQuantity: nextPurchased,
+      estimatedUnitPriceCOP:
+        updates.estimatedUnitPriceCOP !== undefined
+          ? Math.max(0, Math.round(updates.estimatedUnitPriceCOP))
+          : existing.estimatedUnitPriceCOP,
+      provider:
+        updates.provider !== undefined ? updates.provider.trim() : existing.provider,
+      status: nextStatus,
+      notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
+    });
+  }
+
+  async deleteShoppingListItem(itemId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      ['shopping_list_items', 'purchase_receipts'],
+      'readwrite',
+      (tx, done, fail) => {
+        const itemReq = tx.objectStore('shopping_list_items').get(itemId);
+        const recReq = tx.objectStore('purchase_receipts').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 2 || aborted) return;
+          const existing = itemReq.result as ShoppingListItem | undefined;
+          if (!existing) {
+            done(undefined);
+            return;
+          }
+          const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const hasReceipt =
+            existing.receivedQuantity > 0 ||
+            receipts.some((r) =>
+              r.items.some((it) => it.shoppingListItemId === itemId),
+            );
+          if (hasReceipt) {
+            aborted = true;
+            fail(
+              new Error(
+                'Este ítem ya tiene recepciones registradas en inventario y no puede eliminarse.',
+              ),
+            );
+            return;
+          }
+          tx.objectStore('shopping_list_items').delete(itemId);
+          done(undefined);
+        };
+
+        for (const req of [itemReq, recReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async sendPendingMaterialToShoppingList(
+    pendingMaterialId: string,
+    listId: string,
+  ): Promise<ShoppingListItem> {
+    const pending = await this.pendingMaterials.getById(pendingMaterialId);
+    if (!pending) {
+      throw new Error('El material pendiente no existe.');
+    }
+    const remaining = this.roundQuantity(
+      Math.max(0, pending.quantityNeeded - pending.quantityReceived),
+    );
+    if (remaining <= 0 || pending.status === 'received' || pending.status === 'cancelled') {
+      throw new Error('Este material pendiente ya fue recibido o cancelado.');
+    }
+
+    const existingItems = await this.shoppingListItems.queryByIndex(
+      'pendingMaterialId',
+      pendingMaterialId,
+    );
+    const openDuplicate = existingItems.find(
+      (i) =>
+        i.listId === listId &&
+        i.status !== 'received_in_stock' &&
+        i.status !== 'cancelled',
+    );
+    if (openDuplicate) {
+      throw new Error('Este material pendiente ya está en esa lista de compras.');
+    }
+
+    const variant = await this.variants.getById(pending.variantId);
+    if (!variant) {
+      throw new Error('La variante asociada ya no existe.');
+    }
+    const material = await this.materials.getById(variant.materialId);
+
+    return this.createShoppingListItem({
+      listId,
+      variantId: variant.id,
+      pendingMaterialId: pending.id,
+      customName: material?.name ?? 'Material',
+      colorName: variant.colorName,
+      unit: material?.unit ?? 'g',
+      plannedQuantity: remaining,
+      estimatedUnitPriceCOP: variant.unitCostCOP,
+      provider: pending.provider || variant.provider,
+      status:
+        pending.status === 'ordered' ? 'purchased_waiting_delivery' : 'pending',
+      notes: pending.notes,
+    });
+  }
+
+  async receivePurchaseReceipt(
+    input: CreatePurchaseReceiptInput,
+  ): Promise<PurchaseReceipt> {
+    const cleanProvider = input.provider.trim();
+    if (!cleanProvider) {
+      throw new Error('El nombre del proveedor o tienda es obligatorio.');
+    }
+    if (!input.items || input.items.length === 0) {
+      throw new Error('Debes incluir al menos un material recibido.');
+    }
+    for (const line of input.items) {
+      if (!line.variantId) {
+        throw new Error(
+          'Cada ítem recibido debe vincularse a un material/color del inventario para actualizar el stock.',
+        );
+      }
+      if (!Number.isFinite(line.quantityReceived) || line.quantityReceived <= 0) {
+        throw new Error('La cantidad recibida debe ser mayor a 0.');
+      }
+      if (!Number.isFinite(line.unitCostCOP) || line.unitCostCOP < 0) {
+        throw new Error('El costo unitario en COP debe ser mayor o igual a 0.');
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const receiptId = this.createLocalId('rec');
+
+    return runAtomicTransaction<PurchaseReceipt>(
+      [
+        'materials',
+        'material_variants',
+        'shopping_list_items',
+        'pending_materials',
+        'project_components',
+        'purchase_receipts',
+        'inventory_movements',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const matReq = tx.objectStore('materials').getAll();
+        const varReq = tx.objectStore('material_variants').getAll();
+        const sliReq = tx.objectStore('shopping_list_items').getAll();
+        const pendReq = tx.objectStore('pending_materials').getAll();
+        const compReq = tx.objectStore('project_components').getAll();
+        const recReq = tx.objectStore('purchase_receipts').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 6 || aborted) return;
+
+          const allReceipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          if (input.idempotencyKey) {
+            const existingDup = allReceipts.find(
+              (r) => r.idempotencyKey === input.idempotencyKey,
+            );
+            if (existingDup) {
+              done(existingDup);
+              return;
+            }
+          }
+
+          const materialMap = new Map(
+            ((matReq.result as Material[]) ?? []).map((m) => [m.id, m]),
+          );
+          const variantMap = new Map(
+            ((varReq.result as MaterialVariant[]) ?? []).map((v) => [v.id, v]),
+          );
+          const sliMap = new Map(
+            ((sliReq.result as ShoppingListItem[]) ?? []).map((i) => [i.id, i]),
+          );
+          const pendingMap = new Map(
+            ((pendReq.result as PendingMaterial[]) ?? []).map((p) => [p.id, p]),
+          );
+          const componentMap = new Map(
+            ((compReq.result as ProjectComponent[]) ?? []).map((c) => [c.id, c]),
+          );
+
+          const touchedVariants = new Set<string>();
+          const touchedSli = new Set<string>();
+          const touchedPending = new Set<string>();
+          const touchedComponents = new Set<string>();
+          const newMovements: InventoryMovement[] = [];
+          const receiptItems: PurchaseReceiptItem[] = [];
+
+          let isDemoReceipt: boolean | null = null;
+          let totalCostCOP = 0;
+
+          for (const line of input.items) {
+            const variant = variantMap.get(line.variantId);
+            if (!variant) {
+              aborted = true;
+              fail(
+                new Error(
+                  `La variante de material "${line.variantId}" no existe en el inventario.`,
+                ),
+              );
+              return;
+            }
+            const material = materialMap.get(variant.materialId);
+
+            if (isDemoReceipt === null) {
+              isDemoReceipt = variant.isDemo;
+            } else if (isDemoReceipt !== variant.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: no puedes mezclar materiales reales y de demostración en una misma recepción.',
+                ),
+              );
+              return;
+            }
+
+            let resolvedPendingId = line.pendingMaterialId ?? null;
+            let projectForMovement: string | null = null;
+
+            if (line.shoppingListItemId) {
+              const sli = sliMap.get(line.shoppingListItemId);
+              if (!sli) {
+                aborted = true;
+                fail(
+                  new Error(
+                    'El ítem de lista de compras indicado no existe.',
+                  ),
+                );
+                return;
+              }
+              if (sli.isDemo !== variant.isDemo) {
+                aborted = true;
+                fail(
+                  new Error(
+                    'Aislamiento de ejemplos: el ítem de lista y el color seleccionado no pertenecen al mismo entorno.',
+                  ),
+                );
+                return;
+              }
+              if (!resolvedPendingId && sli.pendingMaterialId) {
+                resolvedPendingId = sli.pendingMaterialId;
+              }
+
+              const qtyRec = this.roundQuantity(line.quantityReceived);
+              const nextReceived = this.roundQuantity(sli.receivedQuantity + qtyRec);
+              const nextPurchased = this.roundQuantity(
+                Math.max(sli.purchasedQuantity, nextReceived),
+              );
+              const nextStatus =
+                nextReceived >= sli.plannedQuantity
+                  ? 'received_in_stock'
+                  : 'partially_received';
+
+              sliMap.set(sli.id, {
+                ...sli,
+                variantId: variant.id,
+                purchasedQuantity: nextPurchased,
+                receivedQuantity: nextReceived,
+                estimatedUnitPriceCOP:
+                  line.unitCostCOP > 0
+                    ? Math.round(line.unitCostCOP)
+                    : sli.estimatedUnitPriceCOP,
+                provider: cleanProvider || sli.provider,
+                status: nextStatus,
+                version: sli.version + 1,
+                updatedAt: nowIso,
+              });
+              touchedSli.add(sli.id);
+            }
+
+            if (resolvedPendingId) {
+              const pending = pendingMap.get(resolvedPendingId);
+              if (!pending) {
+                aborted = true;
+                fail(
+                  new Error(
+                    'El material pendiente vinculado ya no existe.',
+                  ),
+                );
+                return;
+              }
+              if (pending.isDemo !== variant.isDemo) {
+                aborted = true;
+                fail(
+                  new Error(
+                    'Aislamiento de ejemplos: el material pendiente y el color no pertenecen al mismo entorno.',
+                  ),
+                );
+                return;
+              }
+              projectForMovement = pending.projectId;
+              const qtyRec = this.roundQuantity(line.quantityReceived);
+              const nextReceived = this.roundQuantity(pending.quantityReceived + qtyRec);
+              const nextStatus =
+                nextReceived >= pending.quantityNeeded
+                  ? 'received'
+                  : 'partially_received';
+
+              pendingMap.set(pending.id, {
+                ...pending,
+                quantityReceived: nextReceived,
+                provider: cleanProvider || pending.provider,
+                status: nextStatus,
+                version: pending.version + 1,
+                updatedAt: nowIso,
+              });
+              touchedPending.add(pending.id);
+            }
+
+            const qtyRec = this.roundQuantity(line.quantityReceived);
+            const unitCost = Math.max(0, Math.round(line.unitCostCOP));
+            const prevPhysical = variant.physicalStock;
+            const nextPhysical = this.roundQuantity(prevPhysical + qtyRec);
+            const nextVariantCost =
+              line.updateVariantUnitCost !== false && unitCost > 0
+                ? unitCost
+                : variant.unitCostCOP;
+
+            variantMap.set(variant.id, {
+              ...variant,
+              physicalStock: nextPhysical,
+              unitCostCOP: nextVariantCost,
+              provider: cleanProvider || variant.provider,
+              version: variant.version + 1,
+              updatedAt: nowIso,
+            });
+            touchedVariants.add(variant.id);
+
+            totalCostCOP += Math.round(qtyRec * unitCost);
+
+            receiptItems.push({
+              variantId: variant.id,
+              shoppingListItemId: line.shoppingListItemId ?? null,
+              pendingMaterialId: resolvedPendingId,
+              materialNameSnapshot: material?.name ?? 'Material',
+              colorNameSnapshot: variant.colorName,
+              unitSnapshot: material?.unit ?? 'unit',
+              quantityReceived: qtyRec,
+              unitCostCOP: unitCost,
+            });
+
+            newMovements.push(
+              this.buildImmutableMovement({
+                variantId: variant.id,
+                projectId: projectForMovement,
+                reservationId: null,
+                purchaseReceiptId: receiptId,
+                type: 'PURCHASE_RECEIPT',
+                quantityDelta: qtyRec,
+                previousPhysicalStock: prevPhysical,
+                newPhysicalStock: nextPhysical,
+                previousReservedStock: variant.reservedStock,
+                newReservedStock: variant.reservedStock,
+                unitCostAtMovementCOP: unitCost || variant.unitCostCOP,
+                notes: `Recepción de compra (${cleanProvider}${input.referenceCode?.trim() ? ` · Ref: ${input.referenceCode.trim()}` : ''}): +${qtyRec} ${material?.unit ?? ''}.`,
+                isDemo: variant.isDemo,
+                nowIso,
+              }),
+            );
+          }
+
+          // Desbloquear automáticamente componentes que estaban en 'blocked_by_material'
+          // si ya no tienen materiales pendientes sin recibir.
+          for (const pendingId of touchedPending) {
+            const updatedPending = pendingMap.get(pendingId);
+            if (
+              !updatedPending ||
+              updatedPending.status !== 'received' ||
+              !updatedPending.componentId
+            ) {
+              continue;
+            }
+            const comp = componentMap.get(updatedPending.componentId);
+            if (!comp || comp.status !== 'blocked_by_material') continue;
+
+            const hasOtherOpenPending = Array.from(pendingMap.values()).some(
+              (other) =>
+                other.componentId === comp.id &&
+                (other.status === 'pending_order' ||
+                  other.status === 'ordered' ||
+                  other.status === 'partially_received'),
+            );
+            if (!hasOtherOpenPending) {
+              componentMap.set(comp.id, {
+                ...comp,
+                status: 'pending',
+                version: comp.version + 1,
+                updatedAt: nowIso,
+              });
+              touchedComponents.add(comp.id);
+            }
+          }
+
+          const receipt: PurchaseReceipt = {
+            id: receiptId,
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo: Boolean(isDemoReceipt),
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            provider: cleanProvider,
+            receiptDate: input.receiptDate || nowIso,
+            referenceCode: input.referenceCode?.trim() || null,
+            items: receiptItems,
+            totalCostCOP: Math.max(0, Math.round(totalCostCOP)),
+            idempotencyKey: input.idempotencyKey || `rec_${receiptId}`,
+            notes: (input.notes ?? '').trim(),
+          };
+
+          const varStore = tx.objectStore('material_variants');
+          for (const vId of touchedVariants) {
+            const v = variantMap.get(vId);
+            if (v) varStore.put(v);
+          }
+
+          const sliStore = tx.objectStore('shopping_list_items');
+          for (const sId of touchedSli) {
+            const s = sliMap.get(sId);
+            if (s) sliStore.put(s);
+          }
+
+          const pendStore = tx.objectStore('pending_materials');
+          for (const pId of touchedPending) {
+            const p = pendingMap.get(pId);
+            if (p) pendStore.put(p);
+          }
+
+          const compStore = tx.objectStore('project_components');
+          for (const cId of touchedComponents) {
+            const c = componentMap.get(cId);
+            if (c) compStore.put(c);
+          }
+
+          tx.objectStore('purchase_receipts').put(receipt);
+
+          const movStore = tx.objectStore('inventory_movements');
+          for (const mov of newMovements) {
+            movStore.put(mov);
+          }
+
+          done(receipt);
+        };
+
+        for (const req of [matReq, varReq, sliReq, pendReq, compReq, recReq]) {
           req.onerror = () => {
             if (!aborted) {
               aborted = true;

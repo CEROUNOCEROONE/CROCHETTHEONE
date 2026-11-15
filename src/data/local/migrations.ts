@@ -33,6 +33,27 @@ export const MIGRATION_STEPS: MigrationStep[] = [
       }
     },
   },
+  {
+    version: 2,
+    name: 'phase5_procurement_and_notes_v2',
+    apply(db, tx) {
+      for (const def of STORE_DEFINITIONS) {
+        let store: IDBObjectStore;
+        if (!db.objectStoreNames.contains(def.name)) {
+          store = db.createObjectStore(def.name, { keyPath: def.keyPath });
+        } else {
+          store = tx.objectStore(def.name);
+        }
+        for (const indexDef of def.indexes) {
+          if (!store.indexNames.contains(indexDef.name)) {
+            store.createIndex(indexDef.name, indexDef.keyPath, {
+              unique: Boolean(indexDef.unique),
+            });
+          }
+        }
+      }
+    },
+  },
 ];
 
 export function runIdbMigrations(

@@ -6,11 +6,15 @@ import type {
   InventoryReservation,
   Material,
   MaterialVariant,
+  NoteOrList,
   PaymentInstallment,
   PaymentPlan,
+  PendingMaterial,
   Project,
   ProjectComponent,
+  PurchaseReceipt,
   SchemaMeta,
+  ShoppingListItem,
   WorkSession,
   WorkshopSettings,
   WorkshopStoreName,
@@ -85,6 +89,16 @@ import type {
   UpdateVariantMetadataInput,
 } from '@/src/domain/services/inventoryService.ts';
 
+import type {
+  CreateNoteOrListInput,
+  CreatePendingMaterialInput,
+  CreatePurchaseReceiptInput,
+  CreateShoppingListItemInput,
+  UpdateNoteOrListInput,
+  UpdatePendingMaterialInput,
+  UpdateShoppingListItemInput,
+} from '@/src/domain/services/procurementService.ts';
+
 export interface FinishTimerSessionOptions {
   readonly overrideEffectiveMinutes?: number;
   readonly adjustmentReason?: string;
@@ -107,6 +121,10 @@ export interface WorkshopDataEngine {
   readonly materials: DataStorePort<Material>;
   readonly variants: DataStorePort<MaterialVariant>;
   readonly reservations: DataStorePort<InventoryReservation>;
+  readonly pendingMaterials: DataStorePort<PendingMaterial>;
+  readonly notesAndLists: DataStorePort<NoteOrList>;
+  readonly shoppingListItems: DataStorePort<ShoppingListItem>;
+  readonly purchaseReceipts: DataStorePort<PurchaseReceipt>;
   readonly movements: DataStorePort<InventoryMovement>;
   readonly clients: DataStorePort<Client>;
   readonly paymentPlans: DataStorePort<PaymentPlan>;
@@ -187,6 +205,33 @@ export interface WorkshopDataEngine {
   recordDirectProjectConsumption(
     input: DirectConsumptionInput,
   ): Promise<InventoryMovement>;
+  createPendingMaterial(input: CreatePendingMaterialInput): Promise<PendingMaterial>;
+  updatePendingMaterial(
+    pendingId: string,
+    updates: UpdatePendingMaterialInput,
+  ): Promise<PendingMaterial>;
+  deletePendingMaterial(pendingId: string): Promise<void>;
+  createNoteOrList(input: CreateNoteOrListInput): Promise<NoteOrList>;
+  updateNoteOrList(
+    noteId: string,
+    updates: UpdateNoteOrListInput,
+  ): Promise<NoteOrList>;
+  deleteNoteOrList(noteId: string): Promise<void>;
+  createShoppingListItem(
+    input: CreateShoppingListItemInput,
+  ): Promise<ShoppingListItem>;
+  updateShoppingListItem(
+    itemId: string,
+    updates: UpdateShoppingListItemInput,
+  ): Promise<ShoppingListItem>;
+  deleteShoppingListItem(itemId: string): Promise<void>;
+  sendPendingMaterialToShoppingList(
+    pendingMaterialId: string,
+    listId: string,
+  ): Promise<ShoppingListItem>;
+  receivePurchaseReceipt(
+    input: CreatePurchaseReceiptInput,
+  ): Promise<PurchaseReceipt>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope>;

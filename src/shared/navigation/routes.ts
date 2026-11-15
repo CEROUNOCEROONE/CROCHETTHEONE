@@ -118,7 +118,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Materiales pendientes, notas rápidas, listas de compra y recepciones.',
     group: 'Materiales',
     phase: 5,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: ShoppingBag,
     showInMobileBottomBar: false,
     plannedCapabilities: [

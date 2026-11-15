@@ -1,7 +1,7 @@
 import type { WorkshopStoreName } from '@/src/domain/models/index.ts';
 
 export const DB_NAME = 'app_crochet_db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export interface StoreIndexDefinition {
   readonly name: string;
@@ -79,6 +79,47 @@ export const STORE_DEFINITIONS: StoreSchemaDefinition[] = [
       { name: 'projectId', keyPath: 'projectId' },
       { name: 'variantId', keyPath: 'variantId' },
       { name: 'status', keyPath: 'status' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'pending_materials',
+    keyPath: 'id',
+    indexes: [
+      { name: 'variantId', keyPath: 'variantId' },
+      { name: 'projectId', keyPath: 'projectId' },
+      { name: 'componentId', keyPath: 'componentId' },
+      { name: 'status', keyPath: 'status' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'notes_and_lists',
+    keyPath: 'id',
+    indexes: [
+      { name: 'type', keyPath: 'type' },
+      { name: 'projectId', keyPath: 'projectId' },
+      { name: 'status', keyPath: 'status' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'shopping_list_items',
+    keyPath: 'id',
+    indexes: [
+      { name: 'listId', keyPath: 'listId' },
+      { name: 'variantId', keyPath: 'variantId' },
+      { name: 'pendingMaterialId', keyPath: 'pendingMaterialId' },
+      { name: 'status', keyPath: 'status' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'purchase_receipts',
+    keyPath: 'id',
+    indexes: [
+      { name: 'receiptDate', keyPath: 'receiptDate' },
+      { name: 'provider', keyPath: 'provider' },
       { name: 'isDemo', keyPath: 'isDemo' },
     ],
   },

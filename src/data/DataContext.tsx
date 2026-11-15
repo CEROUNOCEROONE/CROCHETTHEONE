@@ -12,9 +12,13 @@ import type {
   InventoryReservation,
   Material,
   MaterialVariant,
+  NoteOrList,
+  PendingMaterial,
   Project,
   ProjectComponent,
+  PurchaseReceipt,
   SchemaMeta,
+  ShoppingListItem,
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
@@ -34,6 +38,15 @@ import type {
   UpdateMaterialInput,
   UpdateVariantMetadataInput,
 } from '@/src/domain/services/inventoryService.ts';
+import type {
+  CreateNoteOrListInput,
+  CreatePendingMaterialInput,
+  CreatePurchaseReceiptInput,
+  CreateShoppingListItemInput,
+  UpdateNoteOrListInput,
+  UpdatePendingMaterialInput,
+  UpdateShoppingListItemInput,
+} from '@/src/domain/services/procurementService.ts';
 import {
   computeWorkshopStats,
   type WorkshopDashboardStats,
@@ -63,6 +76,10 @@ interface DataContextValue {
   readonly materials: Material[];
   readonly variants: MaterialVariant[];
   readonly reservations: InventoryReservation[];
+  readonly pendingMaterials: PendingMaterial[];
+  readonly notesAndLists: NoteOrList[];
+  readonly shoppingListItems: ShoppingListItem[];
+  readonly purchaseReceipts: PurchaseReceipt[];
   readonly movements: InventoryMovement[];
   readonly clients: Client[];
   readonly stats: WorkshopDashboardStats;
@@ -140,6 +157,33 @@ interface DataContextValue {
   recordDirectProjectConsumption(
     input: DirectConsumptionInput,
   ): Promise<InventoryMovement>;
+  createPendingMaterial(input: CreatePendingMaterialInput): Promise<PendingMaterial>;
+  updatePendingMaterial(
+    pendingId: string,
+    updates: UpdatePendingMaterialInput,
+  ): Promise<PendingMaterial>;
+  deletePendingMaterial(pendingId: string): Promise<void>;
+  createNoteOrList(input: CreateNoteOrListInput): Promise<NoteOrList>;
+  updateNoteOrList(
+    noteId: string,
+    updates: UpdateNoteOrListInput,
+  ): Promise<NoteOrList>;
+  deleteNoteOrList(noteId: string): Promise<void>;
+  createShoppingListItem(
+    input: CreateShoppingListItemInput,
+  ): Promise<ShoppingListItem>;
+  updateShoppingListItem(
+    itemId: string,
+    updates: UpdateShoppingListItemInput,
+  ): Promise<ShoppingListItem>;
+  deleteShoppingListItem(itemId: string): Promise<void>;
+  sendPendingMaterialToShoppingList(
+    pendingMaterialId: string,
+    listId: string,
+  ): Promise<ShoppingListItem>;
+  receivePurchaseReceipt(
+    input: CreatePurchaseReceiptInput,
+  ): Promise<PurchaseReceipt>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(includeDemo: boolean): Promise<BackupEnvelope>;
@@ -177,6 +221,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [materials, setMaterials] = useState<Material[]>([]);
   const [variants, setVariants] = useState<MaterialVariant[]>([]);
   const [reservations, setReservations] = useState<InventoryReservation[]>([]);
+  const [pendingMaterials, setPendingMaterials] = useState<PendingMaterial[]>([]);
+  const [notesAndLists, setNotesAndLists] = useState<NoteOrList[]>([]);
+  const [shoppingListItems, setShoppingListItems] = useState<ShoppingListItem[]>([]);
+  const [purchaseReceipts, setPurchaseReceipts] = useState<PurchaseReceipt[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
@@ -196,6 +244,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setMaterials(snapshot.materials);
       setVariants(snapshot.variants);
       setReservations(snapshot.reservations);
+      setPendingMaterials(snapshot.pendingMaterials ?? []);
+      setNotesAndLists(snapshot.notesAndLists ?? []);
+      setShoppingListItems(snapshot.shoppingItems ?? []);
+      setPurchaseReceipts(snapshot.purchaseReceipts ?? []);
       setMovements(snapshot.movements);
       setClients(snapshot.clients);
       setStats(computeWorkshopStats(snapshot));
@@ -499,6 +551,111 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [refresh],
   );
 
+  const createPendingMaterial = useCallback(
+    async (input: CreatePendingMaterialInput) => {
+      const created = await localWorkshopEngine.createPendingMaterial(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updatePendingMaterial = useCallback(
+    async (pendingId: string, updates: UpdatePendingMaterialInput) => {
+      const updated = await localWorkshopEngine.updatePendingMaterial(
+        pendingId,
+        updates,
+      );
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deletePendingMaterial = useCallback(
+    async (pendingId: string) => {
+      await localWorkshopEngine.deletePendingMaterial(pendingId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createNoteOrList = useCallback(
+    async (input: CreateNoteOrListInput) => {
+      const created = await localWorkshopEngine.createNoteOrList(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateNoteOrList = useCallback(
+    async (noteId: string, updates: UpdateNoteOrListInput) => {
+      const updated = await localWorkshopEngine.updateNoteOrList(noteId, updates);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deleteNoteOrList = useCallback(
+    async (noteId: string) => {
+      await localWorkshopEngine.deleteNoteOrList(noteId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createShoppingListItem = useCallback(
+    async (input: CreateShoppingListItemInput) => {
+      const created = await localWorkshopEngine.createShoppingListItem(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateShoppingListItem = useCallback(
+    async (itemId: string, updates: UpdateShoppingListItemInput) => {
+      const updated = await localWorkshopEngine.updateShoppingListItem(
+        itemId,
+        updates,
+      );
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deleteShoppingListItem = useCallback(
+    async (itemId: string) => {
+      await localWorkshopEngine.deleteShoppingListItem(itemId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const sendPendingMaterialToShoppingList = useCallback(
+    async (pendingMaterialId: string, listId: string) => {
+      const created = await localWorkshopEngine.sendPendingMaterialToShoppingList(
+        pendingMaterialId,
+        listId,
+      );
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const receivePurchaseReceipt = useCallback(
+    async (input: CreatePurchaseReceiptInput) => {
+      const receipt = await localWorkshopEngine.receivePurchaseReceipt(input);
+      await refresh();
+      return receipt;
+    },
+    [refresh],
+  );
+
   const loadDemoData = useCallback(async () => {
     const res = await localWorkshopEngine.loadDemoData();
     await refresh();
@@ -546,6 +703,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       materials,
       variants,
       reservations,
+      pendingMaterials,
+      notesAndLists,
+      shoppingListItems,
+      purchaseReceipts,
       movements,
       clients,
       stats,
@@ -577,6 +738,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       consumeFromReservation,
       releaseReservation,
       recordDirectProjectConsumption,
+      createPendingMaterial,
+      updatePendingMaterial,
+      deletePendingMaterial,
+      createNoteOrList,
+      updateNoteOrList,
+      deleteNoteOrList,
+      createShoppingListItem,
+      updateShoppingListItem,
+      deleteShoppingListItem,
+      sendPendingMaterialToShoppingList,
+      receivePurchaseReceipt,
       loadDemoData,
       purgeDemoData,
       exportBackup,
@@ -594,6 +766,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       materials,
       variants,
       reservations,
+      pendingMaterials,
+      notesAndLists,
+      shoppingListItems,
+      purchaseReceipts,
       movements,
       clients,
       stats,
@@ -625,6 +801,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       consumeFromReservation,
       releaseReservation,
       recordDirectProjectConsumption,
+      createPendingMaterial,
+      updatePendingMaterial,
+      deletePendingMaterial,
+      createNoteOrList,
+      updateNoteOrList,
+      deleteNoteOrList,
+      createShoppingListItem,
+      updateShoppingListItem,
+      deleteShoppingListItem,
+      sendPendingMaterialToShoppingList,
+      receivePurchaseReceipt,
       loadDemoData,
       purgeDemoData,
       exportBackup,

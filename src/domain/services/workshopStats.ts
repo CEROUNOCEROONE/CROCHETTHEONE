@@ -5,10 +5,14 @@ import type {
   Material,
   MaterialVariant,
   MoneyCOP,
+  NoteOrList,
   PaymentInstallment,
   PaymentPlan,
+  PendingMaterial,
   Project,
   ProjectComponent,
+  PurchaseReceipt,
+  ShoppingListItem,
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
@@ -57,6 +61,9 @@ export interface WorkshopDashboardStats {
     readonly clientName: string;
   }>;
   readonly recentMovementsCount: number;
+  readonly pendingMaterialsCount: number;
+  readonly inTransitPurchasesCount: number;
+  readonly activeNotesCount: number;
   readonly hasDemoData: boolean;
   readonly hasRealData: boolean;
 }
@@ -69,6 +76,10 @@ export interface WorkshopSnapshotInput {
   readonly materials: Material[];
   readonly variants: MaterialVariant[];
   readonly reservations: InventoryReservation[];
+  readonly pendingMaterials?: PendingMaterial[];
+  readonly notesAndLists?: NoteOrList[];
+  readonly shoppingItems?: ShoppingListItem[];
+  readonly purchaseReceipts?: PurchaseReceipt[];
   readonly movements: InventoryMovement[];
   readonly clients: Client[];
   readonly paymentPlans: PaymentPlan[];
@@ -198,6 +209,23 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
     0,
   );
 
+  const pendingMaterials = snapshot.pendingMaterials ?? [];
+  const notesAndLists = snapshot.notesAndLists ?? [];
+  const shoppingItems = snapshot.shoppingItems ?? [];
+
+  const pendingMaterialsCount = pendingMaterials.filter(
+    (p) =>
+      p.status === 'pending_order' ||
+      p.status === 'ordered' ||
+      p.status === 'partially_received',
+  ).length;
+
+  const inTransitPurchasesCount =
+    pendingMaterials.filter((p) => p.status === 'ordered').length +
+    shoppingItems.filter((i) => i.status === 'purchased_waiting_delivery').length;
+
+  const activeNotesCount = notesAndLists.filter((n) => n.status === 'active').length;
+
   return {
     activeProjectsCount,
     pendingProjectsCount,
@@ -215,6 +243,9 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
     totalPendingBalanceCOP,
     upcomingInstallments,
     recentMovementsCount: snapshot.movements.length,
+    pendingMaterialsCount,
+    inTransitPurchasesCount,
+    activeNotesCount,
     hasDemoData,
     hasRealData,
   };

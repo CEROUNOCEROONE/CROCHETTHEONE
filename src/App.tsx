@@ -3,6 +3,7 @@ import { DataProvider, useWorkshopData } from '@/src/data/DataContext.tsx';
 import { DashboardView } from '@/src/modules/dashboard/DashboardView.tsx';
 import { InventoryView } from '@/src/modules/inventory/InventoryView.tsx';
 import { ProjectsView } from '@/src/modules/projects/ProjectsView.tsx';
+import { ShoppingAndNotesView } from '@/src/modules/shopping/ShoppingAndNotesView.tsx';
 import { FloatingTimerDock } from '@/src/modules/timer/FloatingTimerDock.tsx';
 import { TimerView } from '@/src/modules/timer/TimerView.tsx';
 import { WorkshopSettingsView } from '@/src/modules/settings/WorkshopSettingsView.tsx';
@@ -66,6 +67,14 @@ function AppWorkspace() {
     }
     if (activeRoute === 'inventory') {
       return <InventoryView />;
+    }
+    if (activeRoute === 'shopping') {
+      return (
+        <ShoppingAndNotesView
+          onNavigateToInventory={() => setActiveRoute('inventory')}
+          onOpenProject={handleOpenProjectFromDashboard}
+        />
+      );
     }
     if (activeRoute === 'settings') {
       return <WorkshopSettingsView />;

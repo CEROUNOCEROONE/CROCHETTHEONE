@@ -6,10 +6,13 @@ import type {
   InventoryReservation,
   Material,
   MaterialVariant,
+  NoteOrList,
   PaymentInstallment,
   PaymentPlan,
+  PendingMaterial,
   Project,
   ProjectComponent,
+  ShoppingListItem,
   WorkSession,
   WorkshopSettings,
   WorkshopStoreName,
@@ -29,6 +32,9 @@ interface DemoBundle {
   readonly components: ProjectComponent[];
   readonly workSessions: WorkSession[];
   readonly reservations: InventoryReservation[];
+  readonly pendingMaterials: PendingMaterial[];
+  readonly notesAndLists: NoteOrList[];
+  readonly shoppingItems: ShoppingListItem[];
   readonly movements: InventoryMovement[];
   readonly paymentPlans: PaymentPlan[];
   readonly installments: PaymentInstallment[];
@@ -481,6 +487,78 @@ function createDemoBundle(): DemoBundle {
     },
   ];
 
+  // 9. Compras pendientes, lista de compras y nota rápida de ejemplo (Fase 5)
+  const pendingMaterials: PendingMaterial[] = [
+    {
+      ...buildDemoMeta('demo_pending_rosa', isoNow),
+      variantId: 'demo_var_algodon_rosa',
+      projectId: 'demo_proj_mariposa',
+      componentId: 'demo_comp_mar_ala_der',
+      quantityNeeded: 200,
+      quantityReceived: 0,
+      provider: 'Lanas El Centro',
+      orderedDate: isoNow,
+      estimatedArrivalDate: in5Days,
+      status: 'ordered',
+      notes: 'Pedido semanal de reposición para completar alas de Mariposa.',
+    },
+  ];
+
+  const notesAndLists: NoteOrList[] = [
+    {
+      ...buildDemoMeta('demo_list_semanal', isoNow),
+      title: 'Compra semanal — Lanas El Centro',
+      type: 'shopping_list',
+      projectId: 'demo_proj_mariposa',
+      content: 'Reposición de hilo rosa pastel y relleno antialérgico para entregas de la semana.',
+      status: 'active',
+    },
+    {
+      ...buildDemoMeta('demo_note_amigurumi', isoNow),
+      title: 'Notas de tensión — Amigurumi Camila',
+      type: 'free_note',
+      projectId: 'demo_proj_amigurumi',
+      content:
+        'Usar ganchillo 2.5 mm en cabeza para punto firme sin huecos y 3.0 mm en cuerpo. Confirmar tarjeta de dedicatoria antes del empaque.',
+      status: 'active',
+    },
+  ];
+
+  const shoppingItems: ShoppingListItem[] = [
+    {
+      ...buildDemoMeta('demo_sli_rosa', isoNow),
+      listId: 'demo_list_semanal',
+      variantId: 'demo_var_algodon_rosa',
+      pendingMaterialId: 'demo_pending_rosa',
+      customName: 'Hilo de Algodón Peinado',
+      colorName: 'Rosa Pastel',
+      unit: 'g',
+      plannedQuantity: 200,
+      purchasedQuantity: 200,
+      receivedQuantity: 0,
+      estimatedUnitPriceCOP: 52,
+      provider: 'Lanas El Centro',
+      status: 'purchased_waiting_delivery',
+      notes: 'Ya pagado al proveedor, pendiente recibir en el taller.',
+    },
+    {
+      ...buildDemoMeta('demo_sli_relleno', isoNow),
+      listId: 'demo_list_semanal',
+      variantId: null,
+      pendingMaterialId: null,
+      customName: 'Algodón siliconado antialérgico',
+      colorName: 'Blanco',
+      unit: 'g',
+      plannedQuantity: 500,
+      purchasedQuantity: 0,
+      receivedQuantity: 0,
+      estimatedUnitPriceCOP: 22,
+      provider: 'Mercería Central',
+      status: 'pending',
+      notes: 'Por comprar en la próxima salida al centro.',
+    },
+  ];
+
   return {
     clients,
     materials,
@@ -489,6 +567,9 @@ function createDemoBundle(): DemoBundle {
     components,
     workSessions,
     reservations,
+    pendingMaterials,
+    notesAndLists,
+    shoppingItems,
     movements,
     paymentPlans,
     installments,
@@ -507,6 +588,9 @@ export async function loadDemoDataTransaction(): Promise<{ insertedCount: number
     ['project_components', bundle.components],
     ['work_sessions', bundle.workSessions],
     ['inventory_reservations', bundle.reservations],
+    ['pending_materials', bundle.pendingMaterials],
+    ['notes_and_lists', bundle.notesAndLists],
+    ['shopping_list_items', bundle.shoppingItems],
     ['inventory_movements', bundle.movements],
     ['payment_plans', bundle.paymentPlans],
     ['payment_installments', bundle.installments],

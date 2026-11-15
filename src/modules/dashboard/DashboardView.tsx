@@ -435,6 +435,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </span>
                 </li>
                 <li className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('shopping')}
+                    className="text-left text-slate-600 hover:text-teal-700"
+                  >
+                    Compras pendientes / en camino
+                  </button>
+                  <span className="font-mono font-semibold text-slate-900 tabular-nums">
+                    {stats.pendingMaterialsCount} ({stats.inTransitPurchasesCount} en camino)
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
                   <span>Movimientos en Kardex histórico</span>
                   <span className="font-mono font-semibold text-slate-900 tabular-nums">
                     {stats.recentMovementsCount}
