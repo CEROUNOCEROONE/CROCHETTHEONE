@@ -963,7 +963,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
+              <div className="grid w-full grid-cols-6 gap-1 rounded-lg bg-slate-100 p-1 sm:flex sm:w-fit sm:flex-nowrap sm:items-center">
                 {(
                   [
                     { id: 'all', label: 'Todos' },
@@ -972,12 +972,18 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     { id: 'completed', label: 'Finalizados' },
                     { id: 'cancelled', label: 'Cancelados' },
                   ] as Array<{ id: StatusFilter; label: string }>
-                ).map((tab) => (
+                ).map((tab, index) => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setStatusFilter(tab.id)}
-                    className={`min-h-[34px] rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    className={`inline-flex min-h-[36px] items-center justify-center rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors whitespace-nowrap sm:min-h-[34px] sm:px-3 sm:shrink-0 ${
+                      index === 3
+                        ? 'col-span-2 col-start-2'
+                        : index === 4
+                          ? 'col-span-2 col-start-4'
+                          : 'col-span-2'
+                    } ${
                       statusFilter === tab.id
                         ? 'bg-white text-slate-900 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'

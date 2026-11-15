@@ -76,6 +76,7 @@ import {
   createDefaultWorkshopSettings,
   getIndexedDb,
   idbRequestToPromise,
+  normalizeWorkshopSettings,
   runAtomicTransaction,
 } from './indexedDbClient.ts';
 import { loadDemoDataTransaction, purgeDemoDataTransaction } from './demoSeeder.ts';
@@ -374,9 +375,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             pending -= 1;
             if (pending === 0) {
               const settingsList = result.workshop_settings as WorkshopSettings[];
-              const activeSettings =
-                settingsList.find((s) => s.id === 'default') ??
-                createDefaultWorkshopSettings();
+              const activeSettings = normalizeWorkshopSettings(
+                settingsList.find((s) => s.id === 'default'),
+              );
 
               done({
                 settings: activeSettings,
@@ -412,10 +413,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'
         | 'defaultMarkupPercent'
+        | 'rentCostPercent'
+        | 'electricityCostPercent'
+        | 'internetCostPercent'
+        | 'wasteAndContingencyPercent'
       >
     >,
   ): Promise<WorkshopSettings> {
-    const current = (await this.settings.getById('default')) ?? createDefaultWorkshopSettings();
+    const rawCurrent = await this.settings.getById('default');
+    const current = normalizeWorkshopSettings(rawCurrent);
+    const clampPercent = (value: number) =>
+      Math.round(Math.max(0, Math.min(100, value)) * 100) / 100;
+
     const updated: WorkshopSettings = {
       ...current,
       ...partial,
@@ -436,6 +445,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       defaultMarkupPercent: Math.max(
         0,
         Math.min(500, partial.defaultMarkupPercent ?? current.defaultMarkupPercent),
+      ),
+      rentCostPercent: clampPercent(
+        partial.rentCostPercent ?? current.rentCostPercent,
+      ),
+      electricityCostPercent: clampPercent(
+        partial.electricityCostPercent ?? current.electricityCostPercent,
+      ),
+      internetCostPercent: clampPercent(
+        partial.internetCostPercent ?? current.internetCostPercent,
+      ),
+      wasteAndContingencyPercent: clampPercent(
+        partial.wasteAndContingencyPercent ?? current.wasteAndContingencyPercent,
       ),
     };
     return this.settings.upsert(updated);

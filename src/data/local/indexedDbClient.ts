@@ -35,9 +35,45 @@ export function createDefaultWorkshopSettings(): WorkshopSettings {
     dailyGoalMinutes: BRAND_CONFIG.defaults.dailyGoalMinutes,
     weeklyGoalMinutes: BRAND_CONFIG.defaults.weeklyGoalMinutes,
     defaultMarkupPercent: BRAND_CONFIG.defaults.defaultMarkupPercent,
+    rentCostPercent: BRAND_CONFIG.defaults.rentCostPercent,
+    electricityCostPercent: BRAND_CONFIG.defaults.electricityCostPercent,
+    internetCostPercent: BRAND_CONFIG.defaults.internetCostPercent,
+    wasteAndContingencyPercent: BRAND_CONFIG.defaults.wasteAndContingencyPercent,
     currency: BRAND_CONFIG.currency,
     demoDataLoaded: false,
     lastBackupExportAt: null,
+  };
+}
+
+export function normalizeWorkshopSettings(
+  raw?: Partial<WorkshopSettings> | null,
+): WorkshopSettings {
+  const defaults = createDefaultWorkshopSettings();
+  if (!raw) return defaults;
+  return {
+    ...defaults,
+    ...raw,
+    id: 'default',
+    isDemo: false,
+    rentCostPercent:
+      typeof raw.rentCostPercent === 'number' && Number.isFinite(raw.rentCostPercent)
+        ? raw.rentCostPercent
+        : defaults.rentCostPercent,
+    electricityCostPercent:
+      typeof raw.electricityCostPercent === 'number' &&
+      Number.isFinite(raw.electricityCostPercent)
+        ? raw.electricityCostPercent
+        : defaults.electricityCostPercent,
+    internetCostPercent:
+      typeof raw.internetCostPercent === 'number' &&
+      Number.isFinite(raw.internetCostPercent)
+        ? raw.internetCostPercent
+        : defaults.internetCostPercent,
+    wasteAndContingencyPercent:
+      typeof raw.wasteAndContingencyPercent === 'number' &&
+      Number.isFinite(raw.wasteAndContingencyPercent)
+        ? raw.wasteAndContingencyPercent
+        : defaults.wasteAndContingencyPercent,
   };
 }
 

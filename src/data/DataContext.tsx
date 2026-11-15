@@ -95,6 +95,10 @@ interface DataContextValue {
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'
         | 'defaultMarkupPercent'
+        | 'rentCostPercent'
+        | 'electricityCostPercent'
+        | 'internetCostPercent'
+        | 'wasteAndContingencyPercent'
       >
     >,
   ): Promise<WorkshopSettings>;
@@ -278,6 +282,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           | 'dailyGoalMinutes'
           | 'weeklyGoalMinutes'
           | 'defaultMarkupPercent'
+          | 'rentCostPercent'
+          | 'electricityCostPercent'
+          | 'internetCostPercent'
+          | 'wasteAndContingencyPercent'
         >
       >,
     ) => {

@@ -143,6 +143,10 @@ export interface WorkshopDataEngine {
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'
         | 'defaultMarkupPercent'
+        | 'rentCostPercent'
+        | 'electricityCostPercent'
+        | 'internetCostPercent'
+        | 'wasteAndContingencyPercent'
       >
     >,
   ): Promise<WorkshopSettings>;

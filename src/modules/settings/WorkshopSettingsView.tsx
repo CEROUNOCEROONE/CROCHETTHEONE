@@ -1,11 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Calculator,
+  Check,
   CheckCircle2,
   Database,
   Download,
   FileCheck2,
+  HelpCircle,
   ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -24,6 +31,52 @@ import { calculateQuoteSummary } from '@/src/domain/services/quoteMath.ts';
 import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
+
+type SettingsStepId = 'general' | 'costs' | 'backups' | 'system';
+
+interface SettingsStepDef {
+  readonly id: SettingsStepId;
+  readonly number: number;
+  readonly label: string;
+  readonly mobileLabel: string;
+  readonly subtitle: string;
+  readonly icon: React.ComponentType<{ className?: string }>;
+}
+
+const SETTINGS_STEPS: SettingsStepDef[] = [
+  {
+    id: 'general',
+    number: 1,
+    label: 'Taller y metas',
+    mobileLabel: 'Taller y metas',
+    subtitle: 'Nombre, tarifa y objetivos',
+    icon: SlidersHorizontal,
+  },
+  {
+    id: 'costs',
+    number: 2,
+    label: 'Costos y fórmula',
+    mobileLabel: 'Costos y merma',
+    subtitle: 'Arriendo, servicios e imprevistos',
+    icon: Calculator,
+  },
+  {
+    id: 'backups',
+    number: 3,
+    label: 'Respaldos JSON',
+    mobileLabel: 'Respaldos JSON',
+    subtitle: 'Exportar y restaurar copia',
+    icon: ShieldCheck,
+  },
+  {
+    id: 'system',
+    number: 4,
+    label: 'Ejemplos y sistema',
+    mobileLabel: 'Ejemplos y PWA',
+    subtitle: 'Datos demo e instalación',
+    icon: Database,
+  },
+];
 
 const STORE_LABELS: Record<string, string> = {
   workshop_settings: 'Configuración',
@@ -58,6 +111,9 @@ export const WorkshopSettingsView: React.FC = () => {
   } = useWorkshopData();
   const isOnline = useOnlineStatus();
 
+  const [activeStep, setActiveStep] = useState<SettingsStepId>('general');
+  const [showFixedCostGuide, setShowFixedCostGuide] = useState(false);
+
   const [workshopName, setWorkshopName] = useState(settings.workshopName);
   const [ownerDisplayName, setOwnerDisplayName] = useState(settings.ownerDisplayName);
   const [hourlyRateCOP, setHourlyRateCOP] = useState(String(settings.hourlyRateCOP));
@@ -69,6 +125,18 @@ export const WorkshopSettingsView: React.FC = () => {
   );
   const [defaultMarkupPercent, setDefaultMarkupPercent] = useState(
     String(settings.defaultMarkupPercent),
+  );
+  const [rentCostPercent, setRentCostPercent] = useState(
+    String(settings.rentCostPercent),
+  );
+  const [electricityCostPercent, setElectricityCostPercent] = useState(
+    String(settings.electricityCostPercent),
+  );
+  const [internetCostPercent, setInternetCostPercent] = useState(
+    String(settings.internetCostPercent),
+  );
+  const [wasteAndContingencyPercent, setWasteAndContingencyPercent] = useState(
+    String(settings.wasteAndContingencyPercent),
   );
 
   const [savingSettings, setSavingSettings] = useState(false);
@@ -97,22 +165,69 @@ export const WorkshopSettingsView: React.FC = () => {
     setDailyGoalMinutes(String(settings.dailyGoalMinutes));
     setWeeklyGoalMinutes(String(settings.weeklyGoalMinutes));
     setDefaultMarkupPercent(String(settings.defaultMarkupPercent));
+    setRentCostPercent(String(settings.rentCostPercent));
+    setElectricityCostPercent(String(settings.electricityCostPercent));
+    setInternetCostPercent(String(settings.internetCostPercent));
+    setWasteAndContingencyPercent(String(settings.wasteAndContingencyPercent));
   }, [settings]);
 
-  // Simulación transparente de fórmula Markup + Margen real sobre venta (ejemplo base $100.000 COP)
+  const parsePercent = (raw: string) =>
+    Math.round(Math.max(0, Math.min(100, Number(raw) || 0)) * 100) / 100;
+
   const sampleMarkup = Number(defaultMarkupPercent) || 0;
+  const rentPct = parsePercent(rentCostPercent);
+  const electricityPct = parsePercent(electricityCostPercent);
+  const internetPct = parsePercent(internetCostPercent);
+  const wastePct = parsePercent(wasteAndContingencyPercent);
+  const totalFixedPercent =
+    Math.round((rentPct + electricityPct + internetPct) * 100) / 100;
+
+  const hasUnsavedSettings = useMemo(() => {
+    const cleanName = workshopName.trim() || BRAND_CONFIG.defaultWorkshopName;
+    const cleanOwner = ownerDisplayName.trim() || 'Artesana';
+    return (
+      cleanName !== settings.workshopName ||
+      cleanOwner !== settings.ownerDisplayName ||
+      Math.max(0, Number(hourlyRateCOP) || 0) !== settings.hourlyRateCOP ||
+      Math.max(15, Number(dailyGoalMinutes) || 60) !== settings.dailyGoalMinutes ||
+      Math.max(30, Number(weeklyGoalMinutes) || 300) !== settings.weeklyGoalMinutes ||
+      Math.max(0, Math.min(500, Number(defaultMarkupPercent) || 0)) !==
+        settings.defaultMarkupPercent ||
+      rentPct !== settings.rentCostPercent ||
+      electricityPct !== settings.electricityCostPercent ||
+      internetPct !== settings.internetCostPercent ||
+      wastePct !== settings.wasteAndContingencyPercent
+    );
+  }, [
+    workshopName,
+    ownerDisplayName,
+    hourlyRateCOP,
+    dailyGoalMinutes,
+    weeklyGoalMinutes,
+    defaultMarkupPercent,
+    rentPct,
+    electricityPct,
+    internetPct,
+    wastePct,
+    settings,
+  ]);
+
   const formulaPreview = calculateQuoteSummary({
     materialsTotalCOP: 40000,
     effectiveMinutes: 180,
     hourlyRateCOP: Number(hourlyRateCOP) || 0,
-    indirectCostsCOP: 5000,
+    indirectCostsCOP: 0,
     packagingCostCOP: 5000,
     shippingOrOtherCOP: 0,
     markupPercent: sampleMarkup,
+    rentPercent: rentPct,
+    electricityPercent: electricityPct,
+    internetPercent: internetPct,
+    wasteContingencyPercent: wastePct,
   });
 
-  const handleSaveSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveSettings = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSavingSettings(true);
     setFeedback(null);
     try {
@@ -123,6 +238,10 @@ export const WorkshopSettingsView: React.FC = () => {
         dailyGoalMinutes: Math.max(15, Number(dailyGoalMinutes) || 60),
         weeklyGoalMinutes: Math.max(30, Number(weeklyGoalMinutes) || 300),
         defaultMarkupPercent: Math.max(0, Math.min(500, Number(defaultMarkupPercent) || 0)),
+        rentCostPercent: rentPct,
+        electricityCostPercent: electricityPct,
+        internetCostPercent: internetPct,
+        wasteAndContingencyPercent: wastePct,
       });
       setFeedback({
         type: 'success',
@@ -262,506 +381,950 @@ export const WorkshopSettingsView: React.FC = () => {
     }
   };
 
+  const currentStepIndex = SETTINGS_STEPS.findIndex((s) => s.id === activeStep);
+  const currentStep = SETTINGS_STEPS[currentStepIndex] ?? SETTINGS_STEPS[0];
+  const prevStep = currentStepIndex > 0 ? SETTINGS_STEPS[currentStepIndex - 1] : null;
+  const nextStep =
+    currentStepIndex < SETTINGS_STEPS.length - 1
+      ? SETTINGS_STEPS[currentStepIndex + 1]
+      : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {feedback && (
         <div
           role="status"
-          className={`flex items-start gap-3 rounded-xl border p-4 text-sm ${
+          className={`flex items-start justify-between gap-3 rounded-xl border p-3.5 text-sm ${
             feedback.type === 'success'
               ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
               : 'border-rose-200 bg-rose-50 text-rose-900'
           }`}
         >
-          {feedback.type === 'success' ? (
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-          ) : (
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
-          )}
-          <p>{feedback.message}</p>
+          <div className="flex items-start gap-2.5">
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
+            )}
+            <p>{feedback.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-xs font-medium underline shrink-0"
+          >
+            Cerrar
+          </button>
         </div>
       )}
 
-      {/* 1. Configuración general del taller */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <h2 className="font-display text-lg font-semibold text-slate-900">
-          Configuración del taller
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Estos valores se almacenan localmente en IndexedDB y alimentan las metas del
-          panel y los cálculos del cotizador en pesos colombianos (COP).
-        </p>
-
-        <form onSubmit={(e) => void handleSaveSettings(e)} className="mt-6 space-y-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {/* Tarjeta unificada estilo stepper (lateral en escritorio, compacta 2x2 arriba en móvil) */}
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs md:flex md:min-h-[540px]">
+        {/* Navegación de secciones / pasos */}
+        <aside className="border-b border-slate-200 bg-teal-50/45 p-4 md:w-68 md:shrink-0 md:border-b-0 md:border-r md:p-6 lg:w-72">
+          <div className="flex items-center justify-between gap-2 md:block">
             <div>
-              <label
-                htmlFor="workshopName"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Nombre del taller
-              </label>
-              <input
-                id="workshopName"
-                type="text"
-                required
-                value={workshopName}
-                onChange={(e) => setWorkshopName(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="ownerDisplayName"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Tu nombre
-              </label>
-              <input
-                id="ownerDisplayName"
-                type="text"
-                required
-                value={ownerDisplayName}
-                onChange={(e) => setOwnerDisplayName(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="hourlyRateCOP"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Tarifa por hora de mano de obra (COP)
-              </label>
-              <input
-                id="hourlyRateCOP"
-                type="number"
-                min={0}
-                step={500}
-                required
-                value={hourlyRateCOP}
-                onChange={(e) => setHourlyRateCOP(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="defaultMarkupPercent"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Recargo base sobre el costo — Markup (%)
-              </label>
-              <input
-                id="defaultMarkupPercent"
-                type="number"
-                min={0}
-                max={500}
-                step={1}
-                required
-                value={defaultMarkupPercent}
-                onChange={(e) => setDefaultMarkupPercent(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="dailyGoalMinutes"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Meta diaria de tejido (minutos)
-              </label>
-              <input
-                id="dailyGoalMinutes"
-                type="number"
-                min={15}
-                max={1440}
-                required
-                value={dailyGoalMinutes}
-                onChange={(e) => setDailyGoalMinutes(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Equivale a {formatDurationMinutes(Number(dailyGoalMinutes) || 0)} al día
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800">
+                Ajustes del taller
               </p>
+              <h2 className="mt-0.5 font-display text-base font-bold text-slate-900 md:text-lg">
+                {settings.workshopName}
+              </h2>
             </div>
-
-            <div>
-              <label
-                htmlFor="weeklyGoalMinutes"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Meta semanal de tejido (minutos)
-              </label>
-              <input
-                id="weeklyGoalMinutes"
-                type="number"
-                min={30}
-                max={10080}
-                required
-                value={weeklyGoalMinutes}
-                onChange={(e) => setWeeklyGoalMinutes(e.target.value)}
-                className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Equivale a {formatDurationMinutes(Number(weeklyGoalMinutes) || 0)} por
-                semana
-              </p>
-            </div>
-          </div>
-
-          {/* Vista previa verificable de la fórmula Markup + Margen Real */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-800">
-              Verificación de fórmula del cotizador (simulación con 3 h de tejido +
-              $50.000 COP de insumos/empaque)
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-              <div>
-                <p className="text-slate-500">Costo total</p>
-                <p className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
-                  {formatCOP(formulaPreview.totalProductionCostCOP)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">
-                  Precio ({formulaPreview.markupPercent}% recargo)
-                </p>
-                <p className="mt-0.5 font-mono font-semibold text-teal-800 tabular-nums">
-                  {formatCOP(formulaPreview.suggestedPriceCOP)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Ganancia neta</p>
-                <p className="mt-0.5 font-mono font-semibold text-emerald-700 tabular-nums">
-                  {formatCOP(formulaPreview.expectedProfitCOP)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Margen real s/ venta</p>
-                <p className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
-                  {formulaPreview.grossMarginPercent}%
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={savingSettings}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-teal-700 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:opacity-50"
-            >
-              {savingSettings ? 'Guardando...' : 'Guardar configuración'}
-            </button>
-          </div>
-        </form>
-      </section>
-
-      {/* 2. Respaldo de información: Exportación e Importación Segura */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden="true" />
-          <div>
-            <h2 className="font-display text-lg font-semibold text-slate-900">
-              Respaldo y restauración local
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Exporta una copia en formato JSON de tu base de datos local o restaura un
-              respaldo previo con validación de versión, detección de duplicados e
-              integridad referencial antes de escribir.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 border-t border-slate-100 pt-5 md:grid-cols-2">
-          {/* Exportar */}
-          <div className="rounded-lg border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">
-              Exportar respaldo (.json)
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Última exportación:{' '}
-              {settings.lastBackupExportAt
-                ? formatDateTimeCO(settings.lastBackupExportAt)
-                : 'Aún no se ha exportado'}
-            </p>
-
-            <label className="mt-4 flex min-h-[40px] cursor-pointer items-center gap-2.5 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={includeDemoInExport}
-                onChange={(e) => setIncludeDemoInExport(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
-              />
-              <span>Incluir registros de ejemplo (isDemo) en el archivo</span>
-            </label>
-
-            <button
-              type="button"
-              disabled={exportBusy}
-              onClick={() => void handleExportBackup()}
-              className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" aria-hidden="true" />
-              <span>{exportBusy ? 'Generando archivo...' : 'Descargar respaldo JSON'}</span>
-            </button>
-          </div>
-
-          {/* Importar */}
-          <div className="rounded-lg border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">
-              Importar y restaurar respaldo
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Se validará el archivo completo antes de solicitar confirmación y modificar
-              IndexedDB.
-            </p>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,application/json"
-              onChange={(e) => void handleBackupFileSelected(e)}
-              className="hidden"
-            />
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-10 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50"
-            >
-              <Upload className="h-4 w-4 text-teal-700" aria-hidden="true" />
-              <span>Seleccionar archivo de respaldo (.json)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Panel de inspección previa del respaldo */}
-        {inspection && (
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-            {!inspection.isValid ? (
-              <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-rose-800">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>Respaldo rechazado por validación</span>
-                </h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-700">
-                  {inspection.errors.map((errMsg) => (
-                    <li key={errMsg}>{errMsg}</li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => setInspection(null)}
-                  className="mt-4 inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
-                >
-                  Cerrar aviso
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                      <FileCheck2 className="h-4 w-4 text-emerald-700" />
-                      <span>Archivo válido — Revisión previa a la importación</span>
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-600">
-                      Versión esquema: v{inspection.envelope?.schemaVersion} · Exportado:{' '}
-                      {formatDateTimeCO(inspection.envelope?.exportedAt)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3 rounded-lg border border-slate-200 bg-white p-3 text-center text-xs">
-                  <div>
-                    <p className="text-slate-500">En archivo</p>
-                    <p className="mt-0.5 font-mono text-base font-semibold text-slate-900 tabular-nums">
-                      {inspection.totalRecordsInFile}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500">Nuevos</p>
-                    <p className="mt-0.5 font-mono text-base font-semibold text-emerald-700 tabular-nums">
-                      {inspection.newRecordsCount}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500">Duplicados</p>
-                    <p className="mt-0.5 font-mono text-base font-semibold text-amber-700 tabular-nums">
-                      {inspection.duplicateRecordsCount}
-                    </p>
-                  </div>
-                </div>
-
-                {inspection.breakdownByStore.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                    {inspection.breakdownByStore.map((row) => (
-                      <div
-                        key={row.storeName}
-                        className="flex items-center justify-between border-b border-slate-100 py-1.5 last:border-b-0"
-                      >
-                        <span className="font-medium text-slate-700">
-                          {STORE_LABELS[row.storeName] ?? row.storeName}
-                        </span>
-                        <span className="font-mono text-slate-600 tabular-nums">
-                          {row.newCount} nuevos · {row.duplicateCount} dup.
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {inspection.warnings.length > 0 && (
-                  <ul className="space-y-1 text-xs text-amber-800">
-                    {inspection.warnings.map((w) => (
-                      <li key={w}>• {w}</li>
-                    ))}
-                  </ul>
-                )}
-
-                {/* Selector de estrategia segura */}
-                <fieldset className="space-y-2">
-                  <legend className="text-xs font-semibold text-slate-800">
-                    Elige cómo aplicar los registros:
-                  </legend>
-                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3 text-xs">
-                    <input
-                      type="radio"
-                      name="importStrategy"
-                      checked={selectedStrategy === 'append_new'}
-                      onChange={() => setSelectedStrategy('append_new')}
-                      className="mt-0.5 text-teal-700"
-                    />
-                    <span>
-                      <strong className="block text-slate-900">
-                        Solo agregar registros nuevos (Recomendado)
-                      </strong>
-                      Omitir los {inspection.duplicateRecordsCount} registros duplicados. No
-                      sobrescribe información actual.
-                    </span>
-                  </label>
-
-                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3 text-xs">
-                    <input
-                      type="radio"
-                      name="importStrategy"
-                      checked={selectedStrategy === 'merge_overwrite'}
-                      onChange={() => setSelectedStrategy('merge_overwrite')}
-                      className="mt-0.5 text-teal-700"
-                    />
-                    <span>
-                      <strong className="block text-slate-900">
-                        Fusionar y actualizar duplicados
-                      </strong>
-                      Inserta los nuevos y actualiza los registros cuyo ID coincida con el
-                      respaldo.
-                    </span>
-                  </label>
-
-                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-rose-200 bg-white p-3 text-xs">
-                    <input
-                      type="radio"
-                      name="importStrategy"
-                      checked={selectedStrategy === 'replace_all'}
-                      onChange={() => setSelectedStrategy('replace_all')}
-                      className="mt-0.5 text-rose-700"
-                    />
-                    <span>
-                      <strong className="block text-rose-800">
-                        Reemplazar todo el taller actual
-                      </strong>
-                      Elimina los datos actuales en este dispositivo y restaura exactamente
-                      el archivo seleccionado.
-                    </span>
-                  </label>
-                </fieldset>
-
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setInspection(null)}
-                    className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmImportOpen(true)}
-                    className="inline-flex min-h-[44px] items-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"
-                  >
-                    Continuar con la restauración
-                  </button>
-                </div>
-              </div>
+            {hasUnsavedSettings && (
+              <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 md:mt-2">
+                Cambios sin guardar
+              </span>
             )}
           </div>
-        )}
-      </section>
 
-      {/* 3. Datos de demostración aislados (isDemo: true) */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <h2 className="font-display text-lg font-semibold text-slate-900">
-          Datos de demostración del taller
-        </h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Carga ejemplos prácticos (Mariposa de crochet, Amigurumi personalizado por
-          $180.000 COP e Hilo de Algodón Blanco de 500 g). Todos se etiquetan como
-          &ldquo;Ejemplo&rdquo; y pueden eliminarse de forma transaccional sin afectar tus
-          registros reales.
-        </p>
-
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={demoBusy}
-            onClick={() => void handleLoadDemo()}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:opacity-50"
+          {/* Vista móvil (< md): cuadrícula compacta 2x2 para saltar a cualquier sección en 1 toque sin scroll */}
+          <nav
+            aria-label="Secciones de configuración del taller"
+            className="mt-3 grid grid-cols-2 gap-2 md:hidden"
           >
-            {demoBusy
-              ? 'Procesando...'
-              : stats.hasDemoData
-                ? 'Restablecer ejemplos del taller'
-                : 'Cargar ejemplos del taller'}
-          </button>
+            {SETTINGS_STEPS.map((step) => {
+              const isActive = step.id === activeStep;
+              const isCompleted = step.number < currentStep.number;
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => setActiveStep(step.id)}
+                  aria-current={isActive ? 'step' : undefined}
+                  className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors ${
+                    isActive
+                      ? 'border-teal-700 bg-white text-slate-900 shadow-xs'
+                      : 'border-slate-200/80 bg-white/70 text-slate-600 hover:bg-white'
+                  }`}
+                >
+                  <span
+                    className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      isActive
+                        ? 'bg-teal-700 text-white'
+                        : isCompleted
+                          ? 'bg-teal-100 text-teal-800'
+                          : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {isCompleted ? (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      step.number
+                    )}
+                  </span>
+                  <span className="truncate text-xs font-semibold">
+                    {step.mobileLabel}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
 
-          {stats.hasDemoData && (
-            <button
-              type="button"
-              disabled={demoBusy}
-              onClick={() => setConfirmPurgeDemoOpen(true)}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50"
+          {/* Vista escritorio (md+): stepper vertical con línea conectora estilo guía */}
+          <nav
+            aria-label="Pasos de configuración del taller"
+            className="mt-7 hidden md:block"
+          >
+            <ol>
+              {SETTINGS_STEPS.map((step, idx) => {
+                const isActive = step.id === activeStep;
+                const isCompleted = step.number < currentStep.number;
+                const isLast = idx === SETTINGS_STEPS.length - 1;
+                return (
+                  <li key={step.id} className={`relative ${isLast ? '' : 'pb-4'}`}>
+                    {!isLast && (
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute left-6 top-[46px] -bottom-1.5 w-0.5 -translate-x-1/2 rounded-full ${
+                          isCompleted ? 'bg-teal-600' : 'bg-slate-200'
+                        }`}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(step.id)}
+                      aria-current={isActive ? 'step' : undefined}
+                      className={`group relative flex w-full items-start gap-3 rounded-xl p-2 text-left transition-colors ${
+                        isActive ? 'bg-white/90 shadow-xs' : 'hover:bg-white/60'
+                      }`}
+                    >
+                      <span
+                        className={`relative z-10 mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                          isActive
+                            ? 'bg-teal-700 text-white'
+                            : isCompleted
+                              ? 'bg-teal-700/15 text-teal-800'
+                              : 'border border-slate-300 bg-white text-slate-500 group-hover:border-slate-400'
+                        }`}
+                      >
+                        {isCompleted ? (
+                          <Check className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                          step.number
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span
+                          className={`block text-sm font-semibold ${
+                            isActive ? 'text-slate-900' : 'text-slate-600'
+                          }`}
+                        >
+                          {step.label}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {step.subtitle}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        </aside>
+
+        {/* Panel derecho de contenido activo */}
+        <div className="flex min-w-0 flex-1 flex-col justify-between p-4 sm:p-6 lg:p-8">
+          {/* PASO 1: IDENTIDAD, TARIFA Y METAS */}
+          {activeStep === 'general' && (
+            <form
+              onSubmit={(e) => void handleSaveSettings(e)}
+              className="flex flex-1 flex-col justify-between space-y-6"
             >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-              <span>Eliminar datos de ejemplo</span>
-            </button>
-          )}
-        </div>
-      </section>
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                    Paso 1 de 4 · Configuración base
+                  </p>
+                  <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
+                    Identidad, tarifa y metas de tejido
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
+                    Valores guardados localmente en IndexedDB para el panel principal y los cálculos del cotizador en COP.
+                  </p>
+                </div>
 
-      {/* 4. Estado técnico de base local y PWA */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <Database className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
-            <div>
-              <h2 className="font-display text-base font-semibold text-slate-900">
-                Almacenamiento local y aplicación instalable
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                IndexedDB esquema v{schemaMeta?.currentVersion ?? 1} · Estado de red:{' '}
-                {isOnline ? 'En línea' : 'Sin conexión (Offline)'} · Actualizado:{' '}
-                {schemaMeta?.lastMigratedAt
-                  ? formatDateTimeCO(schemaMeta.lastMigratedAt)
-                  : 'Inicial'}
-              </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="workshopName"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Nombre del taller
+                    </label>
+                    <input
+                      id="workshopName"
+                      type="text"
+                      required
+                      value={workshopName}
+                      onChange={(e) => setWorkshopName(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="ownerDisplayName"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Tu nombre
+                    </label>
+                    <input
+                      id="ownerDisplayName"
+                      type="text"
+                      required
+                      value={ownerDisplayName}
+                      onChange={(e) => setOwnerDisplayName(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="hourlyRateCOP"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Tarifa por hora de mano de obra (COP)
+                    </label>
+                    <input
+                      id="hourlyRateCOP"
+                      type="number"
+                      min={0}
+                      step={500}
+                      required
+                      value={hourlyRateCOP}
+                      onChange={(e) => setHourlyRateCOP(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="defaultMarkupPercent"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Recargo base sobre el costo — Markup (%)
+                    </label>
+                    <input
+                      id="defaultMarkupPercent"
+                      type="number"
+                      min={0}
+                      max={500}
+                      step={1}
+                      required
+                      value={defaultMarkupPercent}
+                      onChange={(e) => setDefaultMarkupPercent(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="dailyGoalMinutes"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Meta diaria de tejido (minutos)
+                    </label>
+                    <input
+                      id="dailyGoalMinutes"
+                      type="number"
+                      min={15}
+                      max={1440}
+                      required
+                      value={dailyGoalMinutes}
+                      onChange={(e) => setDailyGoalMinutes(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Equivale a {formatDurationMinutes(Number(dailyGoalMinutes) || 0)} al día
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="weeklyGoalMinutes"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Meta semanal de tejido (minutos)
+                    </label>
+                    <input
+                      id="weeklyGoalMinutes"
+                      type="number"
+                      min={30}
+                      max={10080}
+                      required
+                      value={weeklyGoalMinutes}
+                      onChange={(e) => setWeeklyGoalMinutes(e.target.value)}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Equivale a {formatDurationMinutes(Number(weeklyGoalMinutes) || 0)} por semana
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="submit"
+                  disabled={savingSettings}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {savingSettings ? 'Guardando...' : 'Guardar configuración'}
+                </button>
+                {nextStep && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(nextStep.id)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                  >
+                    <span>Siguiente: {nextStep.mobileLabel}</span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+
+          {/* PASO 2: COSTOS FIJOS (%), IMPREVISTOS Y FÓRMULA EN VIVO */}
+          {activeStep === 'costs' && (
+            <form
+              onSubmit={(e) => void handleSaveSettings(e)}
+              className="flex flex-1 flex-col justify-between space-y-5"
+            >
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                      Paso 2 de 4 · Estructura de costos
+                    </p>
+                    <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
+                      Costos fijos, imprevistos y fórmula
+                    </h3>
+                  </div>
+                  <span className="inline-flex items-center rounded-md border border-teal-200 bg-teal-50 px-2.5 py-1 font-mono text-xs font-semibold text-teal-800 tabular-nums">
+                    Recargo indirecto: {(totalFixedPercent + wastePct).toFixed(1)}%
+                  </span>
+                </div>
+
+                {/* Costos fijos: Arriendo, Electricidad, Internet */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-slate-800">
+                      Costos fijos del espacio y servicios (%)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowFixedCostGuide((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800"
+                    >
+                      <HelpCircle className="h-4 w-4" aria-hidden="true" />
+                      <span>{showFixedCostGuide ? 'Ocultar ejemplo' : 'Ver ejemplo guía'}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 items-stretch gap-2 sm:gap-3">
+                    <div className="flex flex-col justify-between">
+                      <label
+                        htmlFor="rentCostPercent"
+                        className="block text-[11px] font-semibold leading-snug text-slate-700 sm:text-xs"
+                      >
+                        Arriendo (%)
+                      </label>
+                      <input
+                        id="rentCostPercent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        required
+                        value={rentCostPercent}
+                        onChange={(e) => setRentCostPercent(e.target.value)}
+                        className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none sm:px-3"
+                      />
+                    </div>
+
+                    <div className="flex flex-col justify-between">
+                      <label
+                        htmlFor="electricityCostPercent"
+                        className="block text-[11px] font-semibold leading-snug text-slate-700 sm:text-xs"
+                      >
+                        Electricidad (%)
+                      </label>
+                      <input
+                        id="electricityCostPercent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        required
+                        value={electricityCostPercent}
+                        onChange={(e) => setElectricityCostPercent(e.target.value)}
+                        className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none sm:px-3"
+                      />
+                    </div>
+
+                    <div className="flex flex-col justify-between">
+                      <label
+                        htmlFor="internetCostPercent"
+                        className="block text-[11px] font-semibold leading-snug text-slate-700 sm:text-xs"
+                      >
+                        Internet (%)
+                      </label>
+                      <input
+                        id="internetCostPercent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        required
+                        value={internetCostPercent}
+                        onChange={(e) => setInternetCostPercent(e.target.value)}
+                        className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none sm:px-3"
+                      />
+                    </div>
+                  </div>
+
+                  {showFixedCostGuide ? (
+                    <div className="rounded-lg border border-teal-200 bg-white p-3 text-xs leading-relaxed text-slate-700">
+                      <p className="font-semibold text-teal-900">
+                        Cómo calcular tu porcentaje de costo fijo:
+                      </p>
+                      <p className="mt-1">
+                        Divide la parte mensual del gasto que usa tu taller entre tus ventas o producción del mes.
+                        <br />
+                        <strong className="text-slate-900">Ejemplo:</strong> si el arriendo es{' '}
+                        <span className="font-mono">$800.000</span>, el taller ocupa un 20% (
+                        <span className="font-mono">$160.000/mes</span>) y produces{' '}
+                        <span className="font-mono">$2.000.000/mes</span> →{' '}
+                        <span className="font-mono font-semibold text-teal-800">$160.000 ÷ $2.000.000 = 8%</span>.
+                        Rangos usuales en casa: Arriendo 0%–8%, Electricidad 1%–4%, Internet 1%–3%.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      Ej. taller en casa: Arriendo 0%–8% · Electricidad 1%–4% · Internet 1%–3% (Suma: {totalFixedPercent.toFixed(1)}%).
+                    </p>
+                  )}
+                </div>
+
+                {/* Pérdidas, imprevistos y desperdicios */}
+                <div className="rounded-xl border border-slate-200 bg-amber-50/40 p-3.5 sm:p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-12 sm:items-center">
+                    <div className="sm:col-span-5">
+                      <label
+                        htmlFor="wasteAndContingencyPercent"
+                        className="block text-xs font-semibold text-slate-800"
+                      >
+                        Imprevistos y desperdicios (%)
+                      </label>
+                      <input
+                        id="wasteAndContingencyPercent"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        required
+                        value={wasteAndContingencyPercent}
+                        onChange={(e) => setWasteAndContingencyPercent(e.target.value)}
+                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                      />
+                    </div>
+                    <p className="text-xs leading-relaxed text-slate-700 sm:col-span-7">
+                      <strong className="text-amber-900">Asume pequeñas pérdidas:</strong>{' '}
+                      puntas de hilo, nudos o ajustes menores. Ej.: un{' '}
+                      <span className="font-mono font-semibold">5%</span> sobre{' '}
+                      <span className="font-mono">{formatCOP(formulaPreview.directBaseCostCOP)}</span>{' '}
+                      reserva{' '}
+                      <span className="font-mono font-semibold text-amber-900">
+                        {formatCOP(Math.round(formulaPreview.directBaseCostCOP * 0.05))}
+                      </span>{' '}
+                      (rango típico: 3%–8%).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Vista previa en vivo compacta */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 sm:p-4">
+                  <p className="text-xs font-semibold text-slate-800">
+                    Simulación en vivo (3 h tejido + $40.000 mat. + $5.000 empaque)
+                  </p>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2.5 border-b border-slate-100 pb-2.5 text-xs sm:grid-cols-4">
+                    <div>
+                      <p className="text-slate-500">Base directa</p>
+                      <p className="font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatCOP(formulaPreview.directBaseCostCOP)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Fijos ({totalFixedPercent.toFixed(1)}%)</p>
+                      <p className="font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatCOP(formulaPreview.fixedServicesIndirectCOP)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Imprev. ({wastePct.toFixed(1)}%)</p>
+                      <p className="font-mono font-semibold text-amber-800 tabular-nums">
+                        {formatCOP(formulaPreview.wasteContingencyCOP)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Costo total</p>
+                      <p className="font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatCOP(formulaPreview.totalProductionCostCOP)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-3 gap-2.5 text-xs">
+                    <div>
+                      <p className="text-slate-500">Precio ({formulaPreview.markupPercent}%)</p>
+                      <p className="font-mono font-bold text-teal-800 tabular-nums">
+                        {formatCOP(formulaPreview.suggestedPriceCOP)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Ganancia neta</p>
+                      <p className="font-mono font-bold text-emerald-700 tabular-nums">
+                        {formatCOP(formulaPreview.expectedProfitCOP)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Margen s/ venta</p>
+                      <p className="font-mono font-semibold text-slate-900 tabular-nums">
+                        {formulaPreview.grossMarginPercent}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                {prevStep && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(prevStep.id)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    <span>Anterior</span>
+                  </button>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {savingSettings ? 'Guardando...' : 'Guardar configuración'}
+                  </button>
+                  {nextStep && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(nextStep.id)}
+                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                    >
+                      <span>{nextStep.mobileLabel}</span>
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </form>
+          )}
+
+          {/* PASO 3: RESPALDO Y RESTAURACIÓN LOCAL */}
+          {activeStep === 'backups' && (
+            <div className="flex flex-1 flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                    Paso 3 de 4 · Seguridad de tus datos
+                  </p>
+                  <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
+                    Respaldo y restauración local (.json)
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
+                    Exporta o restaura tu base local con validación de versión, detección de duplicados e integridad referencial.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* Exportar */}
+                  <div className="flex flex-col justify-between rounded-xl border border-slate-200 p-4">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">
+                        Exportar respaldo (.json)
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Último respaldo:{' '}
+                        {settings.lastBackupExportAt
+                          ? formatDateTimeCO(settings.lastBackupExportAt)
+                          : 'Aún sin exportar'}
+                      </p>
+
+                      <label className="mt-3 flex min-h-[38px] cursor-pointer items-center gap-2 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={includeDemoInExport}
+                          onChange={(e) => setIncludeDemoInExport(e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                        />
+                        <span>Incluir registros de ejemplo (isDemo)</span>
+                      </label>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={exportBusy}
+                      onClick={() => void handleExportBackup()}
+                      className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      <span>
+                        {exportBusy ? 'Generando archivo...' : 'Descargar respaldo JSON'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Importar */}
+                  <div className="flex flex-col justify-between rounded-xl border border-slate-200 p-4">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">
+                        Importar y restaurar respaldo
+                      </h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Inspecciona el archivo antes de confirmar cualquier escritura en IndexedDB.
+                      </p>
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".json,application/json"
+                      onChange={(e) => void handleBackupFileSelected(e)}
+                      className="hidden"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-4 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50"
+                    >
+                      <Upload className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                      <span>Seleccionar archivo (.json)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Panel de inspección previa del respaldo */}
+                {inspection && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    {!inspection.isValid ? (
+                      <div>
+                        <h4 className="flex items-center gap-2 text-sm font-semibold text-rose-800">
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                          <span>Respaldo rechazado por validación</span>
+                        </h4>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-700">
+                          {inspection.errors.map((errMsg) => (
+                            <li key={errMsg}>{errMsg}</li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          onClick={() => setInspection(null)}
+                          className="mt-3 inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
+                        >
+                          Cerrar aviso
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                            <FileCheck2 className="h-4 w-4 text-emerald-700" />
+                            <span>Archivo válido — Revisión previa</span>
+                          </h4>
+                          <p className="mt-0.5 text-xs text-slate-600">
+                            Esquema v{inspection.envelope?.schemaVersion} · Exportado:{' '}
+                            {formatDateTimeCO(inspection.envelope?.exportedAt)}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-center text-xs">
+                          <div>
+                            <p className="text-slate-500">En archivo</p>
+                            <p className="font-mono text-base font-semibold text-slate-900 tabular-nums">
+                              {inspection.totalRecordsInFile}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-slate-500">Nuevos</p>
+                            <p className="font-mono text-base font-semibold text-emerald-700 tabular-nums">
+                              {inspection.newRecordsCount}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-slate-500">Duplicados</p>
+                            <p className="font-mono text-base font-semibold text-amber-700 tabular-nums">
+                              {inspection.duplicateRecordsCount}
+                            </p>
+                          </div>
+                        </div>
+
+                        {inspection.breakdownByStore.length > 0 && (
+                          <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">
+                            {inspection.breakdownByStore.map((row) => (
+                              <div
+                                key={row.storeName}
+                                className="flex items-center justify-between border-b border-slate-100 py-1 last:border-b-0"
+                              >
+                                <span className="font-medium text-slate-700">
+                                  {STORE_LABELS[row.storeName] ?? row.storeName}
+                                </span>
+                                <span className="font-mono text-slate-600 tabular-nums">
+                                  {row.newCount} nuevos · {row.duplicateCount} dup.
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {inspection.warnings.length > 0 && (
+                          <ul className="space-y-1 text-xs text-amber-800">
+                            {inspection.warnings.map((w) => (
+                              <li key={w}>• {w}</li>
+                            ))}
+                          </ul>
+                        )}
+
+                        <fieldset className="space-y-1.5">
+                          <legend className="text-xs font-semibold text-slate-800">
+                            Estrategia de restauración:
+                          </legend>
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+                            <input
+                              type="radio"
+                              name="importStrategy"
+                              checked={selectedStrategy === 'append_new'}
+                              onChange={() => setSelectedStrategy('append_new')}
+                              className="mt-0.5 text-teal-700"
+                            />
+                            <span>
+                              <strong className="text-slate-900">
+                                Solo agregar nuevos (Recomendado)
+                              </strong>{' '}
+                              — Omite {inspection.duplicateRecordsCount} duplicados.
+                            </span>
+                          </label>
+
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+                            <input
+                              type="radio"
+                              name="importStrategy"
+                              checked={selectedStrategy === 'merge_overwrite'}
+                              onChange={() => setSelectedStrategy('merge_overwrite')}
+                              className="mt-0.5 text-teal-700"
+                            />
+                            <span>
+                              <strong className="text-slate-900">
+                                Fusionar y actualizar duplicados
+                              </strong>{' '}
+                              — Actualiza IDs coincidentes.
+                            </span>
+                          </label>
+
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-rose-200 bg-white p-2.5 text-xs">
+                            <input
+                              type="radio"
+                              name="importStrategy"
+                              checked={selectedStrategy === 'replace_all'}
+                              onChange={() => setSelectedStrategy('replace_all')}
+                              className="mt-0.5 text-rose-700"
+                            />
+                            <span>
+                              <strong className="text-rose-800">
+                                Reemplazar todo el taller actual
+                              </strong>{' '}
+                              — Restaura exactamente este archivo.
+                            </span>
+                          </label>
+                        </fieldset>
+
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setInspection(null)}
+                            className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmImportOpen(true)}
+                            className="inline-flex min-h-[40px] items-center rounded-lg bg-teal-700 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-teal-800"
+                          >
+                            Continuar con la restauración
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                {prevStep && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(prevStep.id)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    <span>Anterior</span>
+                  </button>
+                )}
+                {nextStep && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(nextStep.id)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                  >
+                    <span>Siguiente: {nextStep.mobileLabel}</span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-          <PWAInstallButton />
+          )}
+
+          {/* PASO 4: DATOS DE DEMOSTRACIÓN Y ESTADO PWA / BASE LOCAL */}
+          {activeStep === 'system' && (
+            <div className="flex flex-1 flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                    Paso 4 de 4 · Pruebas y dispositivo
+                  </p>
+                  <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
+                    Ejemplos del taller y aplicación PWA
+                  </h3>
+                </div>
+
+                {/* Datos demo */}
+                <div className="rounded-xl border border-slate-200 p-4 sm:p-5">
+                  <div className="flex items-start gap-2.5">
+                    <Sparkles
+                      className="mt-0.5 h-5 w-5 shrink-0 text-teal-700"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">
+                        Datos de demostración aislados
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Carga ejemplos prácticos (Mariposa de crochet, Amigurumi por $180.000 COP e Hilo de Algodón Blanco de 500 g). Se etiquetan como &ldquo;Ejemplo&rdquo; y pueden eliminarse de forma segura sin afectar tus datos reales.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2.5">
+                    <button
+                      type="button"
+                      disabled={demoBusy}
+                      onClick={() => void handleLoadDemo()}
+                      className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:opacity-50"
+                    >
+                      {demoBusy
+                        ? 'Procesando...'
+                        : stats.hasDemoData
+                          ? 'Restablecer ejemplos del taller'
+                          : 'Cargar ejemplos del taller'}
+                    </button>
+
+                    {stats.hasDemoData && (
+                      <button
+                        type="button"
+                        disabled={demoBusy}
+                        onClick={() => setConfirmPurgeDemoOpen(true)}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        <span>Eliminar datos de ejemplo</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Estado técnico IndexedDB y PWA */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <Database
+                        className="mt-0.5 h-5 w-5 shrink-0 text-slate-500"
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">
+                          Almacenamiento local y PWA instalable
+                        </h4>
+                        <p className="mt-1 text-xs text-slate-600">
+                          IndexedDB esquema v{schemaMeta?.currentVersion ?? 1} · Red:{' '}
+                          {isOnline ? 'En línea' : 'Sin conexión (Offline)'} · Migración:{' '}
+                          {schemaMeta?.lastMigratedAt
+                            ? formatDateTimeCO(schemaMeta.lastMigratedAt)
+                            : 'Inicial'}
+                        </p>
+                      </div>
+                    </div>
+                    <PWAInstallButton />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                {prevStep && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(prevStep.id)}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    <span>Anterior</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('general')}
+                  className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Volver al inicio
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

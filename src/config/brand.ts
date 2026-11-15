@@ -18,6 +18,10 @@ export interface BrandConfig {
     readonly dailyGoalMinutes: number;
     readonly weeklyGoalMinutes: number;
     readonly defaultMarkupPercent: number;
+    readonly rentCostPercent: number;
+    readonly electricityCostPercent: number;
+    readonly internetCostPercent: number;
+    readonly wasteAndContingencyPercent: number;
   };
 }
 
@@ -36,5 +40,9 @@ export const BRAND_CONFIG: BrandConfig = {
     dailyGoalMinutes: 120,
     weeklyGoalMinutes: 600,
     defaultMarkupPercent: 40,
+    rentCostPercent: 5,
+    electricityCostPercent: 2,
+    internetCostPercent: 2,
+    wasteAndContingencyPercent: 5,
   },
 } as const;
