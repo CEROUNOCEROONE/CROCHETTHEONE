@@ -23,6 +23,7 @@ import {
   formatClockHHMMSS,
   isUnusuallyLongActiveSession,
 } from '@/src/domain/services/timerEngine.ts';
+import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import {
@@ -712,30 +713,66 @@ export const TimerView: React.FC<TimerViewProps> = ({
                   : '00:00:00'}
               </p>
 
-              <p className="mt-2 text-xs text-slate-600 tabular-nums">
+              <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-slate-600">
                 {selectedPieceSession ? (
                   <>
-                    Estado:{' '}
-                    <strong className="text-slate-900">
-                      {selectedPieceSession.status === 'running'
-                        ? 'En curso'
-                        : 'En pausa'}
-                    </strong>
-                    {' · '}Bruto:{' '}
-                    {formatClockHHMMSS(activeBreakdown?.elapsedSeconds ?? 0)}
-                    {' · '}Pausas:{' '}
-                    {formatClockHHMMSS(activeBreakdown?.pausedSeconds ?? 0)}
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <span>Estado:</span>
+                      <strong className="inline-block min-w-[56px] text-left text-slate-900">
+                        {selectedPieceSession.status === 'running'
+                          ? 'En curso'
+                          : 'En pausa'}
+                      </strong>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="hidden text-slate-300 sm:inline"
+                    >
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <span>Bruto:</span>
+                      <span className="inline-block min-w-[8.5ch] text-left font-mono font-medium text-slate-800 tabular-nums">
+                        {formatClockHHMMSS(activeBreakdown?.elapsedSeconds ?? 0)}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="hidden text-slate-300 sm:inline"
+                    >
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <span>Pausas:</span>
+                      <span className="inline-block min-w-[8.5ch] text-left font-mono font-medium text-slate-800 tabular-nums">
+                        {formatClockHHMMSS(activeBreakdown?.pausedSeconds ?? 0)}
+                      </span>
+                    </span>
                   </>
                 ) : (
                   <>
-                    Acumulado en esta pieza:{' '}
-                    <strong className="text-slate-900">
-                      {formatDurationMinutes(
-                        selectedComponent.effectiveMinutesSpent,
-                      )}
-                    </strong>
-                    {' · '}Estimado:{' '}
-                    {formatDurationMinutes(selectedComponent.estimatedMinutes)}
+                    <span className="whitespace-nowrap">
+                      Acumulado en esta pieza:{' '}
+                      <strong className="font-mono text-slate-900 tabular-nums">
+                        {formatDurationMinutes(
+                          selectedComponent.effectiveMinutesSpent,
+                        )}
+                      </strong>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="hidden text-slate-300 sm:inline"
+                    >
+                      ·
+                    </span>
+                    <span className="whitespace-nowrap">
+                      Estimado:{' '}
+                      <span className="font-mono tabular-nums">
+                        {formatDurationMinutes(
+                          selectedComponent.estimatedMinutes,
+                        )}
+                      </span>
+                    </span>
                   </>
                 )}
               </p>
@@ -1180,23 +1217,22 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label
                     htmlFor="manual-minutes"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Duración (minutos) *
+                    Duración *
                   </label>
-                  <input
+                  <DurationInput
                     id="manual-minutes"
-                    type="number"
-                    min={1}
-                    max={1440}
-                    required
-                    value={manualMinutes}
-                    onChange={(e) => setManualMinutes(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    valueMinutes={Number(manualMinutes) || 1}
+                    onChangeMinutes={(mins) => setManualMinutes(String(mins))}
+                    minMinutes={1}
+                    maxMinutes={1440}
+                    ariaLabel="Duración del registro manual"
+                    className="mt-1.5"
                   />
                 </div>
                 <div>
@@ -1302,22 +1338,21 @@ export const TimerView: React.FC<TimerViewProps> = ({
                   htmlFor="adjust-minutes"
                   className="block text-xs font-semibold text-slate-700"
                 >
-                  Tiempo efectivo final (minutos) *
+                  Tiempo efectivo final *
                 </label>
-                <input
+                <DurationInput
                   id="adjust-minutes"
-                  type="number"
-                  min={0}
-                  max={2880}
-                  required
-                  value={adjustModalState.minutesInput}
-                  onChange={(e) =>
+                  valueMinutes={Number(adjustModalState.minutesInput) || 0}
+                  onChangeMinutes={(mins) =>
                     setAdjustModalState({
                       ...adjustModalState,
-                      minutesInput: e.target.value,
+                      minutesInput: String(mins),
                     })
                   }
-                  className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  minMinutes={0}
+                  maxMinutes={2880}
+                  ariaLabel="Tiempo efectivo final"
+                  className="mt-1.5"
                 />
               </div>
 

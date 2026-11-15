@@ -41,6 +41,7 @@ import {
   RESERVATION_STATUS_META,
 } from '@/src/domain/services/inventoryService.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
+import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 
@@ -1263,16 +1264,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     htmlFor="proj-target-min"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Tiempo total estimado (minutos)
+                    Tiempo total estimado
                   </label>
-                  <input
+                  <DurationInput
                     id="proj-target-min"
-                    type="number"
-                    min={0}
-                    step={15}
-                    value={formTargetMinutes}
-                    onChange={(e) => setFormTargetMinutes(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    valueMinutes={Number(formTargetMinutes) || 0}
+                    onChangeMinutes={(mins) => setFormTargetMinutes(String(mins))}
+                    minMinutes={0}
+                    maxMinutes={60000}
+                    ariaLabel="Tiempo total estimado"
+                    className="mt-1.5"
                   />
                 </div>
 
@@ -1324,16 +1325,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     htmlFor="proj-daily-min"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Meta diaria para este proyecto (min)
+                    Meta diaria para este proyecto
                   </label>
-                  <input
+                  <DurationInput
                     id="proj-daily-min"
-                    type="number"
-                    min={0}
-                    step={15}
-                    value={formDailyMinutes}
-                    onChange={(e) => setFormDailyMinutes(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    valueMinutes={Number(formDailyMinutes) || 0}
+                    onChangeMinutes={(mins) => setFormDailyMinutes(String(mins))}
+                    minMinutes={0}
+                    maxMinutes={1440}
+                    ariaLabel="Meta diaria para este proyecto"
+                    className="mt-1.5"
                   />
                 </div>
 
@@ -1357,9 +1358,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
               {/* Piezas iniciales al crear proyecto */}
               {!editingProject && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-3.5 sm:p-4">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-slate-800">
+                    <p className="min-w-0 text-xs font-semibold text-slate-800">
                       Componentes iniciales del proyecto (Opcional)
                     </p>
                     <button
@@ -1370,14 +1371,17 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                           { name: '', estimatedMinutes: '30' },
                         ])
                       }
-                      className="text-xs font-medium text-teal-700 hover:underline"
+                      className="shrink-0 whitespace-nowrap text-xs font-medium text-teal-700 hover:underline"
                     >
                       + Añadir fila
                     </button>
                   </div>
                   <div className="mt-3 space-y-2">
                     {draftInitialComponents.map((row, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
+                      <div
+                        key={idx}
+                        className="flex min-w-0 flex-col gap-2 rounded-lg border border-slate-200/80 bg-white/70 p-2 sm:flex-row sm:items-center sm:border-0 sm:bg-transparent sm:p-0"
+                      >
                         <input
                           type="text"
                           placeholder={`Nombre pieza ${idx + 1} (ej. Tronco, Ala...)`}
@@ -1390,38 +1394,39 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               ),
                             );
                           }}
-                          className="min-h-[38px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-900"
+                          className="min-h-[38px] w-full min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-900"
                         />
-                        <input
-                          type="number"
-                          min={0}
-                          step={5}
-                          placeholder="Min."
-                          value={row.estimatedMinutes}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setDraftInitialComponents((prev) =>
-                              prev.map((item, i) =>
-                                i === idx
-                                  ? { ...item, estimatedMinutes: val }
-                                  : item,
-                              ),
-                            );
-                          }}
-                          className="min-h-[38px] w-24 rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftInitialComponents((prev) =>
-                              prev.filter((_, i) => i !== idx),
-                            )
-                          }
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                          aria-label="Quitar fila"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+                        <div className="flex min-w-0 items-center justify-between gap-2 sm:shrink-0">
+                          <DurationInput
+                            compact
+                            valueMinutes={Number(row.estimatedMinutes) || 0}
+                            onChangeMinutes={(mins) => {
+                              setDraftInitialComponents((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx
+                                    ? { ...item, estimatedMinutes: String(mins) }
+                                    : item,
+                                ),
+                              );
+                            }}
+                            minMinutes={0}
+                            maxMinutes={60000}
+                            ariaLabel={`Tiempo estimado pieza ${idx + 1}`}
+                            className="min-w-0 flex-1 sm:w-[210px] sm:flex-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftInitialComponents((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              )
+                            }
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                            aria-label="Quitar fila"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1507,22 +1512,22 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label
                     htmlFor="comp-est-min"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Tiempo estimado (min)
+                    Tiempo estimado
                   </label>
-                  <input
+                  <DurationInput
                     id="comp-est-min"
-                    type="number"
-                    min={0}
-                    step={5}
-                    value={compEstimatedMinutes}
-                    onChange={(e) => setCompEstimatedMinutes(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    valueMinutes={Number(compEstimatedMinutes) || 0}
+                    onChangeMinutes={(mins) => setCompEstimatedMinutes(String(mins))}
+                    minMinutes={0}
+                    maxMinutes={60000}
+                    ariaLabel="Tiempo estimado de la pieza"
+                    className="mt-1.5"
                   />
                 </div>
 
@@ -1531,16 +1536,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     htmlFor="comp-eff-min"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Tiempo efectivo actual (min)
+                    Tiempo efectivo actual
                   </label>
-                  <input
+                  <DurationInput
                     id="comp-eff-min"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={compEffectiveMinutes}
-                    onChange={(e) => setCompEffectiveMinutes(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    valueMinutes={Number(compEffectiveMinutes) || 0}
+                    onChangeMinutes={(mins) => setCompEffectiveMinutes(String(mins))}
+                    minMinutes={0}
+                    maxMinutes={60000}
+                    ariaLabel="Tiempo efectivo actual de la pieza"
+                    className="mt-1.5"
                   />
                 </div>
               </div>

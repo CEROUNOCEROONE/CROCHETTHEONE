@@ -31,6 +31,7 @@ import { calculateQuoteSummary } from '@/src/domain/services/quoteMath.ts';
 import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
+import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 
 type SettingsStepId = 'general' | 'costs' | 'backups' | 'system';
 
@@ -644,20 +645,19 @@ export const WorkshopSettingsView: React.FC = () => {
                       htmlFor="dailyGoalMinutes"
                       className="block text-xs font-semibold text-slate-700"
                     >
-                      Meta diaria de tejido (minutos)
+                      Meta diaria de tejido
                     </label>
-                    <input
+                    <DurationInput
                       id="dailyGoalMinutes"
-                      type="number"
-                      min={15}
-                      max={1440}
-                      required
-                      value={dailyGoalMinutes}
-                      onChange={(e) => setDailyGoalMinutes(e.target.value)}
-                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                      valueMinutes={Number(dailyGoalMinutes) || 0}
+                      onChangeMinutes={(mins) => setDailyGoalMinutes(String(mins))}
+                      minMinutes={15}
+                      maxMinutes={1440}
+                      ariaLabel="Meta diaria de tejido"
+                      className="mt-1.5"
                     />
                     <p className="mt-1 text-xs text-slate-500">
-                      Equivale a {formatDurationMinutes(Number(dailyGoalMinutes) || 0)} al día
+                      Total: {Number(dailyGoalMinutes) || 0} minutos al día ({formatDurationMinutes(Number(dailyGoalMinutes) || 0)})
                     </p>
                   </div>
 
@@ -666,20 +666,19 @@ export const WorkshopSettingsView: React.FC = () => {
                       htmlFor="weeklyGoalMinutes"
                       className="block text-xs font-semibold text-slate-700"
                     >
-                      Meta semanal de tejido (minutos)
+                      Meta semanal de tejido
                     </label>
-                    <input
+                    <DurationInput
                       id="weeklyGoalMinutes"
-                      type="number"
-                      min={30}
-                      max={10080}
-                      required
-                      value={weeklyGoalMinutes}
-                      onChange={(e) => setWeeklyGoalMinutes(e.target.value)}
-                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                      valueMinutes={Number(weeklyGoalMinutes) || 0}
+                      onChangeMinutes={(mins) => setWeeklyGoalMinutes(String(mins))}
+                      minMinutes={30}
+                      maxMinutes={10080}
+                      ariaLabel="Meta semanal de tejido"
+                      className="mt-1.5"
                     />
                     <p className="mt-1 text-xs text-slate-500">
-                      Equivale a {formatDurationMinutes(Number(weeklyGoalMinutes) || 0)} por semana
+                      Total: {Number(weeklyGoalMinutes) || 0} minutos por semana ({formatDurationMinutes(Number(weeklyGoalMinutes) || 0)})
                     </p>
                   </div>
                 </div>
