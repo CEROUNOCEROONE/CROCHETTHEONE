@@ -24,6 +24,7 @@ import type {
   ProjectPaymentSummaryStatus,
   ProjectStatus,
 } from '@/src/domain/models/index.ts';
+import { getMoneyInputStep } from '@/src/domain/services/currencyCatalog.ts';
 import {
   formatCOP,
   formatDateCO,
@@ -41,11 +42,18 @@ import {
   getReservationRemaining,
   RESERVATION_STATUS_META,
 } from '@/src/domain/services/inventoryService.ts';
+import {
+  canCreateOrActivateRealProject,
+  countActiveRealProjects,
+  FREE_MAX_ACTIVE_PROJECTS,
+} from '@/src/domain/services/planCapabilities.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -85,6 +93,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 }) => {
   const {
     settings,
+    effectiveTier,
+    capabilities,
     projects,
     components,
     clients,
@@ -100,6 +110,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     reorderComponent,
     deleteComponent,
   } = useWorkshopData();
+
+  const [projectQuotaGateOpen, setProjectQuotaGateOpen] = useState(false);
+  const activeRealProjectsCount = React.useMemo(
+    () => countActiveRealProjects(projects),
+    [projects],
+  );
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     initialSelectedProjectId,
@@ -182,6 +198,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   }, [clients, editingProject]);
 
   const openCreateProjectModal = () => {
+    const quota = canCreateOrActivateRealProject(effectiveTier, projects, {
+      isDemoTarget: false,
+      nextStatus: 'planning',
+    });
+    if (!quota.allowed) {
+      setProjectQuotaGateOpen(true);
+      return;
+    }
+
     setEditingProject(null);
     setFormName('');
     setFormDescription('');
@@ -221,6 +246,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   const handleSaveProject = async (e: React.FormEvent) => {
     e.preventDefault();
+    const quota = canCreateOrActivateRealProject(effectiveTier, projects, {
+      isDemoTarget: editingProject?.isDemo ?? false,
+      nextStatus: formStatus,
+      previousStatus: editingProject?.status ?? null,
+    });
+    if (!quota.allowed) {
+      setProjectQuotaGateOpen(true);
+      return;
+    }
+
     setProjectSaving(true);
     setFeedback(null);
 
@@ -380,6 +415,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     project: Project,
     nextStatus: ProjectStatus,
   ) => {
+    const quota = canCreateOrActivateRealProject(effectiveTier, projects, {
+      isDemoTarget: project.isDemo,
+      nextStatus,
+      previousStatus: project.status,
+    });
+    if (!quota.allowed) {
+      setProjectQuotaGateOpen(true);
+      return;
+    }
+
     setFeedback(null);
     try {
       await updateProject(project.id, { status: nextStatus });
@@ -568,6 +613,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <strong className="font-mono text-slate-800">
                 {formatCOP(project.estimatedBudgetCOP)}
               </strong>
+              <UsdEquiv amount={project.estimatedBudgetCOP} prefix=" (" suffix=")" />
             </span>
           </div>
 
@@ -767,8 +813,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <p className="mt-1 font-mono text-lg font-semibold text-slate-900 tabular-nums">
                         {formatCOP(selectedProject.estimatedBudgetCOP)}
                       </p>
+                      <UsdEquiv amount={selectedProject.estimatedBudgetCOP} block />
                       {paymentOption && (
-                        <p className="text-[11px] text-slate-500">
+                        <p className="mt-0.5 text-[11px] text-slate-500">
                           {paymentOption.label}
                         </p>
                       )}
@@ -1106,9 +1153,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
-                      Proyectos del taller
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
+                        Proyectos del taller
+                      </h2>
+                      {!capabilities.isPro && (
+                        <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-medium text-slate-700 tabular-nums">
+                          {activeRealProjectsCount} / {FREE_MAX_ACTIVE_PROJECTS} activos (FREE)
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-0.5 text-xs sm:text-sm text-slate-600">
                       Administra tus creaciones de crochet, divídelas por componentes y
                       controla su avance real.
@@ -1384,13 +1438,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     htmlFor="proj-budget"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Presupuesto o precio estimado (COP)
+                    Presupuesto o precio estimado ({settings.currency})
                   </label>
                   <input
                     id="proj-budget"
                     type="number"
                     min={0}
-                    step={1000}
+                    step={getMoneyInputStep(settings.currency)}
                     value={formBudgetCOP}
                     onChange={(e) => setFormBudgetCOP(e.target.value)}
                     className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1744,6 +1798,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         isBusy={deletingComponent}
         onConfirm={() => void handleConfirmDeleteComponent()}
         onCancel={() => setComponentToDelete(null)}
+      />
+
+      <FeatureGate
+        mode="modal"
+        isOpen={projectQuotaGateOpen}
+        onClose={() => setProjectQuotaGateOpen(false)}
+        featureTitle="Proyectos activos ilimitados en PRO"
+        description={`Ya alcanzaste el máximo de ${FREE_MAX_ACTIVE_PROJECTS} proyectos reales activos simultáneos del plan FREE (${activeRealProjectsCount}/${FREE_MAX_ACTIVE_PROJECTS}). Con PRO podrás gestionar tantos encargos activos en paralelo como necesite tu taller.`}
+        freeIncludedNote="Puedes seguir editando tus proyectos actuales, registrando tiempos o marcando un proyecto como Finalizado, Entregado o Cancelado para liberar un cupo activo al instante."
       />
     </>
   );

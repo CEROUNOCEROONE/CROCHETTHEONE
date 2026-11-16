@@ -8,6 +8,8 @@ import type {
   ShoppingItemStatus,
   ShoppingListItem,
 } from '@/src/domain/models/index.ts';
+import { roundCurrencyAmount } from './currencyCatalog.ts';
+import { getActiveCurrency } from './formatters.ts';
 
 export const PENDING_MATERIAL_STATUS_META: Record<
   PendingMaterialStatus,
@@ -162,6 +164,7 @@ export function calculateShoppingListSummary(
   let estimatedTotalCOP = 0;
   let remainingToBuyCOP = 0;
 
+  const currency = getActiveCurrency();
   for (const item of activeItems) {
     if (item.status === 'pending') pendingCount += 1;
     if (
@@ -172,15 +175,24 @@ export function calculateShoppingListSummary(
     }
     if (item.status === 'received_in_stock') receivedCount += 1;
 
-    const plannedCost = Math.round(
+    const plannedCost = roundCurrencyAmount(
       Math.max(0, item.plannedQuantity) * Math.max(0, item.estimatedUnitPriceCOP),
+      currency,
     );
-    estimatedTotalCOP += plannedCost;
+    estimatedTotalCOP = roundCurrencyAmount(
+      estimatedTotalCOP + plannedCost,
+      currency,
+    );
 
     if (item.status === 'pending') {
       const pendingQty = Math.max(0, item.plannedQuantity - item.purchasedQuantity);
-      remainingToBuyCOP += Math.round(
-        pendingQty * Math.max(0, item.estimatedUnitPriceCOP),
+      remainingToBuyCOP = roundCurrencyAmount(
+        remainingToBuyCOP +
+          roundCurrencyAmount(
+            pendingQty * Math.max(0, item.estimatedUnitPriceCOP),
+            currency,
+          ),
+        currency,
       );
     }
   }

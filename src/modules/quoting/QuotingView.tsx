@@ -20,6 +20,13 @@ import {
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
 import type { Quote, QuoteStatus } from '@/src/domain/models/index.ts';
 import {
+  getCurrencySpec,
+  getMoneyInputStep,
+  parseNonNegativeMoney,
+  roundCurrencyAmount,
+  type WorkshopCurrencyCode,
+} from '@/src/domain/services/currencyCatalog.ts';
+import {
   formatCOP,
   formatDateCO,
   formatDurationMinutes,
@@ -45,7 +52,14 @@ import {
   SnapSlide,
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
+import {
+  canSaveNewQuote,
+  countRealSavedQuotes,
+  FREE_MAX_SAVED_QUOTES,
+} from '@/src/domain/services/planCapabilities.ts';
+import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -83,15 +97,15 @@ function parseNonNegativeFloat(raw: string): number {
   return n;
 }
 
-function parseNonNegativeInt(raw: string): number {
-  const n = Math.round(Number(raw));
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n;
-}
-
-function roundUpToNearestThousand(amount: number): number {
+function roundSuggestedForCurrency(
+  amount: number,
+  currency: WorkshopCurrencyCode,
+): number {
   if (!Number.isFinite(amount) || amount <= 0) return 0;
-  return Math.ceil(amount / 1000) * 1000;
+  if (getCurrencySpec(currency).decimals === 0) {
+    return Math.ceil(amount / 1000) * 1000;
+  }
+  return Math.ceil(amount);
 }
 
 const MARKUP_PRESETS = [20, 30, 40, 50];
@@ -105,6 +119,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 }) => {
   const {
     settings,
+    effectiveTier,
+    capabilities,
     projects,
     components,
     clients,
@@ -124,6 +140,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   const viewportProfile = useViewportProfile();
 
   const [activeTab, setActiveTab] = useState<QuotingTab>('simulator');
+  const [quoteQuotaGateOpen, setQuoteQuotaGateOpen] = useState(false);
+  const realSavedQuotesCount = useMemo(
+    () => countRealSavedQuotes(quotes),
+    [quotes],
+  );
 
   // Estado del editor / simulador
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
@@ -531,22 +552,31 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     setWastePercentRaw(String(defaults.wasteContingencyPercent));
   };
 
+  const currencySpec = getCurrencySpec(settings.currency);
+  const moneyInputStep = getMoneyInputStep(settings.currency);
+
   // Cálculos en vivo del simulador
   const livePricing = useMemo(() => {
-    const materialsTotalCOP = materialLines.reduce((sum, line) => {
-      const qty = parseNonNegativeFloat(line.quantity);
-      const unitCost = parseNonNegativeInt(line.unitCostCOP);
-      return sum + Math.round(qty * unitCost);
-    }, 0);
+    const materialsTotalCOP = roundCurrencyAmount(
+      materialLines.reduce((sum, line) => {
+        const qty = parseNonNegativeFloat(line.quantity);
+        const unitCost = parseNonNegativeMoney(line.unitCostCOP, settings.currency);
+        return sum + roundCurrencyAmount(qty * unitCost, settings.currency);
+      }, 0),
+      settings.currency,
+    );
 
-    const hourlyRateCOP = parseNonNegativeInt(hourlyRateRaw);
+    const hourlyRateCOP = parseNonNegativeMoney(hourlyRateRaw, settings.currency);
     const rentPercent = parseNonNegativeFloat(rentPercentRaw);
     const electricityPercent = parseNonNegativeFloat(electricityPercentRaw);
     const internetPercent = parseNonNegativeFloat(internetPercentRaw);
     const wasteContingencyPercent = parseNonNegativeFloat(wastePercentRaw);
-    const manualIndirectCostsCOP = parseNonNegativeInt(manualIndirectRaw);
-    const packagingCostCOP = parseNonNegativeInt(packagingRaw);
-    const shippingOrOtherCOP = parseNonNegativeInt(shippingRaw);
+    const manualIndirectCostsCOP = parseNonNegativeMoney(
+      manualIndirectRaw,
+      settings.currency,
+    );
+    const packagingCostCOP = parseNonNegativeMoney(packagingRaw, settings.currency);
+    const shippingOrOtherCOP = parseNonNegativeMoney(shippingRaw, settings.currency);
     const markupPercent = parseNonNegativeFloat(markupPercentRaw);
 
     const summary = calculateQuoteSummary({
@@ -561,12 +591,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       electricityPercent,
       internetPercent,
       wasteContingencyPercent,
+      currency: settings.currency,
     });
 
     const trimmedAgreed = finalAgreedPriceRaw.trim();
     const hasAgreedPrice = trimmedAgreed.length > 0;
     const agreedPriceCOP = hasAgreedPrice
-      ? parseNonNegativeInt(trimmedAgreed)
+      ? parseNonNegativeMoney(trimmedAgreed, settings.currency)
       : null;
 
     const agreedMetrics =
@@ -574,6 +605,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         ? calculateAgreedPriceMetrics(
             summary.totalProductionCostCOP,
             agreedPriceCOP,
+            settings.currency,
           )
         : null;
 
@@ -603,6 +635,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     shippingRaw,
     markupPercentRaw,
     finalAgreedPriceRaw,
+    settings.currency,
   ]);
 
   const handleSaveQuote = async (e: React.FormEvent) => {
@@ -626,7 +659,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         colorName: line.colorName.trim() || 'Estándar',
         unit: line.unit || 'unit',
         quantity: parseNonNegativeFloat(line.quantity),
-        unitCostCOP: parseNonNegativeInt(line.unitCostCOP),
+        unitCostCOP: parseNonNegativeMoney(line.unitCostCOP, settings.currency),
       }));
 
     if (preparedLines.some((l) => l.quantity <= 0)) {
@@ -634,6 +667,15 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         type: 'error',
         message: 'Todas las líneas de material incluidas deben tener cantidad mayor a 0.',
       });
+      return;
+    }
+
+    const quota = canSaveNewQuote(effectiveTier, quotes, {
+      isEditingExisting: editingQuoteId !== null,
+      isTargetDemo: targetEnvironmentIsDemo,
+    });
+    if (!quota.allowed) {
+      setQuoteQuotaGateOpen(true);
       return;
     }
 
@@ -945,6 +987,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   >
                     <span>
                       Sugerido: {formatCOP(livePricing.summary.suggestedPriceCOP)}
+                      <UsdEquiv
+                        amount={livePricing.summary.suggestedPriceCOP}
+                        prefix=" ("
+                        suffix=")"
+                      />
                     </span>
                   </button>
                   <button
@@ -990,7 +1037,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-medium text-slate-500">
-                      Comercial · Markup + Margen real en COP
+                      Comercial · Markup + Margen real ({settings.currency})
                     </p>
                     <h2 className="mt-0.5 font-display text-lg font-bold text-slate-900 sm:text-xl">
                       Cotizador del Taller
@@ -1226,7 +1273,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       2. Materiales e insumos
                     </h3>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      Selecciona hilos/colores de tu inventario o añade insumos manuales en COP.
+                      Selecciona hilos/colores de tu inventario o añade insumos manuales ({settings.currency}).
                     </p>
                   </div>
                   <button
@@ -1392,8 +1439,14 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         ? variantById.get(line.variantId)
                         : null;
                       const qty = parseNonNegativeFloat(line.quantity);
-                      const unitCost = parseNonNegativeInt(line.unitCostCOP);
-                      const subtotal = Math.round(qty * unitCost);
+                      const unitCost = parseNonNegativeMoney(
+                        line.unitCostCOP,
+                        settings.currency,
+                      );
+                      const subtotal = roundCurrencyAmount(
+                        qty * unitCost,
+                        settings.currency,
+                      );
 
                       return (
                         <div key={line.localKey} className="py-3 space-y-2">
@@ -1497,12 +1550,12 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
                             <div className={line.variantId ? 'sm:col-span-5' : 'sm:col-span-3'}>
                               <label className="block text-[11px] font-medium text-slate-500">
-                                Costo unitario (COP)
+                                Costo unitario ({settings.currency})
                               </label>
                               <input
                                 type="number"
                                 min="0"
-                                step="1"
+                                step={moneyInputStep}
                                 value={line.unitCostCOP}
                                 onChange={(e) =>
                                   handleUpdateLine(line.localKey, {
@@ -1564,9 +1617,10 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       htmlFor="quote-hourly-rate"
                       className="block text-xs font-medium text-slate-700"
                     >
-                      Tarifa por hora (COP)
+                      Tarifa por hora ({settings.currency})
                     </label>
-                    {parseNonNegativeInt(hourlyRateRaw) !== settings.hourlyRateCOP && (
+                    {parseNonNegativeMoney(hourlyRateRaw, settings.currency) !==
+                      settings.hourlyRateCOP && (
                       <button
                         type="button"
                         onClick={() =>
@@ -1582,7 +1636,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     id="quote-hourly-rate"
                     type="number"
                     min="0"
-                    step="500"
+                    step={moneyInputStep}
                     value={hourlyRateRaw}
                     onChange={(e) => setHourlyRateRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1594,13 +1648,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     htmlFor="quote-packaging"
                     className="block text-xs font-medium text-slate-700"
                   >
-                    Empaque, caja y etiquetas (COP)
+                    Empaque, caja y etiquetas ({settings.currency})
                   </label>
                   <input
                     id="quote-packaging"
                     type="number"
                     min="0"
-                    step="100"
+                    step={moneyInputStep}
                     value={packagingRaw}
                     onChange={(e) => setPackagingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1612,13 +1666,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     htmlFor="quote-shipping"
                     className="block text-xs font-medium text-slate-700"
                   >
-                    Envío u otros directos (COP)
+                    Envío u otros directos ({settings.currency})
                   </label>
                   <input
                     id="quote-shipping"
                     type="number"
                     min="0"
-                    step="500"
+                    step={moneyInputStep}
                     value={shippingRaw}
                     onChange={(e) => setShippingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1741,13 +1795,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           htmlFor="quote-manual-indirect"
                           className="block text-[11px] font-medium text-slate-600"
                         >
-                          Extra COP
+                          Extra {settings.currency}
                         </label>
                         <input
                           id="quote-manual-indirect"
                           type="number"
                           min="0"
-                          step="500"
+                          step={moneyInputStep}
                           value={manualIndirectRaw}
                           onChange={(e) => setManualIndirectRaw(e.target.value)}
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1798,8 +1852,9 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   <dl className="space-y-2 text-xs sm:text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <dt className="text-slate-600">Materiales e insumos</dt>
-                      <dd className="font-mono font-medium text-slate-900 tabular-nums">
-                        {formatCOP(livePricing.summary.materialsTotalCOP)}
+                      <dd className="text-right font-mono font-medium text-slate-900 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.materialsTotalCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.materialsTotalCOP} block />
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -1807,14 +1862,16 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         Mano de obra ({livePricing.summary.effectiveHours} h ×{' '}
                         {formatCOP(livePricing.hourlyRateCOP)})
                       </dt>
-                      <dd className="font-mono font-medium text-slate-900 tabular-nums">
-                        {formatCOP(livePricing.summary.laborTotalCOP)}
+                      <dd className="text-right font-mono font-medium text-slate-900 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.laborTotalCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.laborTotalCOP} block />
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2 text-xs text-slate-500">
                       <dt>Subtotal costo directo</dt>
-                      <dd className="font-mono font-medium text-slate-700 tabular-nums">
-                        {formatCOP(livePricing.summary.directBaseCostCOP)}
+                      <dd className="text-right font-mono font-medium text-slate-700 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.directBaseCostCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.directBaseCostCOP} block />
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -1828,16 +1885,18 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         ) / 100}
                         %)
                       </dt>
-                      <dd className="font-mono font-medium text-slate-900 tabular-nums">
-                        {formatCOP(livePricing.summary.fixedServicesIndirectCOP)}
+                      <dd className="text-right font-mono font-medium text-slate-900 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.fixedServicesIndirectCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.fixedServicesIndirectCOP} block />
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <dt className="text-slate-600">
                         Imprevistos / merma ({livePricing.wasteContingencyPercent}%)
                       </dt>
-                      <dd className="font-mono font-medium text-slate-900 tabular-nums">
-                        {formatCOP(livePricing.summary.wasteContingencyCOP)}
+                      <dd className="text-right font-mono font-medium text-slate-900 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.wasteContingencyCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.wasteContingencyCOP} block />
                       </dd>
                     </div>
                     {(livePricing.manualIndirectCostsCOP > 0 ||
@@ -1847,12 +1906,22 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         <dt className="text-slate-600">
                           Empaque, envío y otros fijos
                         </dt>
-                        <dd className="font-mono font-medium text-slate-900 tabular-nums">
-                          {formatCOP(
-                            livePricing.manualIndirectCostsCOP +
+                        <dd className="text-right font-mono font-medium text-slate-900 tabular-nums">
+                          <span>
+                            {formatCOP(
+                              livePricing.manualIndirectCostsCOP +
+                                livePricing.packagingCostCOP +
+                                livePricing.shippingOrOtherCOP,
+                            )}
+                          </span>
+                          <UsdEquiv
+                            amount={
+                              livePricing.manualIndirectCostsCOP +
                               livePricing.packagingCostCOP +
-                              livePricing.shippingOrOtherCOP,
-                          )}
+                              livePricing.shippingOrOtherCOP
+                            }
+                            block
+                          />
                         </dd>
                       </div>
                     )}
@@ -1860,8 +1929,9 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       <dt className="font-semibold text-slate-900">
                         Costo total de producción
                       </dt>
-                      <dd className="font-mono text-base font-bold text-slate-900 tabular-nums">
-                        {formatCOP(livePricing.summary.totalProductionCostCOP)}
+                      <dd className="text-right font-mono text-base font-bold text-slate-900 tabular-nums">
+                        <span>{formatCOP(livePricing.summary.totalProductionCostCOP)}</span>
+                        <UsdEquiv amount={livePricing.summary.totalProductionCostCOP} block />
                       </dd>
                     </div>
                   </dl>
@@ -1911,9 +1981,16 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       <span className="text-xs font-medium text-slate-300">
                         Precio de venta sugerido
                       </span>
-                      <span className="font-mono text-xl font-bold tabular-nums sm:text-2xl">
-                        {formatCOP(livePricing.summary.suggestedPriceCOP)}
-                      </span>
+                      <div className="text-right">
+                        <span className="font-mono text-xl font-bold tabular-nums sm:text-2xl">
+                          {formatCOP(livePricing.summary.suggestedPriceCOP)}
+                        </span>
+                        <UsdEquiv
+                          amount={livePricing.summary.suggestedPriceCOP}
+                          block
+                          className="text-slate-300"
+                        />
+                      </div>
                     </div>
                     <div className="mt-2.5 grid grid-cols-2 gap-3 border-t border-slate-700/80 pt-2.5 text-xs">
                       <div>
@@ -1921,6 +1998,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-400 tabular-nums">
                           {formatCOP(livePricing.summary.expectedProfitCOP)}
                         </p>
+                        <UsdEquiv
+                          amount={livePricing.summary.expectedProfitCOP}
+                          block
+                          className="text-emerald-200/80"
+                        />
                       </div>
                       <div className="text-right">
                         <p className="text-slate-400">Margen real sobre venta</p>
@@ -1945,15 +2027,18 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           onClick={() =>
                             setFinalAgreedPriceRaw(
                               String(
-                                roundUpToNearestThousand(
+                                roundSuggestedForCurrency(
                                   livePricing.summary.suggestedPriceCOP,
+                                  settings.currency,
                                 ),
                               ),
                             )
                           }
                           className="text-[11px] font-medium text-teal-700 hover:text-teal-800 whitespace-nowrap"
                         >
-                          Redondear a mil
+                          {currencySpec.decimals === 0
+                            ? 'Redondear a mil'
+                            : 'Redondear a entero'}
                         </button>
                         {finalAgreedPriceRaw && (
                           <>
@@ -1976,7 +2061,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       id="quote-agreed-price"
                       type="number"
                       min="0"
-                      step="1000"
+                      step={moneyInputStep}
                       value={finalAgreedPriceRaw}
                       onChange={(e) => setFinalAgreedPriceRaw(e.target.value)}
                       placeholder={`Por defecto: ${formatCOP(livePricing.summary.suggestedPriceCOP)}`}
@@ -1995,6 +2080,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           <span>Utilidad al precio acordado:</span>
                           <span className="font-mono font-bold tabular-nums">
                             {formatCOP(livePricing.agreedMetrics.profitAtAgreedCOP)}
+                            <UsdEquiv
+                              amount={livePricing.agreedMetrics.profitAtAgreedCOP}
+                              prefix=" ("
+                              suffix=")"
+                            />
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-2">
@@ -2029,6 +2119,15 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         ))}
                       </select>
                     </div>
+
+                    {!capabilities.isPro && (
+                      <div className="sm:col-span-2 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600">
+                        <span>Historial de cotizaciones reales (FREE)</span>
+                        <span className="font-mono font-semibold text-slate-800 tabular-nums">
+                          {realSavedQuotesCount} / {FREE_MAX_SAVED_QUOTES}
+                        </span>
+                      </div>
+                    )}
 
                     <button
                       type="submit"
@@ -2124,7 +2223,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   title="No hay cotizaciones registradas con este filtro"
                   description={
                     quotes.length === 0
-                      ? 'Crea tu primera simulación de costos y ganancia desde el Simulador para conservar el historial en COP.'
+                      ? 'Crea tu primera simulación de costos y ganancia desde el Simulador para conservar el historial.'
                       : 'Prueba limpiando la búsqueda o seleccionando otro estado.'
                   }
                   primaryAction={{
@@ -2291,18 +2390,21 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                                 {formatDurationMinutes(mins)} ·{' '}
                                 {formatCOP(quote.hourlyRateCOP)}/h
                               </p>
+                              <UsdEquiv amount={quote.hourlyRateCOP} suffix="/h" block />
                             </div>
                             <div>
                               <p className="text-[11px] text-slate-500">Materiales</p>
                               <p className="mt-0.5 font-mono text-xs font-semibold text-slate-900 tabular-nums sm:text-sm">
                                 {formatCOP(quote.materialsTotalCOP)}
                               </p>
+                              <UsdEquiv amount={quote.materialsTotalCOP} block />
                             </div>
                             <div>
                               <p className="text-[11px] text-slate-500">Costo total</p>
                               <p className="mt-0.5 font-mono text-xs font-semibold text-slate-900 tabular-nums sm:text-sm">
                                 {formatCOP(quote.totalProductionCostCOP)}
                               </p>
+                              <UsdEquiv amount={quote.totalProductionCostCOP} block />
                             </div>
                             <div>
                               <p className="text-[11px] text-slate-500">
@@ -2313,6 +2415,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                               <p className="mt-0.5 font-mono text-sm font-bold text-teal-800 tabular-nums sm:text-base">
                                 {formatCOP(finalPrice)}
                               </p>
+                              <UsdEquiv amount={finalPrice} block />
                             </div>
                             <div>
                               <p className="text-[11px] text-slate-500">
@@ -2328,6 +2431,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                                 {formatCOP(finalMetrics.profitAtAgreedCOP)} (
                                 {finalMetrics.grossMarginAtAgreedPercent}%)
                               </p>
+                              <UsdEquiv amount={finalMetrics.profitAtAgreedCOP} block />
                             </div>
                           </div>
 
@@ -2495,6 +2599,15 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         variant="danger"
         onConfirm={() => void handleConfirmDeleteQuote()}
         onCancel={() => setQuoteToDelete(null)}
+      />
+
+      <FeatureGate
+        mode="modal"
+        isOpen={quoteQuotaGateOpen}
+        onClose={() => setQuoteQuotaGateOpen(false)}
+        featureTitle="Historial ilimitado de cotizaciones en PRO"
+        description={`Ya alcanzaste el máximo de ${FREE_MAX_SAVED_QUOTES} cotizaciones reales guardadas en el plan FREE (${realSavedQuotesCount}/${FREE_MAX_SAVED_QUOTES}). Con PRO podrás conservar todo tu historial comercial sin límites.`}
+        freeIncludedNote="Puedes seguir usando la calculadora de precios, copiar el resumen para tu clienta o abrir y actualizar cualquiera de tus cotizaciones ya guardadas sin consumir cupos adicionales."
       />
     </>
   );

@@ -1,15 +1,89 @@
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import type { ISODate, MoneyCOP } from '@/src/domain/models/index.ts';
+import {
+  getCurrencySpec,
+  roundCurrencyAmount,
+  type WorkshopCurrencyCode,
+} from './currencyCatalog.ts';
+import {
+  convertToUsdAmount,
+  type UsdRatesSnapshot,
+} from './exchangeRateService.ts';
 
-const copFormatter = new Intl.NumberFormat(BRAND_CONFIG.locale, {
+let activeCurrencyCode: WorkshopCurrencyCode = BRAND_CONFIG.currency;
+let activeUsdRatesSnapshot: UsdRatesSnapshot | null = null;
+const formatterCache = new Map<string, Intl.NumberFormat>();
+const usdEquivFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: BRAND_CONFIG.currency,
-  maximumFractionDigits: 0,
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
-export function formatCOP(amount: MoneyCOP): string {
-  const safeValue = Number.isFinite(amount) ? Math.round(amount) : 0;
-  return copFormatter.format(safeValue);
+export function setActiveCurrency(code: WorkshopCurrencyCode): void {
+  activeCurrencyCode = getCurrencySpec(code).code;
+}
+
+export function getActiveCurrency(): WorkshopCurrencyCode {
+  return activeCurrencyCode;
+}
+
+export function setActiveUsdRates(snapshot: UsdRatesSnapshot | null): void {
+  activeUsdRatesSnapshot = snapshot;
+}
+
+export function getActiveUsdRates(): UsdRatesSnapshot | null {
+  return activeUsdRatesSnapshot;
+}
+
+function getNumberFormatter(
+  code: WorkshopCurrencyCode,
+  includeDecimals: boolean,
+): Intl.NumberFormat {
+  const spec = getCurrencySpec(code);
+  const minFrac = includeDecimals && spec.decimals > 0 ? spec.decimals : 0;
+  const maxFrac = spec.decimals;
+  const key = `${spec.code}_${minFrac}_${maxFrac}`;
+  let fmt = formatterCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(spec.locale, {
+      style: 'currency',
+      currency: spec.code,
+      minimumFractionDigits: minFrac,
+      maximumFractionDigits: maxFrac,
+    });
+    formatterCache.set(key, fmt);
+  }
+  return fmt;
+}
+
+export function formatMoney(
+  amount: number,
+  currencyCode: WorkshopCurrencyCode = activeCurrencyCode,
+): string {
+  const rounded = roundCurrencyAmount(
+    Number.isFinite(amount) ? amount : 0,
+    currencyCode,
+  );
+  const hasCents = !Number.isInteger(rounded);
+  return getNumberFormatter(currencyCode, hasCents).format(rounded);
+}
+
+export function formatCOP(
+  amount: MoneyCOP,
+  currencyCode?: WorkshopCurrencyCode,
+): string {
+  return formatMoney(amount, currencyCode ?? activeCurrencyCode);
+}
+
+export function formatUsdApprox(
+  amount: number,
+  currencyCode: WorkshopCurrencyCode = activeCurrencyCode,
+  snapshot: UsdRatesSnapshot | null = activeUsdRatesSnapshot,
+): string | null {
+  const usdAmount = convertToUsdAmount(amount, currencyCode, snapshot);
+  if (usdAmount === null) return null;
+  return `≈ ${usdEquivFormatter.format(usdAmount)} USD`;
 }
 
 /**

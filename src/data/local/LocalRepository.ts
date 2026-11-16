@@ -114,6 +114,16 @@ import {
   exportWorkshopBackup,
   inspectBackupFile,
 } from './backupService.ts';
+import {
+  isSupportedCurrency,
+  roundCurrencyAmount,
+  toMinorUnits,
+} from '@/src/domain/services/currencyCatalog.ts';
+import {
+  formatCOP,
+  getActiveCurrency,
+  setActiveCurrency,
+} from '@/src/domain/services/formatters.ts';
 
 const IMMUTABLE_LEDGER_STORES = new Set<WorkshopStoreName>([
   'inventory_movements',
@@ -445,6 +455,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         WorkshopSettings,
         | 'workshopName'
         | 'ownerDisplayName'
+        | 'currency'
         | 'hourlyRateCOP'
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'
@@ -465,6 +476,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   ): Promise<WorkshopSettings> {
     const rawCurrent = await this.settings.getById('default');
     const current = normalizeWorkshopSettings(rawCurrent);
+    const nextCurrency = isSupportedCurrency(partial.currency)
+      ? partial.currency
+      : current.currency;
     const clampPercent = (value: number) =>
       Math.round(Math.max(0, Math.min(100, value)) * 100) / 100;
     const clampDays = (value: number | undefined, fallback: number) =>
@@ -475,9 +489,13 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       ...partial,
       id: 'default',
       isDemo: false,
+      currency: nextCurrency,
       hourlyRateCOP: Math.max(
         0,
-        Math.round(partial.hourlyRateCOP ?? current.hourlyRateCOP),
+        roundCurrencyAmount(
+          partial.hourlyRateCOP ?? current.hourlyRateCOP,
+          nextCurrency,
+        ),
       ),
       dailyGoalMinutes: Math.max(
         15,
@@ -524,7 +542,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       enableLowStockReminders:
         partial.enableLowStockReminders ?? current.enableLowStockReminders ?? true,
     };
-    return this.settings.upsert(updated);
+    const saved = await this.settings.upsert(updated);
+    setActiveCurrency(saved.currency);
+    return saved;
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
@@ -1666,7 +1686,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       newPhysicalStock: this.roundQuantity(params.newPhysicalStock),
       previousReservedStock: this.roundQuantity(params.previousReservedStock),
       newReservedStock: this.roundQuantity(params.newReservedStock),
-      unitCostAtMovementCOP: Math.max(0, Math.round(params.unitCostAtMovementCOP)),
+      unitCostAtMovementCOP: Math.max(
+        0,
+        roundCurrencyAmount(params.unitCostAtMovementCOP, getActiveCurrency()),
+      ),
       idempotencyKey: `mov_${params.type}_${id}`,
       notes: params.notes.trim(),
       timestamp: params.nowIso,
@@ -1764,9 +1787,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       throw new Error('El stock mínimo debe ser mayor o igual a 0.');
     }
     if (!Number.isFinite(input.unitCostCOP) || input.unitCostCOP < 0) {
-      throw new Error('El costo unitario en COP debe ser mayor o igual a 0.');
+      throw new Error('El costo unitario debe ser mayor o igual a 0.');
     }
 
+    const currency = getActiveCurrency();
     const nowIso = new Date().toISOString();
     const initialQty = this.roundQuantity(input.initialPhysicalStock);
 
@@ -1797,7 +1821,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             sizeOrGauge: input.sizeOrGauge?.trim() || null,
             sku: input.sku?.trim() || null,
             provider: input.provider.trim(),
-            unitCostCOP: Math.round(input.unitCostCOP),
+            unitCostCOP: roundCurrencyAmount(input.unitCostCOP, currency),
             physicalStock: initialQty,
             reservedStock: 0,
             totalConsumed: 0,
@@ -1864,7 +1888,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         updates.provider !== undefined ? updates.provider.trim() : existing.provider,
       unitCostCOP:
         updates.unitCostCOP !== undefined
-          ? Math.max(0, Math.round(updates.unitCostCOP))
+          ? Math.max(0, roundCurrencyAmount(updates.unitCostCOP, getActiveCurrency()))
           : existing.unitCostCOP,
       minStock:
         updates.minStock !== undefined
@@ -3114,7 +3138,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       !Number.isFinite(input.estimatedUnitPriceCOP) ||
       input.estimatedUnitPriceCOP < 0
     ) {
-      throw new Error('El precio unitario estimado en COP debe ser mayor o igual a 0.');
+      throw new Error('El precio unitario estimado debe ser mayor o igual a 0.');
     }
 
     const list = await this.notesAndLists.getById(input.listId);
@@ -3177,7 +3201,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       plannedQuantity: planned,
       purchasedQuantity: purchased,
       receivedQuantity: 0,
-      estimatedUnitPriceCOP: Math.round(input.estimatedUnitPriceCOP),
+      estimatedUnitPriceCOP: roundCurrencyAmount(
+        input.estimatedUnitPriceCOP,
+        getActiveCurrency(),
+      ),
       provider,
       status,
       notes: (input.notes ?? '').trim(),
@@ -3237,7 +3264,13 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       purchasedQuantity: nextPurchased,
       estimatedUnitPriceCOP:
         updates.estimatedUnitPriceCOP !== undefined
-          ? Math.max(0, Math.round(updates.estimatedUnitPriceCOP))
+          ? Math.max(
+              0,
+              roundCurrencyAmount(
+                updates.estimatedUnitPriceCOP,
+                getActiveCurrency(),
+              ),
+            )
           : existing.estimatedUnitPriceCOP,
       provider:
         updates.provider !== undefined ? updates.provider.trim() : existing.provider,
@@ -3368,9 +3401,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         throw new Error('La cantidad recibida debe ser mayor a 0.');
       }
       if (!Number.isFinite(line.unitCostCOP) || line.unitCostCOP < 0) {
-        throw new Error('El costo unitario en COP debe ser mayor o igual a 0.');
+        throw new Error('El costo unitario debe ser mayor o igual a 0.');
       }
     }
+    const currency = getActiveCurrency();
 
     const nowIso = new Date().toISOString();
     const receiptId = this.createLocalId('rec');
@@ -3509,7 +3543,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 receivedQuantity: nextReceived,
                 estimatedUnitPriceCOP:
                   line.unitCostCOP > 0
-                    ? Math.round(line.unitCostCOP)
+                    ? roundCurrencyAmount(line.unitCostCOP, currency)
                     : sli.estimatedUnitPriceCOP,
                 provider: cleanProvider || sli.provider,
                 status: nextStatus,
@@ -3559,7 +3593,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             }
 
             const qtyRec = this.roundQuantity(line.quantityReceived);
-            const unitCost = Math.max(0, Math.round(line.unitCostCOP));
+            const unitCost = Math.max(0, roundCurrencyAmount(line.unitCostCOP, currency));
             const prevPhysical = variant.physicalStock;
             const nextPhysical = this.roundQuantity(prevPhysical + qtyRec);
             const nextVariantCost =
@@ -3577,7 +3611,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             });
             touchedVariants.add(variant.id);
 
-            totalCostCOP += Math.round(qtyRec * unitCost);
+            totalCostCOP = roundCurrencyAmount(
+              totalCostCOP + roundCurrencyAmount(qtyRec * unitCost, currency),
+              currency,
+            );
 
             receiptItems.push({
               variantId: variant.id,
@@ -3654,7 +3691,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             receiptDate: input.receiptDate || nowIso,
             referenceCode: input.referenceCode?.trim() || null,
             items: receiptItems,
-            totalCostCOP: Math.max(0, Math.round(totalCostCOP)),
+            totalCostCOP: Math.max(0, roundCurrencyAmount(totalCostCOP, currency)),
             idempotencyKey: input.idempotencyKey || `rec_${receiptId}`,
             notes: (input.notes ?? '').trim(),
           };
@@ -4015,7 +4052,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             }
             const nextBudget = Math.max(
               0,
-              Math.round(quote.finalAgreedPriceCOP ?? quote.suggestedPriceCOP),
+              roundCurrencyAmount(
+                quote.finalAgreedPriceCOP ?? quote.suggestedPriceCOP,
+                getActiveCurrency(),
+              ),
             );
             const updatedProject: Project = {
               ...project,
@@ -4153,15 +4193,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   }
 
   async createPaymentPlan(input: CreatePaymentPlanInput): Promise<PaymentPlan> {
-    const totalAgreedCOP = Math.round(input.totalAgreedCOP);
-    validateInstallmentsAgainstTotal(totalAgreedCOP, input.installments);
+    const currency = getActiveCurrency();
+    const totalAgreedCOP = roundCurrencyAmount(input.totalAgreedCOP, currency);
+    validateInstallmentsAgainstTotal(totalAgreedCOP, input.installments, currency);
 
     if (input.initialPayment) {
-      const initAmt = Math.round(input.initialPayment.amountCOP);
-      if (!Number.isFinite(initAmt) || initAmt <= 0) {
-        throw new Error('El abono inicial debe ser mayor a $0 COP.');
+      const initAmt = roundCurrencyAmount(input.initialPayment.amountCOP, currency);
+      if (!Number.isFinite(initAmt) || toMinorUnits(initAmt, currency) <= 0) {
+        throw new Error(`El abono inicial debe ser mayor a ${formatCOP(0, currency)}.`);
       }
-      if (initAmt > totalAgreedCOP) {
+      if (toMinorUnits(initAmt, currency) > toMinorUnits(totalAgreedCOP, currency)) {
         throw new Error(
           'El abono inicial no puede superar el valor total acordado.',
         );
@@ -4262,7 +4303,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           let createdInstallments: PaymentInstallment[] = input.installments.map(
             (draft, idx) => {
               const dueIso = dateKeyToMiddayIso(draft.dueDateKey);
-              const amt = Math.round(draft.scheduledAmountCOP);
+              const amt = roundCurrencyAmount(draft.scheduledAmountCOP, currency);
               return {
                 id: this.createLocalId('inst'),
                 ownerId: 'local-workshop',
@@ -4277,13 +4318,13 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 scheduledAmountCOP: amt,
                 paidAmountCOP: 0,
                 dueDate: dueIso,
-                status: resolveInstallmentStatus(amt, 0, dueIso, todayKey),
+                status: resolveInstallmentStatus(amt, 0, dueIso, todayKey, currency),
               };
             },
           );
 
           if (input.initialPayment && input.initialPayment.amountCOP > 0) {
-            const initAmt = Math.round(input.initialPayment.amountCOP);
+            const initAmt = roundCurrencyAmount(input.initialPayment.amountCOP, currency);
             const firstInst = createdInstallments[0];
             try {
               createdInstallments = allocatePaymentAcrossInstallments(
@@ -4291,6 +4332,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 firstInst?.id ?? null,
                 initAmt,
                 todayKey,
+                currency,
               );
             } catch (err) {
               aborted = true;
@@ -4373,8 +4415,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     planId: string,
     updates: UpdatePaymentPlanInput,
   ): Promise<PaymentPlan> {
-    const totalAgreedCOP = Math.round(updates.totalAgreedCOP);
-    validateInstallmentsAgainstTotal(totalAgreedCOP, updates.installments);
+    const currency = getActiveCurrency();
+    const totalAgreedCOP = roundCurrencyAmount(updates.totalAgreedCOP, currency);
+    validateInstallmentsAgainstTotal(totalAgreedCOP, updates.installments, currency);
 
     const nowIso = new Date().toISOString();
     const todayKey = toLocalDateKey(new Date());
@@ -4417,16 +4460,20 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           const existingTransactions =
             (txReq.result as FinancialTransaction[]) ?? [];
 
-          const ledgerPaidTotal = existingTransactions.reduce(
-            (sum, t) => sum + Math.max(0, Math.round(t.amountCOP)),
+          const ledgerPaidMinor = existingTransactions.reduce(
+            (sum, t) => sum + Math.max(0, toMinorUnits(t.amountCOP, currency)),
             0,
           );
 
-          if (totalAgreedCOP < ledgerPaidTotal) {
+          if (toMinorUnits(totalAgreedCOP, currency) < ledgerPaidMinor) {
+            const ledgerPaidTotal = existingTransactions.reduce(
+              (sum, t) => sum + Math.max(0, roundCurrencyAmount(t.amountCOP, currency)),
+              0,
+            );
             aborted = true;
             fail(
               new Error(
-                `El valor total acordado no puede ser menor al monto ya pagado (${ledgerPaidTotal.toLocaleString('es-CO')} COP).`,
+                `El valor total acordado no puede ser menor al monto ya pagado (${formatCOP(ledgerPaidTotal, currency)} ${currency}).`,
               ),
             );
             return;
@@ -4457,14 +4504,14 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           for (let idx = 0; idx < updates.installments.length; idx += 1) {
             const draft = updates.installments[idx];
             const prev = draft.id ? existingInstById.get(draft.id) : undefined;
-            const scheduledAmt = Math.round(draft.scheduledAmountCOP);
+            const scheduledAmt = roundCurrencyAmount(draft.scheduledAmountCOP, currency);
             const paidAmt = prev ? prev.paidAmountCOP : 0;
 
-            if (scheduledAmt < paidAmt) {
+            if (toMinorUnits(scheduledAmt, currency) < toMinorUnits(paidAmt, currency)) {
               aborted = true;
               fail(
                 new Error(
-                  `La cuota "${draft.concept}" ya recibió ${paidAmt.toLocaleString('es-CO')} COP y no puede reducirse por debajo de lo pagado.`,
+                  `La cuota "${draft.concept}" ya recibió ${formatCOP(paidAmt, currency)} ${currency} y no puede reducirse por debajo de lo pagado.`,
                 ),
               );
               return;
@@ -4664,9 +4711,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   async recordPaymentTransaction(
     input: RecordPaymentTransactionInput,
   ): Promise<FinancialTransaction> {
-    const amountCOP = Math.round(input.amountCOP);
-    if (!Number.isFinite(amountCOP) || amountCOP <= 0) {
-      throw new Error('El monto del abono debe ser mayor a $0 COP.');
+    const currency = getActiveCurrency();
+    const amountCOP = roundCurrencyAmount(input.amountCOP, currency);
+    if (!Number.isFinite(amountCOP) || toMinorUnits(amountCOP, currency) <= 0) {
+      throw new Error(`El monto del abono debe ser mayor a ${formatCOP(0, currency)}.`);
     }
 
     const nowIso = new Date().toISOString();

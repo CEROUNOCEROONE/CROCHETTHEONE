@@ -16,9 +16,49 @@ import type {
   BackupInspectionResult,
 } from '@/src/data/ports/DataStorePort.ts';
 import { DB_VERSION } from './dbSchema.ts';
-import { createDefaultWorkshopSettings, runAtomicTransaction } from './indexedDbClient.ts';
+import {
+  createDefaultPlanMetadata,
+  createDefaultWorkshopSettings,
+  createWorkshopInstanceUuid,
+  normalizeWorkshopPlanMetadata,
+  normalizeWorkshopSettings,
+  runAtomicTransaction,
+} from './indexedDbClient.ts';
 
 const BACKUP_FORMAT = 'app-crochet-backup' as const;
+
+function getValidTrimmedId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function sanitizeIncomingWorkshopSettingsList(
+  rawList: BaseEntity[],
+  nowIso: string,
+): BaseEntity[] {
+  if (rawList.length === 0) return [];
+  const preferred =
+    rawList.find((item) => item.id === 'default') ?? rawList[0];
+  const rawObj = preferred as unknown as Record<string, unknown>;
+  const rawInstanceId = getValidTrimmedId(rawObj.workshopInstanceId);
+
+  const sanitized: Record<string, unknown> = {
+    ...rawObj,
+    id: 'default',
+    isDemo: false,
+    // Jamás aceptar autorización comercial desde un archivo JSON externo
+    plan: createDefaultPlanMetadata(nowIso),
+  };
+
+  if (rawInstanceId) {
+    sanitized.workshopInstanceId = rawInstanceId;
+  } else {
+    delete sanitized.workshopInstanceId;
+  }
+
+  return [sanitized as unknown as BaseEntity];
+}
 
 export async function exportWorkshopBackup(options: {
   includeDemo: boolean;
@@ -205,8 +245,16 @@ export async function inspectBackupFile(
       }
     }
 
-    normalizedData[storeName] = rawList as BaseEntity[];
-    normalizedCounts[storeName] = rawList.length;
+    if (storeName === 'workshop_settings') {
+      normalizedData[storeName] = sanitizeIncomingWorkshopSettingsList(
+        rawList as BaseEntity[],
+        new Date().toISOString(),
+      );
+      normalizedCounts[storeName] = normalizedData[storeName]?.length ?? 0;
+    } else {
+      normalizedData[storeName] = rawList as BaseEntity[];
+      normalizedCounts[storeName] = rawList.length;
+    }
   }
 
   // Validación estricta de integridad referencial interna del archivo
@@ -347,8 +395,26 @@ export async function applyBackupImport(
     'readwrite',
     (tx, done, fail) => {
       const existingByStore = new Map<WorkshopStoreName, Set<string>>();
-      let pending = DATA_STORES_TOPOLOGICAL_ORDER.length;
+      let existingLocalSettings: WorkshopSettings | null = null;
+      let pending = DATA_STORES_TOPOLOGICAL_ORDER.length + 1;
       let aborted = false;
+
+      const settingsReadReq = tx.objectStore('workshop_settings').get('default');
+      settingsReadReq.onerror = () => {
+        if (!aborted) {
+          aborted = true;
+          fail(settingsReadReq.error);
+        }
+      };
+      settingsReadReq.onsuccess = () => {
+        if (aborted) return;
+        existingLocalSettings =
+          (settingsReadReq.result as WorkshopSettings | undefined) ?? null;
+        pending -= 1;
+        if (pending === 0) {
+          executeWrite();
+        }
+      };
 
       for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
         const req = tx.objectStore(storeName).getAllKeys();
@@ -376,6 +442,23 @@ export async function applyBackupImport(
         let insertedCount = 0;
         let updatedCount = 0;
         let skippedCount = 0;
+        const nowIso = new Date().toISOString();
+
+        const localId = getValidTrimmedId(
+          existingLocalSettings?.workshopInstanceId,
+        );
+        const preservedLocalPlan = normalizeWorkshopPlanMetadata(
+          existingLocalSettings?.plan,
+          nowIso,
+        );
+
+        const settingsIncomingList = envelope.data.workshop_settings ?? [];
+        const incomingRawSettings = (settingsIncomingList.find(
+          (s) => s.id === 'default',
+        ) ?? settingsIncomingList[0]) as Partial<WorkshopSettings> | undefined;
+        const incomingId = getValidTrimmedId(
+          incomingRawSettings?.workshopInstanceId,
+        );
 
         if (strategy === 'replace_all') {
           for (const storeName of [...DATA_STORES_TOPOLOGICAL_ORDER].reverse()) {
@@ -384,6 +467,8 @@ export async function applyBackupImport(
         }
 
         for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
+          if (storeName === 'workshop_settings') continue;
+
           const store = tx.objectStore(storeName);
           const records = envelope.data[storeName] ?? [];
           const existingKeys =
@@ -409,10 +494,99 @@ export async function applyBackupImport(
           }
         }
 
-        // Garantizar que workshop_settings siempre tenga un registro 'default' válido
-        const settingsIncoming = envelope.data.workshop_settings ?? [];
-        if (strategy === 'replace_all' && settingsIncoming.length === 0) {
-          tx.objectStore('workshop_settings').put(createDefaultWorkshopSettings());
+        // Manejo transaccional protegido del registro único 'default' en workshop_settings
+        const settingsStore = tx.objectStore('workshop_settings');
+
+        if (strategy === 'replace_all') {
+          const resolvedInstanceId =
+            incomingId ?? localId ?? createWorkshopInstanceUuid();
+          const baseSettings = incomingRawSettings
+            ? normalizeWorkshopSettings({
+                ...incomingRawSettings,
+                id: 'default',
+                isDemo: false,
+                workshopInstanceId: resolvedInstanceId,
+                plan: preservedLocalPlan,
+              })
+            : {
+                ...createDefaultWorkshopSettings(),
+                workshopInstanceId: resolvedInstanceId,
+                plan: preservedLocalPlan,
+              };
+
+          settingsStore.put(baseSettings);
+          if (settingsIncomingList.length > 0) {
+            insertedCount += 1;
+          }
+        } else if (strategy === 'merge_overwrite') {
+          const resolvedInstanceId =
+            incomingId ?? localId ?? createWorkshopInstanceUuid();
+
+          if (incomingRawSettings) {
+            const mergedSettings = normalizeWorkshopSettings({
+              ...incomingRawSettings,
+              id: 'default',
+              isDemo: false,
+              workshopInstanceId: resolvedInstanceId,
+              plan: preservedLocalPlan,
+            });
+            settingsStore.put(mergedSettings);
+            if (existingLocalSettings) {
+              updatedCount += 1;
+            } else {
+              insertedCount += 1;
+            }
+          } else if (
+            !existingLocalSettings ||
+            !localId ||
+            !existingLocalSettings.plan
+          ) {
+            const ensuredSettings = normalizeWorkshopSettings({
+              ...(existingLocalSettings ?? {}),
+              id: 'default',
+              isDemo: false,
+              workshopInstanceId: resolvedInstanceId,
+              plan: preservedLocalPlan,
+            });
+            settingsStore.put(ensuredSettings);
+          }
+        } else {
+          // strategy === 'append_new': jamás sobrescribe preferencias locales existentes
+          if (existingLocalSettings) {
+            if (settingsIncomingList.length > 0) {
+              skippedCount += 1;
+            }
+            if (!localId) {
+              const patchedLocal = normalizeWorkshopSettings({
+                ...existingLocalSettings,
+                id: 'default',
+                isDemo: false,
+                workshopInstanceId: incomingId ?? createWorkshopInstanceUuid(),
+                plan: preservedLocalPlan,
+              });
+              settingsStore.put(patchedLocal);
+            }
+          } else {
+            const resolvedInstanceId =
+              incomingId ?? createWorkshopInstanceUuid();
+            const createdSettings = incomingRawSettings
+              ? normalizeWorkshopSettings({
+                  ...incomingRawSettings,
+                  id: 'default',
+                  isDemo: false,
+                  workshopInstanceId: resolvedInstanceId,
+                  plan: createDefaultPlanMetadata(nowIso),
+                })
+              : {
+                  ...createDefaultWorkshopSettings(),
+                  workshopInstanceId: resolvedInstanceId,
+                  plan: createDefaultPlanMetadata(nowIso),
+                };
+            settingsStore.put(createdSettings);
+            if (settingsIncomingList.length > 0) {
+              insertedCount += 1;
+            }
+          }
         }
 
         done({

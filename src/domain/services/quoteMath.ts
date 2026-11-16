@@ -1,4 +1,9 @@
 import type { MoneyCOP } from '@/src/domain/models/index.ts';
+import {
+  roundCurrencyAmount,
+  type WorkshopCurrencyCode,
+} from './currencyCatalog.ts';
+import { getActiveCurrency } from './formatters.ts';
 
 export interface QuoteCalculationInput {
   readonly materialsTotalCOP: MoneyCOP;
@@ -12,6 +17,7 @@ export interface QuoteCalculationInput {
   readonly electricityPercent?: number;
   readonly internetPercent?: number;
   readonly wasteContingencyPercent?: number;
+  readonly currency?: WorkshopCurrencyCode;
 }
 
 export interface QuoteCalculationResult {
@@ -37,39 +43,47 @@ export interface QuoteCalculationResult {
  * y calcula el margen real sobre el precio de venta para transparencia financiera.
  */
 export function calculateQuoteSummary(input: QuoteCalculationInput): QuoteCalculationResult {
-  const materialsTotalCOP = Math.max(0, Math.round(input.materialsTotalCOP));
+  const currency = input.currency ?? getActiveCurrency();
+  const roundMoney = (val: number) =>
+    Math.max(0, roundCurrencyAmount(val, currency));
+
+  const materialsTotalCOP = roundMoney(input.materialsTotalCOP);
   const effectiveHours = Math.max(0, input.effectiveMinutes) / 60;
-  const laborTotalCOP = Math.round(effectiveHours * Math.max(0, input.hourlyRateCOP));
-  const directBaseCostCOP = materialsTotalCOP + laborTotalCOP;
+  const laborTotalCOP = roundMoney(effectiveHours * Math.max(0, input.hourlyRateCOP));
+  const directBaseCostCOP = roundMoney(materialsTotalCOP + laborTotalCOP);
 
   const fixedPercentSum =
     Math.max(0, input.rentPercent ?? 0) +
     Math.max(0, input.electricityPercent ?? 0) +
     Math.max(0, input.internetPercent ?? 0);
-  const fixedServicesIndirectCOP = Math.round(
+  const fixedServicesIndirectCOP = roundMoney(
     directBaseCostCOP * (fixedPercentSum / 100),
   );
 
   const safeWastePercent = Math.max(0, input.wasteContingencyPercent ?? 0);
-  const wasteContingencyCOP = Math.round(
+  const wasteContingencyCOP = roundMoney(
     directBaseCostCOP * (safeWastePercent / 100),
   );
 
-  const indirectAndPackagingCOP = Math.max(
-    0,
-    Math.round(
-      input.indirectCostsCOP +
-        fixedServicesIndirectCOP +
-        wasteContingencyCOP +
-        input.packagingCostCOP +
-        input.shippingOrOtherCOP,
-    ),
+  const indirectAndPackagingCOP = roundMoney(
+    Math.max(0, input.indirectCostsCOP) +
+      fixedServicesIndirectCOP +
+      wasteContingencyCOP +
+      Math.max(0, input.packagingCostCOP) +
+      Math.max(0, input.shippingOrOtherCOP),
   );
-  const totalProductionCostCOP = directBaseCostCOP + indirectAndPackagingCOP;
+  const totalProductionCostCOP = roundMoney(
+    directBaseCostCOP + indirectAndPackagingCOP,
+  );
 
   const safeMarkupPercent = Math.max(0, input.markupPercent);
-  const suggestedPriceCOP = Math.round(totalProductionCostCOP * (1 + safeMarkupPercent / 100));
-  const expectedProfitCOP = suggestedPriceCOP - totalProductionCostCOP;
+  const suggestedPriceCOP = roundMoney(
+    totalProductionCostCOP * (1 + safeMarkupPercent / 100),
+  );
+  const expectedProfitCOP = roundCurrencyAmount(
+    suggestedPriceCOP - totalProductionCostCOP,
+    currency,
+  );
   const grossMarginPercent =
     suggestedPriceCOP > 0
       ? Number(((expectedProfitCOP / suggestedPriceCOP) * 100).toFixed(2))

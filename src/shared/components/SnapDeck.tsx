@@ -83,8 +83,8 @@ export const SnapDeck = React.forwardRef<SnapDeckHandle, SnapDeckProps>(
   ) => {
     const trackRef = useRef<HTMLDivElement | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
+    const activeIndexRef = useRef(0);
     const onSlideChangeRef = useRef(onSlideChange);
-    onSlideChangeRef.current = onSlideChange;
 
     // Extrae metadatos (id y label) de los hijos <SnapSlide> válidos sin re-renderizar innecesariamente
     const slidesMeta = useMemo<SlideMeta[]>(() => {
@@ -101,11 +101,22 @@ export const SnapDeck = React.forwardRef<SnapDeckHandle, SnapDeckProps>(
     }, [children]);
 
     const slidesMetaRef = useRef(slidesMeta);
-    slidesMetaRef.current = slidesMeta;
+
+    useEffect(() => {
+      onSlideChangeRef.current = onSlideChange;
+    }, [onSlideChange]);
+
+    useEffect(() => {
+      slidesMetaRef.current = slidesMeta;
+    }, [slidesMeta]);
 
     const totalSlides = slidesMeta.length;
     const safeIndex = Math.min(activeIndex, Math.max(0, totalSlides - 1));
     const currentSlide = slidesMeta[safeIndex] ?? null;
+
+    useEffect(() => {
+      activeIndexRef.current = safeIndex;
+    }, [safeIndex]);
 
     const scrollToIndex = useCallback(
       (targetIdx: number, behavior?: ScrollBehavior) => {
@@ -126,6 +137,7 @@ export const SnapDeck = React.forwardRef<SnapDeckHandle, SnapDeckProps>(
         } else {
           track.scrollTo({ left: slideEl.offsetLeft, behavior: resolvedBehavior });
         }
+        activeIndexRef.current = clamped;
         setActiveIndex(clamped);
         onSlideChangeRef.current?.(list[clamped].id, clamped);
       },
@@ -186,14 +198,11 @@ export const SnapDeck = React.forwardRef<SnapDeckHandle, SnapDeckProps>(
           const slideId = (bestEntry.target as HTMLElement).dataset.snapSlideId;
           if (!slideId) return;
           const idx = slidesMetaRef.current.findIndex((s) => s.id === slideId);
-          if (idx >= 0) {
-            setActiveIndex((prev) => {
-              if (prev !== idx) {
-                lastAppliedExternalIdRef.current = slideId;
-                onSlideChangeRef.current?.(slideId, idx);
-              }
-              return idx;
-            });
+          if (idx >= 0 && activeIndexRef.current !== idx) {
+            activeIndexRef.current = idx;
+            lastAppliedExternalIdRef.current = slideId;
+            setActiveIndex(idx);
+            onSlideChangeRef.current?.(slideId, idx);
           }
         },
         {

@@ -1,12 +1,98 @@
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import type {
+  PlanMetadataSource,
   SchemaMeta,
   SchemaMigrationRecord,
+  SubscriptionStatus,
+  SubscriptionTier,
+  WorkshopPlanMetadata,
   WorkshopSettings,
   WorkshopStoreName,
 } from '@/src/domain/models/index.ts';
+import {
+  isSupportedCurrency,
+  roundCurrencyAmount,
+} from '@/src/domain/services/currencyCatalog.ts';
 import { DB_NAME, DB_VERSION } from './dbSchema.ts';
 import { buildUpdatedSchemaMeta, runIdbMigrations } from './migrations.ts';
+
+const VALID_TIERS: ReadonlySet<SubscriptionTier> = new Set([
+  'free',
+  'pro_monthly',
+  'pro_annual',
+]);
+
+const VALID_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'canceled',
+  'expired',
+]);
+
+const VALID_PLAN_SOURCES: ReadonlySet<PlanMetadataSource> = new Set([
+  'local_default',
+  'server_cached',
+]);
+
+export function createWorkshopInstanceUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const rand = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return `${rand()}${rand()}-${rand()}-4${rand().slice(1)}-a${rand().slice(1)}-${rand()}${rand()}${rand()}`;
+}
+
+export function createDefaultPlanMetadata(
+  nowIso = new Date().toISOString(),
+): WorkshopPlanMetadata {
+  return {
+    tier: 'free',
+    status: 'active',
+    source: 'local_default',
+    updatedAt: nowIso,
+    lastVerifiedAt: null,
+  };
+}
+
+function isValidIsoDateString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !Number.isNaN(Date.parse(value));
+}
+
+export function isValidWorkshopPlanMetadata(
+  raw: unknown,
+): raw is WorkshopPlanMetadata {
+  if (!raw || typeof raw !== 'object') return false;
+  const obj = raw as Record<string, unknown>;
+  if (!VALID_TIERS.has(obj.tier as SubscriptionTier)) return false;
+  if (!VALID_STATUSES.has(obj.status as SubscriptionStatus)) return false;
+  if (!VALID_PLAN_SOURCES.has(obj.source as PlanMetadataSource)) return false;
+  if (!isValidIsoDateString(obj.updatedAt)) return false;
+
+  if (obj.lastVerifiedAt !== undefined && obj.lastVerifiedAt !== null) {
+    if (!isValidIsoDateString(obj.lastVerifiedAt)) return false;
+  } else if (obj.source === 'server_cached') {
+    return false;
+  }
+
+  return true;
+}
+
+export function normalizeWorkshopPlanMetadata(
+  rawPlan: unknown,
+  fallbackNowIso = new Date().toISOString(),
+): WorkshopPlanMetadata {
+  if (isValidWorkshopPlanMetadata(rawPlan)) {
+    return {
+      tier: rawPlan.tier,
+      status: rawPlan.status,
+      source: rawPlan.source,
+      updatedAt: rawPlan.updatedAt,
+      lastVerifiedAt: rawPlan.lastVerifiedAt ?? null,
+    };
+  }
+  return createDefaultPlanMetadata(fallbackNowIso);
+}
 
 let dbInstancePromise: Promise<IDBDatabase> | null = null;
 let pendingMigrationsFromUpgrade: SchemaMigrationRecord[] = [];
@@ -29,6 +115,8 @@ export function createDefaultWorkshopSettings(): WorkshopSettings {
     isDemo: false,
     createdAt: now,
     updatedAt: now,
+    workshopInstanceId: createWorkshopInstanceUuid(),
+    plan: createDefaultPlanMetadata(now),
     workshopName: BRAND_CONFIG.defaultWorkshopName,
     ownerDisplayName: 'Artesana',
     hourlyRateCOP: BRAND_CONFIG.defaults.hourlyRateCOP,
@@ -57,11 +145,28 @@ export function normalizeWorkshopSettings(
 ): WorkshopSettings {
   const defaults = createDefaultWorkshopSettings();
   if (!raw) return defaults;
+  const currency = isSupportedCurrency(raw.currency)
+    ? raw.currency
+    : defaults.currency;
+  const workshopInstanceId =
+    typeof raw.workshopInstanceId === 'string' &&
+    raw.workshopInstanceId.trim().length > 0
+      ? raw.workshopInstanceId.trim()
+      : defaults.workshopInstanceId;
+  const plan = normalizeWorkshopPlanMetadata(raw.plan, defaults.updatedAt);
+
   return {
     ...defaults,
     ...raw,
     id: 'default',
     isDemo: false,
+    workshopInstanceId,
+    plan,
+    currency,
+    hourlyRateCOP:
+      typeof raw.hourlyRateCOP === 'number' && Number.isFinite(raw.hourlyRateCOP)
+        ? Math.max(0, roundCurrencyAmount(raw.hourlyRateCOP, currency))
+        : defaults.hourlyRateCOP,
     rentCostPercent:
       typeof raw.rentCostPercent === 'number' && Number.isFinite(raw.rentCostPercent)
         ? raw.rentCostPercent
@@ -137,6 +242,14 @@ async function ensureBootstrapRecords(db: IDBDatabase): Promise<void> {
 
   if (!existingSettings) {
     settingsStore.put(createDefaultWorkshopSettings());
+  } else {
+    const missingInstanceId =
+      typeof existingSettings.workshopInstanceId !== 'string' ||
+      existingSettings.workshopInstanceId.trim().length === 0;
+    const invalidPlan = !isValidWorkshopPlanMetadata(existingSettings.plan);
+    if (missingInstanceId || invalidPlan) {
+      settingsStore.put(normalizeWorkshopSettings(existingSettings));
+    }
   }
 
   await new Promise<void>((resolve, reject) => {

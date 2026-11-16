@@ -1,3 +1,5 @@
+import type { WorkshopCurrencyCode } from '@/src/domain/services/currencyCatalog.ts';
+
 /**
  * Configuración centralizada de identidad, localización y reglas comerciales.
  * Modificar este archivo permite renombrar o re-estilizar la marca sin tocar
@@ -9,7 +11,7 @@ export interface BrandConfig {
   readonly tagline: string;
   readonly defaultWorkshopName: string;
   readonly locale: string;
-  readonly currency: 'COP';
+  readonly currency: WorkshopCurrencyCode;
   readonly dateFormatLabel: 'DD/MM/YYYY';
   readonly themeColor: string;
   readonly backgroundColor: string;

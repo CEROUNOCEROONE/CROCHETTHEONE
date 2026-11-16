@@ -25,6 +25,7 @@ import type {
   ScheduledTask,
   SchemaMeta,
   ShoppingListItem,
+  SubscriptionTier,
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
@@ -86,6 +87,23 @@ import type {
 } from '@/src/data/ports/DataStorePort.ts';
 import { localWorkshopEngine } from './local/LocalRepository.ts';
 import { createDefaultWorkshopSettings } from './local/indexedDbClient.ts';
+import {
+  setActiveCurrency,
+  setActiveUsdRates,
+} from '@/src/domain/services/formatters.ts';
+import {
+  ensureDailyUsdRates,
+  isUsdRatesFreshToday,
+  readCachedUsdRates,
+  type UsdRatesSnapshot,
+  type UsdRatesSyncStatus,
+} from '@/src/domain/services/exchangeRateService.ts';
+import {
+  getPlanCapabilities,
+  resolveEffectiveTier,
+  type PlanCapabilities,
+} from '@/src/domain/services/planCapabilities.ts';
+import { getOrCreateInstallationId } from '@/src/shared/utils/installationId.ts';
 
 export interface SavePulse {
   readonly seq: number;
@@ -120,6 +138,14 @@ interface DataContextValue {
   readonly reminders: Reminder[];
   readonly stats: WorkshopDashboardStats;
   readonly schemaMeta: SchemaMeta | null;
+  readonly installationId: string;
+  readonly effectiveTier: SubscriptionTier;
+  readonly capabilities: PlanCapabilities;
+  readonly devTierOverride: SubscriptionTier | null;
+  setDevTierOverride(tier: SubscriptionTier | null): void;
+  readonly usdRates: UsdRatesSnapshot | null;
+  readonly usdRatesStatus: UsdRatesSyncStatus;
+  syncDailyUsdRates(): Promise<void>;
   refresh(): Promise<void>;
   updateSettings(
     partial: Partial<
@@ -127,6 +153,7 @@ interface DataContextValue {
         WorkshopSettings,
         | 'workshopName'
         | 'ownerDisplayName'
+        | 'currency'
         | 'hourlyRateCOP'
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'
@@ -309,6 +336,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
   const [schemaMeta, setSchemaMeta] = useState<SchemaMeta | null>(null);
+  const [usdRates, setUsdRates] = useState<UsdRatesSnapshot | null>(() => {
+    const cached = readCachedUsdRates();
+    setActiveUsdRates(cached);
+    return cached;
+  });
+  const [usdRatesStatus, setUsdRatesStatus] = useState<UsdRatesSyncStatus>(() => {
+    const cached = readCachedUsdRates();
+    if (!cached) return 'idle';
+    return isUsdRatesFreshToday(cached) ? 'ready' : 'offline_cached';
+  });
+  const [installationId] = useState<string>(() => getOrCreateInstallationId());
+  const [devTierOverrideState, setDevTierOverrideState] =
+    useState<SubscriptionTier | null>(null);
+
+  const setDevTierOverride = useCallback((nextTier: SubscriptionTier | null) => {
+    if (!import.meta.env.DEV) return;
+    setDevTierOverrideState(nextTier);
+  }, []);
+
+  const devTierOverride = import.meta.env.DEV ? devTierOverrideState : null;
+  const effectiveTier = useMemo(
+    () => resolveEffectiveTier(settings, devTierOverride),
+    [settings, devTierOverride],
+  );
+  const capabilities = useMemo(
+    () => getPlanCapabilities(effectiveTier),
+    [effectiveTier],
+  );
 
   const markSaved = useCallback((summary: string) => {
     setLastSaved((prev) => ({
@@ -325,6 +380,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localWorkshopEngine.loadWorkshopSnapshot(),
         localWorkshopEngine.getSchemaMeta(),
       ]);
+      setActiveCurrency(snapshot.settings.currency);
       setSettings(snapshot.settings);
       setProjects(snapshot.projects);
       setComponents(snapshot.components);
@@ -361,6 +417,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void refresh();
   }, [refresh]);
 
+  const syncDailyUsdRates = useCallback(async () => {
+    const cached = readCachedUsdRates();
+    if (isUsdRatesFreshToday(cached)) {
+      setActiveUsdRates(cached);
+      setUsdRates(cached);
+      setUsdRatesStatus('ready');
+      return;
+    }
+
+    setUsdRatesStatus((prev) => (prev === 'ready' ? prev : 'loading'));
+    const result = await ensureDailyUsdRates();
+    setActiveUsdRates(result.snapshot);
+    setUsdRates(result.snapshot);
+    setUsdRatesStatus(result.status);
+  }, []);
+
+  useEffect(() => {
+    if (isLoading || settings.currency === 'USD') return;
+    void syncDailyUsdRates();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void syncDailyUsdRates();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [isLoading, settings.currency, syncDailyUsdRates]);
+
   const updateSettings = useCallback(
     async (
       partial: Partial<
@@ -368,6 +455,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           WorkshopSettings,
           | 'workshopName'
           | 'ownerDisplayName'
+          | 'currency'
           | 'hourlyRateCOP'
           | 'dailyGoalMinutes'
           | 'weeklyGoalMinutes'
@@ -387,6 +475,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       >,
     ) => {
       const updated = await localWorkshopEngine.saveWorkshopSettings(partial);
+      setActiveCurrency(updated.currency);
       await refresh();
       markSaved('Configuración del taller');
       return updated;
@@ -1034,6 +1123,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reminders,
       stats,
       schemaMeta,
+      installationId,
+      effectiveTier,
+      capabilities,
+      devTierOverride,
+      setDevTierOverride,
+      usdRates,
+      usdRatesStatus,
+      syncDailyUsdRates,
       refresh,
       updateSettings,
       createProject,
@@ -1121,6 +1218,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reminders,
       stats,
       schemaMeta,
+      installationId,
+      effectiveTier,
+      capabilities,
+      devTierOverride,
+      setDevTierOverride,
+      usdRates,
+      usdRatesStatus,
+      syncDailyUsdRates,
       refresh,
       updateSettings,
       createProject,

@@ -29,6 +29,10 @@ import type {
   ShoppingListItem,
 } from '@/src/domain/models/index.ts';
 import {
+  getMoneyInputStep,
+  roundCurrencyAmount,
+} from '@/src/domain/services/currencyCatalog.ts';
+import {
   formatCOP,
   formatDateCO,
   formatDateTimeCO,
@@ -54,6 +58,7 @@ import {
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -104,6 +109,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   onOpenProject,
 }) => {
   const {
+    settings,
     projects,
     components,
     materials,
@@ -989,14 +995,18 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
         .filter((l) => l.selected)
         .reduce(
           (sum, l) =>
-            sum +
-            Math.round(
-              Math.max(0, Number(l.quantityReceived) || 0) *
-                Math.max(0, Number(l.unitCostCOP) || 0),
+            roundCurrencyAmount(
+              sum +
+                roundCurrencyAmount(
+                  Math.max(0, Number(l.quantityReceived) || 0) *
+                    Math.max(0, Number(l.unitCostCOP) || 0),
+                  settings.currency,
+                ),
+              settings.currency,
             ),
           0,
         ),
-    [receiptLines],
+    [receiptLines, settings.currency],
   );
 
   return (
@@ -1159,6 +1169,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                   <p className="mt-0.5 font-mono text-lg font-semibold text-slate-900 tabular-nums sm:text-xl">
                     {formatCOP(totalReceiptsCOP)}
                   </p>
+                  <UsdEquiv amount={totalReceiptsCOP} block />
                 </div>
               </div>
             </section>
@@ -1615,6 +1626,11 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                             <span>
                               Total estimado:{' '}
                               <strong>{formatCOP(summary.estimatedTotalCOP)}</strong>
+                              <UsdEquiv
+                                amount={summary.estimatedTotalCOP}
+                                prefix=" ("
+                                suffix=")"
+                              />
                             </span>
                           </div>
                         </div>
@@ -2084,6 +2100,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                           <p className="font-mono text-base font-bold text-slate-900 tabular-nums">
                             {formatCOP(receipt.totalCostCOP)}
                           </p>
+                          <UsdEquiv amount={receipt.totalCostCOP} block />
                         </div>
                       </div>
 
@@ -2105,7 +2122,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                 +{formatUnitQuantity(line.quantityReceived, unit)} ×{' '}
                                 {formatCOP(line.unitCostCOP)} ={' '}
                                 <strong className="text-slate-900">
-                                  {formatCOP(Math.round(line.quantityReceived * line.unitCostCOP))}
+                                  {formatCOP(
+                                    roundCurrencyAmount(
+                                      line.quantityReceived * line.unitCostCOP,
+                                      settings.currency,
+                                    ),
+                                  )}
                                 </strong>
                               </span>
                             </div>
@@ -2315,7 +2337,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                           </div>
                           <div>
                             <label className="block text-[11px] font-semibold text-slate-700">
-                              Unidad y costo est. (COP)
+                              Unidad y costo est. ({settings.currency})
                             </label>
                             <div className="mt-1 flex gap-2">
                               <select
@@ -2334,9 +2356,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                               <input
                                 type="number"
                                 min={0}
+                                step={getMoneyInputStep(settings.currency)}
                                 value={quickVarCostCOP}
                                 onChange={(e) => setQuickVarCostCOP(e.target.value)}
-                                placeholder="COP"
+                                placeholder={settings.currency}
                                 className="w-full min-h-[40px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm"
                               />
                             </div>
@@ -2793,11 +2816,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700">
-                    Precio est. / unidad (COP)
+                    Precio est. / unidad ({settings.currency})
                   </label>
                   <input
                     type="number"
                     min={0}
+                    step={getMoneyInputStep(settings.currency)}
                     required
                     value={itemEstimatedPrice}
                     onChange={(e) => setItemEstimatedPrice(e.target.value)}
@@ -3063,11 +3087,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-700">
-                            Costo real / unidad (COP)
+                            Costo real / unidad ({settings.currency})
                           </label>
                           <input
                             type="number"
                             min={0}
+                            step={getMoneyInputStep(settings.currency)}
                             required
                             value={line.unitCostCOP}
                             onChange={(e) => {

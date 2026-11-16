@@ -11,7 +11,13 @@ import type {
   Project,
   ProjectPaymentSummaryStatus,
 } from '@/src/domain/models/index.ts';
-import { formatCOP, formatDateCO } from './formatters.ts';
+import {
+  fromMinorUnits,
+  getCurrencySpec,
+  toMinorUnits,
+  type WorkshopCurrencyCode,
+} from './currencyCatalog.ts';
+import { formatCOP, formatDateCO, getActiveCurrency } from './formatters.ts';
 import { addDaysToDateKey, dateKeyToMiddayIso, toLocalDateKey } from './planningService.ts';
 
 export interface CreateClientInput {
@@ -153,15 +159,18 @@ export function getPaymentModalityLabel(modality: PaymentPlanModality): string {
 }
 
 /**
- * Construye una programación sugerida de cuotas cuya suma en COP enteros
- * coincide exactamente con totalAgreedCOP.
+ * Construye una programación sugerida de cuotas cuya suma en unidades mínimas
+ * de la moneda activa coincide exactamente con totalAgreedCOP.
  */
 export function buildDefaultInstallmentSchedule(
   totalAgreedCOP: MoneyCOP,
   modality: PaymentPlanModality,
   agreementDateKey: string,
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): InstallmentDraftInput[] {
-  const safeTotal = Math.max(0, Math.round(totalAgreedCOP || 0));
+  const spec = getCurrencySpec(currency);
+  const totalMinor = Math.max(0, toMinorUnits(totalAgreedCOP || 0, currency));
+  const safeTotal = fromMinorUnits(totalMinor, currency);
   const baseDate = agreementDateKey || toLocalDateKey(new Date());
 
   if (modality === 'full') {
@@ -175,82 +184,84 @@ export function buildDefaultInstallmentSchedule(
   }
 
   if (modality === 'deposit_and_balance') {
-    const first = Math.round(safeTotal * 0.5);
-    const second = Math.max(0, safeTotal - first);
+    const firstMinor = Math.round(totalMinor * 0.5);
+    const secondMinor = Math.max(0, totalMinor - firstMinor);
     return [
       {
         concept: 'Anticipo inicial (50%)',
-        scheduledAmountCOP: first,
+        scheduledAmountCOP: fromMinorUnits(firstMinor, currency),
         dueDateKey: baseDate,
       },
       {
         concept: 'Saldo contra entrega (50%)',
-        scheduledAmountCOP: second,
+        scheduledAmountCOP: fromMinorUnits(secondMinor, currency),
         dueDateKey: addDaysToDateKey(baseDate, 14),
       },
     ];
   }
 
   if (modality === 'two_installments') {
-    const first = Math.floor(safeTotal / 2);
-    const second = Math.max(0, safeTotal - first);
+    const firstMinor = Math.floor(totalMinor / 2);
+    const secondMinor = Math.max(0, totalMinor - firstMinor);
     return [
       {
         concept: 'Primera cuota',
-        scheduledAmountCOP: first,
+        scheduledAmountCOP: fromMinorUnits(firstMinor, currency),
         dueDateKey: baseDate,
       },
       {
         concept: 'Segunda cuota',
-        scheduledAmountCOP: second,
+        scheduledAmountCOP: fromMinorUnits(secondMinor, currency),
         dueDateKey: addDaysToDateKey(baseDate, 15),
       },
     ];
   }
 
   if (modality === 'three_installments') {
-    const deposit = Math.round((safeTotal / 3) / 1000) * 1000;
-    const clampedDeposit = Math.min(safeTotal, Math.max(0, deposit));
-    const rest = Math.max(0, safeTotal - clampedDeposit);
-    const q1 = Math.floor(rest / 3);
-    const q2 = Math.floor(rest / 3);
-    const q3 = Math.max(0, rest - q1 - q2);
+    const depositMinor =
+      spec.decimals === 0 && totalMinor >= 10000
+        ? Math.min(totalMinor, Math.max(0, Math.round(totalMinor / 3 / 1000) * 1000))
+        : Math.round(totalMinor / 3);
+    const restMinor = Math.max(0, totalMinor - depositMinor);
+    const q1Minor = Math.floor(restMinor / 3);
+    const q2Minor = Math.floor(restMinor / 3);
+    const q3Minor = Math.max(0, restMinor - q1Minor - q2Minor);
     return [
       {
         concept: 'Anticipo inicial',
-        scheduledAmountCOP: clampedDeposit,
+        scheduledAmountCOP: fromMinorUnits(depositMinor, currency),
         dueDateKey: baseDate,
       },
       {
         concept: 'Segunda cuota',
-        scheduledAmountCOP: q1,
+        scheduledAmountCOP: fromMinorUnits(q1Minor, currency),
         dueDateKey: addDaysToDateKey(baseDate, 10),
       },
       {
         concept: 'Tercera cuota',
-        scheduledAmountCOP: q2,
+        scheduledAmountCOP: fromMinorUnits(q2Minor, currency),
         dueDateKey: addDaysToDateKey(baseDate, 20),
       },
       {
         concept: 'Saldo contra entrega',
-        scheduledAmountCOP: q3,
+        scheduledAmountCOP: fromMinorUnits(q3Minor, currency),
         dueDateKey: addDaysToDateKey(baseDate, 30),
       },
     ];
   }
 
   // Personalizado inicial: anticipo + saldo
-  const first = Math.round(safeTotal * 0.4);
-  const second = Math.max(0, safeTotal - first);
+  const firstMinor = Math.round(totalMinor * 0.4);
+  const secondMinor = Math.max(0, totalMinor - firstMinor);
   return [
     {
       concept: 'Cuota 1 / Anticipo',
-      scheduledAmountCOP: first,
+      scheduledAmountCOP: fromMinorUnits(firstMinor, currency),
       dueDateKey: baseDate,
     },
     {
       concept: 'Cuota 2 / Saldo',
-      scheduledAmountCOP: second,
+      scheduledAmountCOP: fromMinorUnits(secondMinor, currency),
       dueDateKey: addDaysToDateKey(baseDate, 15),
     },
   ];
@@ -261,14 +272,15 @@ export function resolveInstallmentStatus(
   paidAmountCOP: MoneyCOP,
   dueDateIso: string,
   todayKey = toLocalDateKey(new Date()),
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): InstallmentStatus {
-  const scheduled = Math.max(0, Math.round(scheduledAmountCOP));
-  const paid = Math.max(0, Math.round(paidAmountCOP));
-  if (scheduled > 0 && paid >= scheduled) return 'paid';
-  if (scheduled === 0 && paid === 0) return 'paid';
+  const scheduledMinor = Math.max(0, toMinorUnits(scheduledAmountCOP, currency));
+  const paidMinor = Math.max(0, toMinorUnits(paidAmountCOP, currency));
+  if (scheduledMinor > 0 && paidMinor >= scheduledMinor) return 'paid';
+  if (scheduledMinor === 0 && paidMinor === 0) return 'paid';
   const dueKey = toLocalDateKey(dueDateIso);
   if (dueKey && dueKey < todayKey) return 'overdue';
-  if (paid > 0) return 'partial';
+  if (paidMinor > 0) return 'partial';
   return 'pending';
 }
 
@@ -284,6 +296,7 @@ export function recomputePlanAndInstallments(
   plan: PaymentPlan,
   rawInstallments: PaymentInstallment[],
   todayKey = toLocalDateKey(new Date()),
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): RecomputedPlanSummary {
   const sorted = rawInstallments
     .slice()
@@ -296,27 +309,33 @@ export function recomputePlanAndInstallments(
       inst.paidAmountCOP,
       inst.dueDate,
       todayKey,
+      currency,
     ),
   }));
 
-  const totalPaidCOP = effectiveInstallments.reduce(
-    (sum, i) => sum + Math.max(0, Math.round(i.paidAmountCOP)),
+  const agreedMinor = Math.max(0, toMinorUnits(plan.totalAgreedCOP, currency));
+  const totalPaidMinor = effectiveInstallments.reduce(
+    (sum, i) => sum + Math.max(0, toMinorUnits(i.paidAmountCOP, currency)),
     0,
   );
-  const clampedPaidCOP = Math.min(plan.totalAgreedCOP, totalPaidCOP);
-  const balancePendingCOP = Math.max(0, plan.totalAgreedCOP - clampedPaidCOP);
+  const clampedPaidMinor = Math.min(agreedMinor, totalPaidMinor);
+  const balancePendingMinor = Math.max(0, agreedMinor - clampedPaidMinor);
+  const clampedPaidCOP = fromMinorUnits(clampedPaidMinor, currency);
+  const balancePendingCOP = fromMinorUnits(balancePendingMinor, currency);
 
   let status: PaymentStatus;
-  if (balancePendingCOP <= 0 && plan.totalAgreedCOP > 0) {
+  if (balancePendingMinor <= 0 && agreedMinor > 0) {
     status = 'paid';
   } else if (effectiveInstallments.some((i) => i.status === 'overdue')) {
     status = 'overdue';
-  } else if (clampedPaidCOP > 0) {
+  } else if (clampedPaidMinor > 0) {
     const first = effectiveInstallments[0];
     const onlyFirstPaid =
       effectiveInstallments.length > 1 &&
       first?.status === 'paid' &&
-      effectiveInstallments.slice(1).every((i) => i.paidAmountCOP === 0);
+      effectiveInstallments
+        .slice(1)
+        .every((i) => toMinorUnits(i.paidAmountCOP, currency) === 0);
     status =
       onlyFirstPaid &&
       (plan.modality === 'deposit_and_balance' ||
@@ -340,7 +359,7 @@ export function recomputePlanAndInstallments(
 }
 
 /**
- * Reparte un abono de forma exacta sobre la cuota seleccionada (si se indica)
+ * Reparte un abono de forma exacta en unidades mínimas sobre la cuota seleccionada
  * y, si supera su saldo pendiente, sobre las siguientes cuotas abiertas en orden cronológico.
  */
 export function allocatePaymentAcrossInstallments(
@@ -348,23 +367,30 @@ export function allocatePaymentAcrossInstallments(
   targetInstallmentId: string | null,
   amountCOP: MoneyCOP,
   todayKey = toLocalDateKey(new Date()),
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): PaymentInstallment[] {
   const sorted = installments
     .slice()
     .sort((a, b) => a.installmentNumber - b.installmentNumber);
 
-  let remainingToAllocate = Math.max(0, Math.round(amountCOP));
-  if (remainingToAllocate <= 0) {
-    throw new Error('El monto del pago debe ser mayor a $0 COP.');
+  let remainingMinor = Math.max(0, toMinorUnits(amountCOP, currency));
+  if (remainingMinor <= 0) {
+    throw new Error(`El monto del pago debe ser mayor a ${formatCOP(0, currency)}.`);
   }
 
-  const totalOpenAcrossInstallments = sorted.reduce(
-    (sum, i) => sum + Math.max(0, i.scheduledAmountCOP - i.paidAmountCOP),
+  const totalOpenMinor = sorted.reduce(
+    (sum, i) =>
+      sum +
+      Math.max(
+        0,
+        toMinorUnits(i.scheduledAmountCOP, currency) -
+          toMinorUnits(i.paidAmountCOP, currency),
+      ),
     0,
   );
-  if (remainingToAllocate > totalOpenAcrossInstallments) {
+  if (remainingMinor > totalOpenMinor) {
     throw new Error(
-      `El abono (${formatCOP(remainingToAllocate)}) supera el saldo pendiente de las cuotas (${formatCOP(totalOpenAcrossInstallments)}). Ajusta primero el valor acordado del plan si hubo cambios.`,
+      `El abono (${formatCOP(fromMinorUnits(remainingMinor, currency), currency)}) supera el saldo pendiente de las cuotas (${formatCOP(fromMinorUnits(totalOpenMinor, currency), currency)}). Ajusta primero el valor acordado del plan si hubo cambios.`,
     );
   }
 
@@ -373,22 +399,25 @@ export function allocatePaymentAcrossInstallments(
   );
 
   const applyToOne = (instId: string) => {
-    if (remainingToAllocate <= 0) return;
+    if (remainingMinor <= 0) return;
     const current = updatedMap.get(instId);
     if (!current) return;
-    const openCOP = Math.max(0, current.scheduledAmountCOP - current.paidAmountCOP);
-    if (openCOP <= 0) return;
-    const applied = Math.min(openCOP, remainingToAllocate);
-    const nextPaid = current.paidAmountCOP + applied;
-    remainingToAllocate -= applied;
+    const scheduledMinor = Math.max(0, toMinorUnits(current.scheduledAmountCOP, currency));
+    const paidMinor = Math.max(0, toMinorUnits(current.paidAmountCOP, currency));
+    const openMinor = Math.max(0, scheduledMinor - paidMinor);
+    if (openMinor <= 0) return;
+    const appliedMinor = Math.min(openMinor, remainingMinor);
+    const nextPaidCOP = fromMinorUnits(paidMinor + appliedMinor, currency);
+    remainingMinor -= appliedMinor;
     updatedMap.set(instId, {
       ...current,
-      paidAmountCOP: nextPaid,
+      paidAmountCOP: nextPaidCOP,
       status: resolveInstallmentStatus(
         current.scheduledAmountCOP,
-        nextPaid,
+        nextPaidCOP,
         current.dueDate,
         todayKey,
+        currency,
       ),
     });
   };
@@ -398,7 +427,7 @@ export function allocatePaymentAcrossInstallments(
   }
 
   for (const inst of sorted) {
-    if (remainingToAllocate <= 0) break;
+    if (remainingMinor <= 0) break;
     if (inst.id === targetInstallmentId) continue;
     applyToOne(inst.id);
   }
@@ -502,13 +531,14 @@ export function buildPaymentPlanStatementText(params: {
   const recomputed = recomputePlanAndInstallments(plan, installments);
   const statusLabel = PAYMENT_STATUS_META[recomputed.status].label;
 
+  const currency = getActiveCurrency();
   const lines: string[] = [
     `*Estado de cuenta · ${workshopName}*`,
     `Cliente: ${client.name}`,
     `Encargo: ${project.name}`,
     `Estado del plan: ${statusLabel}`,
     ``,
-    `Valor acordado: ${formatCOP(plan.totalAgreedCOP)}`,
+    `Valor acordado (${currency}): ${formatCOP(plan.totalAgreedCOP)}`,
     `Total abonado: ${formatCOP(recomputed.totalPaidCOP)}`,
     `Saldo pendiente: ${formatCOP(recomputed.balancePendingCOP)}`,
     ``,
@@ -517,7 +547,14 @@ export function buildPaymentPlanStatementText(params: {
 
   for (const inst of recomputed.effectiveInstallments) {
     const instLabel = INSTALLMENT_STATUS_META[inst.status].label;
-    const open = Math.max(0, inst.scheduledAmountCOP - inst.paidAmountCOP);
+    const open = Math.max(
+      0,
+      fromMinorUnits(
+        toMinorUnits(inst.scheduledAmountCOP, currency) -
+          toMinorUnits(inst.paidAmountCOP, currency),
+        currency,
+      ),
+    );
     lines.push(
       `• ${inst.installmentNumber}. ${inst.concept} (${formatDateCO(inst.dueDate)}): ${formatCOP(inst.scheduledAmountCOP)} — ${instLabel}${
         inst.status !== 'paid' && inst.paidAmountCOP > 0
@@ -533,34 +570,37 @@ export function buildPaymentPlanStatementText(params: {
 export function validateInstallmentsAgainstTotal(
   totalAgreedCOP: MoneyCOP,
   installments: InstallmentDraftInput[],
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): void {
-  const safeTotal = Math.round(totalAgreedCOP);
-  if (!Number.isFinite(safeTotal) || safeTotal <= 0) {
-    throw new Error('El valor total acordado debe ser mayor a $0 COP.');
+  const totalMinor = toMinorUnits(totalAgreedCOP, currency);
+  if (!Number.isFinite(totalAgreedCOP) || totalMinor <= 0) {
+    throw new Error(
+      `El valor total acordado debe ser mayor a ${formatCOP(0, currency)}.`,
+    );
   }
   if (installments.length === 0) {
     throw new Error('El plan debe tener al menos una cuota programada.');
   }
 
-  let sum = 0;
+  let sumMinor = 0;
   for (let i = 0; i < installments.length; i += 1) {
     const row = installments[i];
     if (!row.concept.trim()) {
       throw new Error(`La cuota #${i + 1} requiere un concepto o descripción.`);
     }
-    const amt = Math.round(row.scheduledAmountCOP);
-    if (!Number.isFinite(amt) || amt < 0) {
+    const amtMinor = toMinorUnits(row.scheduledAmountCOP, currency);
+    if (!Number.isFinite(row.scheduledAmountCOP) || amtMinor < 0) {
       throw new Error(`El valor de la cuota #${i + 1} no puede ser negativo.`);
     }
     if (!row.dueDateKey || Number.isNaN(Date.parse(dateKeyToMiddayIso(row.dueDateKey)))) {
       throw new Error(`La fecha de vencimiento de la cuota #${i + 1} es inválida.`);
     }
-    sum += amt;
+    sumMinor += amtMinor;
   }
 
-  if (sum !== safeTotal) {
+  if (sumMinor !== totalMinor) {
     throw new Error(
-      `La suma de las cuotas (${formatCOP(sum)}) debe coincidir exactamente con el valor acordado (${formatCOP(safeTotal)}).`,
+      `La suma de las cuotas (${formatCOP(fromMinorUnits(sumMinor, currency), currency)}) debe coincidir exactamente con el valor acordado (${formatCOP(fromMinorUnits(totalMinor, currency), currency)}).`,
     );
   }
 }

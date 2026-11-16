@@ -29,6 +29,12 @@ import type {
   PaymentPlanModality,
   PaymentStatus,
 } from '@/src/domain/models/index.ts';
+import {
+  fromMinorUnits,
+  getCurrencySpec,
+  parseNonNegativeMoney,
+  toMinorUnits,
+} from '@/src/domain/services/currencyCatalog.ts';
 import { formatCOP, formatDateCO } from '@/src/domain/services/formatters.ts';
 import {
   buildDefaultInstallmentSchedule,
@@ -45,14 +51,21 @@ import {
   type InstallmentDraftInput,
 } from '@/src/domain/services/clientPaymentService.ts';
 import { toLocalDateKey } from '@/src/domain/services/planningService.ts';
+import {
+  canConfigurePaymentInstallments,
+  canExportAccountStatement,
+  FREE_MAX_PAYMENT_INSTALLMENTS,
+} from '@/src/domain/services/planCapabilities.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import {
   SnapDeck,
   SnapSlide,
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -73,17 +86,22 @@ type PlanFilter = 'all' | 'open' | 'overdue' | 'paid';
 interface EditableInstallmentRow extends InstallmentDraftInput {
   readonly localKey: string;
   readonly lockedPaidCOP: number;
+  readonly amountRaw?: string;
 }
 
 function makeLocalKey(prefix = 'inst_row'): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function parseNonNegativeInt(raw: string): number {
-  const cleaned = raw.replace(/[^\d]/g, '');
-  if (!cleaned) return 0;
-  const n = Number.parseInt(cleaned, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+function sanitizeMoneyDraft(raw: string, decimals: number): string {
+  if (decimals === 0) {
+    return raw.replace(/[^\d]/g, '');
+  }
+  const normalized = raw.replace(',', '.').replace(/[^\d.]/g, '');
+  const parts = normalized.split('.');
+  if (parts.length <= 1) return parts[0] ?? '';
+  const frac = parts.slice(1).join('').slice(0, decimals);
+  return `${parts[0]}.${frac}`;
 }
 
 export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
@@ -94,6 +112,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 }) => {
   const {
     settings,
+    effectiveTier,
     clients,
     projects,
     paymentPlans,
@@ -107,6 +126,9 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
     deletePaymentPlan,
     recordPaymentTransaction,
   } = useWorkshopData();
+
+  const [planGateNotice, setPlanGateNotice] = useState<string | null>(null);
+  const [statementGateOpen, setStatementGateOpen] = useState(false);
 
   const snapDeckRef = useRef<SnapDeckHandle | null>(null);
   const profile = useViewportProfile();
@@ -608,6 +630,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
       })),
     );
     setInitPayAmountRaw(String(schedule[0]?.scheduledAmountCOP ?? 0));
+    setPlanGateNotice(null);
     setFeedback(null);
     setPlanModalOpen(true);
   };
@@ -635,6 +658,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         lockedPaidCOP: inst.paidAmountCOP,
       })),
     );
+    setPlanGateNotice(null);
     setFeedback(null);
     setPlanModalOpen(true);
   };
@@ -657,7 +681,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handlePlanRowChange = (
     localKey: string,
-    patch: Partial<Pick<EditableInstallmentRow, 'concept' | 'scheduledAmountCOP' | 'dueDateKey'>>,
+    patch: Partial<
+      Pick<
+        EditableInstallmentRow,
+        'concept' | 'scheduledAmountCOP' | 'dueDateKey' | 'amountRaw'
+      >
+    >,
   ) => {
     setPlanRows((prev) =>
       prev.map((row) => (row.localKey === localKey ? { ...row, ...patch } : row)),
@@ -665,9 +694,33 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   };
 
   const handleAddInstallmentRow = () => {
-    const total = parseNonNegativeInt(planTotalRaw);
-    const currentSum = planRows.reduce((s, r) => s + r.scheduledAmountCOP, 0);
-    const diff = Math.max(0, total - currentSum);
+    const check = canConfigurePaymentInstallments(
+      effectiveTier,
+      planModality,
+      planRows.length + 1,
+      { isEditingExisting: editingPlan !== null },
+    );
+    if (!check.allowed) {
+      setPlanGateNotice(
+        check.reason ??
+          `En el plan FREE puedes configurar hasta ${FREE_MAX_PAYMENT_INSTALLMENTS} cuotas con importes libres.`,
+      );
+      return;
+    }
+    setPlanGateNotice(null);
+
+    const totalMinor = toMinorUnits(
+      parseNonNegativeMoney(planTotalRaw, settings.currency),
+      settings.currency,
+    );
+    const currentSumMinor = planRows.reduce(
+      (s, r) => s + toMinorUnits(r.scheduledAmountCOP, settings.currency),
+      0,
+    );
+    const diff = Math.max(
+      0,
+      fromMinorUnits(totalMinor - currentSumMinor, settings.currency),
+    );
     const lastDate = planRows[planRows.length - 1]?.dueDateKey ?? planDateKey;
     setPlanRows((prev) => [
       ...prev,
@@ -675,6 +728,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         localKey: makeLocalKey(),
         concept: `Cuota ${prev.length + 1}`,
         scheduledAmountCOP: diff,
+        amountRaw: String(diff),
         dueDateKey: lastDate,
         lockedPaidCOP: 0,
       },
@@ -691,7 +745,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPlan = async (e: React.FormEvent) => {
     e.preventDefault();
-    const totalAgreedCOP = parseNonNegativeInt(planTotalRaw);
+    const totalAgreedCOP = parseNonNegativeMoney(planTotalRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
     try {
@@ -709,6 +763,20 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
           })),
         });
       } else {
+        const installmentCheck = canConfigurePaymentInstallments(
+          effectiveTier,
+          planModality,
+          planRows.length,
+          { isEditingExisting: false },
+        );
+        if (!installmentCheck.allowed) {
+          setPlanGateNotice(
+            installmentCheck.reason ??
+              `En el plan FREE puedes crear planes de 1 pago o hasta ${FREE_MAX_PAYMENT_INSTALLMENTS} cuotas.`,
+          );
+          setBusy(false);
+          return;
+        }
         if (!planProjectId) {
           throw new Error('Selecciona el proyecto al que corresponde el plan.');
         }
@@ -716,7 +784,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
           throw new Error('Selecciona el cliente del plan de pagos.');
         }
         const initAmount = includeInitialPayment
-          ? parseNonNegativeInt(initPayAmountRaw)
+          ? parseNonNegativeMoney(initPayAmountRaw, settings.currency)
           : 0;
 
         await createPaymentPlan({
@@ -810,7 +878,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    const amountCOP = parseNonNegativeInt(payAmountRaw);
+    const amountCOP = parseNonNegativeMoney(payAmountRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
     try {
@@ -838,6 +906,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   // ---------------- Estado de cuenta compartible ----------------
 
   const handleOpenStatement = (plan: PaymentPlan) => {
+    if (!canExportAccountStatement(effectiveTier)) {
+      setStatementGateOpen(true);
+      return;
+    }
     const client = clientById.get(plan.clientId);
     const project = projectById.get(plan.projectId);
     if (!client || !project) return;
@@ -853,6 +925,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   };
 
   const handleCopyStatement = async () => {
+    if (!canExportAccountStatement(effectiveTier)) {
+      setStatementGateOpen(true);
+      return;
+    }
     if (!statementText) return;
     try {
       if (navigator.clipboard?.writeText) {
@@ -922,12 +998,20 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   // ---------------- Cálculos auxiliares de formularios ----------------
 
-  const planDraftSumCOP = planRows.reduce(
-    (sum, row) => sum + Math.round(row.scheduledAmountCOP || 0),
+  const currencySpec = getCurrencySpec(settings.currency);
+  const moneyInputMode = currencySpec.decimals > 0 ? 'decimal' : 'numeric';
+  const planDraftSumMinor = planRows.reduce(
+    (sum, row) => sum + toMinorUnits(row.scheduledAmountCOP || 0, settings.currency),
     0,
   );
-  const planDraftTargetCOP = parseNonNegativeInt(planTotalRaw);
-  const planDraftDiffCOP = planDraftTargetCOP - planDraftSumCOP;
+  const planDraftTargetMinor = toMinorUnits(
+    parseNonNegativeMoney(planTotalRaw, settings.currency),
+    settings.currency,
+  );
+  const planDraftDiffMinor = planDraftTargetMinor - planDraftSumMinor;
+  const planDraftSumCOP = fromMinorUnits(planDraftSumMinor, settings.currency);
+  const planDraftTargetCOP = fromMinorUnits(planDraftTargetMinor, settings.currency);
+  const planDraftDiffCOP = fromMinorUnits(planDraftDiffMinor, settings.currency);
 
   const selectedPlanForPay = payPlanId
     ? enrichedPlans.find((e) => e.plan.id === payPlanId) ?? null
@@ -1038,12 +1122,14 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               <dd className="mt-0.5 font-mono font-semibold text-slate-900 tabular-nums">
                 {formatCOP(totalAgreedCOP)}
               </dd>
+              <UsdEquiv amount={totalAgreedCOP} block className="text-[10px]" />
             </div>
             <div>
               <dt className="text-slate-500">Abonado</dt>
               <dd className="mt-0.5 font-mono font-semibold text-emerald-700 tabular-nums">
                 {formatCOP(totalPaidCOP)}
               </dd>
+              <UsdEquiv amount={totalPaidCOP} block className="text-[10px]" />
             </div>
             <div>
               <dt className="text-slate-500">Pendiente</dt>
@@ -1058,6 +1144,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               >
                 {formatCOP(pendingBalanceCOP)}
               </dd>
+              <UsdEquiv amount={pendingBalanceCOP} block className="text-[10px]" />
             </div>
           </dl>
 
@@ -1197,12 +1284,14 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <p className="mt-0.5 font-mono text-sm font-semibold text-slate-900 tabular-nums sm:text-base">
               {formatCOP(plan.totalAgreedCOP)}
             </p>
+            <UsdEquiv amount={plan.totalAgreedCOP} block />
           </div>
           <div>
             <p className="text-xs text-slate-500">Abonado a la fecha</p>
             <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700 tabular-nums sm:text-base">
               {formatCOP(recomputed.totalPaidCOP)}
             </p>
+            <UsdEquiv amount={recomputed.totalPaidCOP} block />
           </div>
           <div>
             <p className="text-xs text-slate-500">Saldo pendiente</p>
@@ -1217,6 +1306,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             >
               {formatCOP(recomputed.balancePendingCOP)}
             </p>
+            <UsdEquiv amount={recomputed.balancePendingCOP} block />
           </div>
         </div>
 
@@ -1274,11 +1364,16 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between gap-3 sm:justify-end shrink-0">
-                    <span className="font-mono text-xs font-semibold text-slate-800 tabular-nums sm:text-sm">
-                      {remainingCOP > 0
-                        ? `Restan ${formatCOP(remainingCOP)}`
-                        : 'Cubierta'}
-                    </span>
+                    <div className="text-right">
+                      <span className="font-mono text-xs font-semibold text-slate-800 tabular-nums sm:text-sm">
+                        {remainingCOP > 0
+                          ? `Restan ${formatCOP(remainingCOP)}`
+                          : 'Cubierta'}
+                      </span>
+                      {remainingCOP > 0 && (
+                        <UsdEquiv amount={remainingCOP} block className="text-[10px]" />
+                      )}
+                    </div>
                     {remainingCOP > 0 && (
                       <button
                         type="button"
@@ -1392,9 +1487,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         </div>
 
         <div className="flex items-center justify-between gap-3 sm:justify-end shrink-0">
-          <span className="font-mono text-sm font-bold text-emerald-700 tabular-nums sm:text-base">
-            + {formatCOP(tx.amountCOP)}
-          </span>
+          <div className="text-right">
+            <span className="font-mono text-sm font-bold text-emerald-700 tabular-nums sm:text-base">
+              + {formatCOP(tx.amountCOP)}
+            </span>
+            <UsdEquiv amount={tx.amountCOP} block />
+          </div>
         </div>
       </div>
     );
@@ -1548,6 +1646,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <p className="mt-0.5 font-mono text-base font-bold text-slate-900 tabular-nums sm:text-lg">
                       {formatCOP(portfolioTotals.totalAgreedCOP)}
                     </p>
+                    <UsdEquiv amount={portfolioTotals.totalAgreedCOP} block />
                   </div>
 
                   <div className="border-b border-slate-100 px-4 py-3 lg:border-b-0 lg:border-r">
@@ -1557,6 +1656,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <p className="mt-0.5 font-mono text-base font-bold text-emerald-700 tabular-nums sm:text-lg">
                       {formatCOP(portfolioTotals.totalCollectedCOP)}
                     </p>
+                    <UsdEquiv amount={portfolioTotals.totalCollectedCOP} block />
                   </div>
 
                   <div className="border-r border-slate-100 px-4 py-3">
@@ -1566,6 +1666,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <p className="mt-0.5 font-mono text-base font-bold text-slate-900 tabular-nums sm:text-lg">
                       {formatCOP(portfolioTotals.totalPendingCOP)}
                     </p>
+                    <UsdEquiv amount={portfolioTotals.totalPendingCOP} block />
                   </div>
 
                   <div className="px-4 py-3">
@@ -1871,6 +1972,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <p className="mt-0.5 font-mono text-sm font-bold text-teal-800 tabular-nums">
                       {formatCOP(portfolioTotals.totalCollectedCOP)}
                     </p>
+                    <UsdEquiv amount={portfolioTotals.totalCollectedCOP} block className="text-[10px]" />
                     <p className="text-[11px] text-slate-500 tabular-nums">
                       {transactions.length} recibo{transactions.length === 1 ? '' : 's'}
                     </p>
@@ -1906,6 +2008,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                         <p className="mt-0.5 font-mono text-sm font-bold text-slate-900 tabular-nums">
                           {formatCOP(summary.totalCOP)}
                         </p>
+                        <UsdEquiv amount={summary.totalCOP} block className="text-[10px]" />
                         <p className="text-[11px] text-slate-500 tabular-nums">
                           {summary.count} recibo{summary.count === 1 ? '' : 's'}
                         </p>
@@ -2251,17 +2354,24 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     htmlFor="plan-total"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Valor total acordado (COP) *
+                    Valor total acordado ({settings.currency}) *
                   </label>
                   <input
                     id="plan-total"
                     type="text"
-                    inputMode="numeric"
+                    inputMode={moneyInputMode}
                     required
                     value={planTotalRaw}
                     onChange={(e) => {
-                      const nextTotal = parseNonNegativeInt(e.target.value);
-                      setPlanTotalRaw(e.target.value.replace(/[^\d]/g, ''));
+                      const cleaned = sanitizeMoneyDraft(
+                        e.target.value,
+                        currencySpec.decimals,
+                      );
+                      const nextTotal = parseNonNegativeMoney(
+                        cleaned,
+                        settings.currency,
+                      );
+                      setPlanTotalRaw(cleaned);
                       if (!editingPlan && nextTotal > 0) {
                         regenerateDraftRows(nextTotal, planModality, planDateKey);
                       }
@@ -2299,10 +2409,29 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     value={planModality}
                     onChange={(e) => {
                       const nextMod = e.target.value as PaymentPlanModality;
+                      const previewRows = buildDefaultInstallmentSchedule(
+                        parseNonNegativeMoney(planTotalRaw, settings.currency),
+                        nextMod,
+                        planDateKey,
+                      );
+                      const check = canConfigurePaymentInstallments(
+                        effectiveTier,
+                        nextMod,
+                        previewRows.length,
+                        { isEditingExisting: editingPlan !== null },
+                      );
+                      if (!check.allowed) {
+                        setPlanGateNotice(
+                          check.reason ??
+                            `En el plan FREE puedes crear planes de 1 pago o hasta ${FREE_MAX_PAYMENT_INSTALLMENTS} cuotas con montos libres.`,
+                        );
+                        return;
+                      }
+                      setPlanGateNotice(null);
                       setPlanModality(nextMod);
                       if (!editingPlan) {
                         regenerateDraftRows(
-                          parseNonNegativeInt(planTotalRaw),
+                          parseNonNegativeMoney(planTotalRaw, settings.currency),
                           nextMod,
                           planDateKey,
                         );
@@ -2319,6 +2448,16 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                 </div>
               </div>
 
+              {planGateNotice && (
+                <FeatureGate
+                  mode="inline-banner"
+                  featureTitle="Planes flexibles de 3 o más cuotas en PRO"
+                  description={planGateNotice}
+                  freeIncludedNote="En FREE puedes elegir Contado o 2 cuotas (Anticipo + Contraentrega / 2 cuotas) y editar libremente los importes y fechas de ambas cuotas sin distribución rígida 50/50."
+                  onClose={() => setPlanGateNotice(null)}
+                />
+              )}
+
               {/* Editor de cuotas */}
               <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5">
@@ -2328,14 +2467,14 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     </h3>
                     <p
                       className={`mt-0.5 font-mono text-[11px] tabular-nums ${
-                        planDraftDiffCOP === 0
+                        planDraftDiffMinor === 0
                           ? 'text-emerald-700'
                           : 'font-semibold text-rose-700'
                       }`}
                     >
                       Suma cuotas: {formatCOP(planDraftSumCOP)} / Acordado:{' '}
                       {formatCOP(planDraftTargetCOP)}
-                      {planDraftDiffCOP !== 0 &&
+                      {planDraftDiffMinor !== 0 &&
                         ` (Diferencia: ${formatCOP(planDraftDiffCOP)})`}
                     </p>
                   </div>
@@ -2375,18 +2514,26 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
                       <div className="sm:col-span-3">
                         <label className="block text-[11px] font-medium text-slate-600">
-                          Valor (COP)
+                          Valor ({settings.currency})
                         </label>
                         <input
                           type="text"
-                          inputMode="numeric"
+                          inputMode={moneyInputMode}
                           required
-                          value={String(row.scheduledAmountCOP)}
-                          onChange={(e) =>
+                          value={row.amountRaw ?? String(row.scheduledAmountCOP)}
+                          onChange={(e) => {
+                            const cleaned = sanitizeMoneyDraft(
+                              e.target.value,
+                              currencySpec.decimals,
+                            );
                             handlePlanRowChange(row.localKey, {
-                              scheduledAmountCOP: parseNonNegativeInt(e.target.value),
-                            })
-                          }
+                              amountRaw: cleaned,
+                              scheduledAmountCOP: parseNonNegativeMoney(
+                                cleaned,
+                                settings.currency,
+                              ),
+                            });
+                          }}
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                         />
                         {row.lockedPaidCOP > 0 && (
@@ -2446,14 +2593,19 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <label className="block text-[11px] font-medium text-slate-600">
-                          Monto recibido (COP)
+                          Monto recibido ({settings.currency})
                         </label>
                         <input
                           type="text"
-                          inputMode="numeric"
+                          inputMode={moneyInputMode}
                           value={initPayAmountRaw}
                           onChange={(e) =>
-                            setInitPayAmountRaw(e.target.value.replace(/[^\d]/g, ''))
+                            setInitPayAmountRaw(
+                              sanitizeMoneyDraft(
+                                e.target.value,
+                                currencySpec.decimals,
+                              ),
+                            )
                           }
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                         />
@@ -2532,7 +2684,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={busy || planDraftDiffCOP !== 0}
+                disabled={busy || planDraftDiffMinor !== 0}
                 className="min-h-[42px] rounded-lg bg-teal-700 px-4 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
               >
                 {busy
@@ -2637,7 +2789,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     htmlFor="pay-amount"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Monto recibido (COP) *
+                    Monto recibido ({settings.currency}) *
                   </label>
                   <button
                     type="button"
@@ -2655,11 +2807,13 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                 <input
                   id="pay-amount"
                   type="text"
-                  inputMode="numeric"
+                  inputMode={moneyInputMode}
                   required
                   value={payAmountRaw}
                   onChange={(e) =>
-                    setPayAmountRaw(e.target.value.replace(/[^\d]/g, ''))
+                    setPayAmountRaw(
+                      sanitizeMoneyDraft(e.target.value, currencySpec.decimals),
+                    )
                   }
                   className="mt-1 min-h-[42px] w-full rounded-lg border border-slate-300 px-3 font-mono text-sm font-semibold text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                 />
@@ -2859,6 +3013,15 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         isBusy={busy}
         onCancel={() => setPlanToDelete(null)}
         onConfirm={() => void handleConfirmDeletePlan()}
+      />
+
+      <FeatureGate
+        mode="modal"
+        isOpen={statementGateOpen}
+        onClose={() => setStatementGateOpen(false)}
+        featureTitle="Exportación de estados de cuenta detallados (PRO)"
+        description="Genera automáticamente un estado de cuenta completo y formateado con el detalle de cuotas, pagos realizados y saldo pendiente, listo para compartir con tu clienta."
+        freeIncludedNote="Puedes consultar libremente todas las cuotas, fechas, historial de abonos y saldos pendientes de cada plan directamente en la pantalla sin restricciones."
       />
     </>
   );

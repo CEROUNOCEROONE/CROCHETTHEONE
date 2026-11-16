@@ -22,6 +22,7 @@ import type {
   MaterialVariant,
   MeasurementUnit,
 } from '@/src/domain/models/index.ts';
+import { getMoneyInputStep } from '@/src/domain/services/currencyCatalog.ts';
 import { formatCOP, formatDateTimeCO } from '@/src/domain/services/formatters.ts';
 import {
   formatUnitQuantity,
@@ -43,7 +44,10 @@ import {
   SnapSlide,
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
+import { canCreateMaterialReservation } from '@/src/domain/services/planCapabilities.ts';
+import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -69,6 +73,8 @@ const COLOR_PRESETS = [
 
 export const InventoryView: React.FC = () => {
   const {
+    settings,
+    effectiveTier,
     materials,
     variants,
     reservations,
@@ -88,6 +94,8 @@ export const InventoryView: React.FC = () => {
     releaseReservation,
     recordDirectProjectConsumption,
   } = useWorkshopData();
+
+  const [reserveGateOpen, setReserveGateOpen] = useState(false);
 
   const snapDeckRef = useRef<SnapDeckHandle | null>(null);
   const viewportProfile = useViewportProfile();
@@ -566,6 +574,10 @@ export const InventoryView: React.FC = () => {
 
   // Reservas
   const openReserveModal = (variant?: MaterialVariant) => {
+    if (!canCreateMaterialReservation(effectiveTier)) {
+      setReserveGateOpen(true);
+      return;
+    }
     const defaultVar = variant ?? variants[0];
     setReserveVariantId(defaultVar?.id ?? '');
     const compatibleProjects = projects.filter((p) =>
@@ -597,6 +609,11 @@ export const InventoryView: React.FC = () => {
 
   const handleConfirmReserve = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateMaterialReservation(effectiveTier)) {
+      setReserveModalOpen(false);
+      setReserveGateOpen(true);
+      return;
+    }
     setBusy(true);
     setFeedback(null);
     try {
@@ -927,6 +944,7 @@ export const InventoryView: React.FC = () => {
                   <p className="mt-0.5 font-mono text-lg font-semibold text-slate-900 tabular-nums sm:text-xl">
                     {formatCOP(totalValueCOP)}
                   </p>
+                  <UsdEquiv amount={totalValueCOP} block />
                 </div>
                 <div>
                   <p className="text-xs font-medium text-slate-500">Stock bajo mínimo</p>
@@ -1022,7 +1040,7 @@ export const InventoryView: React.FC = () => {
                 }
                 description={
                   materials.length === 0
-                    ? 'Registra tu primer hilo, lana o insumo indicando su color y costo por unidad en COP.'
+                    ? 'Registra tu primer hilo, lana o insumo indicando su color y costo por unidad.'
                     : 'Prueba limpiando el buscador o cambiando el filtro de categoría.'
                 }
                 primaryAction={{
@@ -1158,6 +1176,7 @@ export const InventoryView: React.FC = () => {
                                 <p className="mt-1 text-xs text-slate-500 tabular-nums">
                                   Costo: {formatCOP(variant.unitCostCOP)} /{' '}
                                   {getUnitShortLabel(material.unit)}
+                                  <UsdEquiv amount={variant.unitCostCOP} prefix=" (" suffix=")" />
                                   {variant.sizeOrGauge
                                     ? ` · Calibre ${variant.sizeOrGauge}`
                                     : ''}
@@ -1875,12 +1894,13 @@ export const InventoryView: React.FC = () => {
                         htmlFor="first-cost-cop"
                         className="block text-xs font-semibold text-slate-700"
                       >
-                        Costo por {getUnitShortLabel(matUnit)} (COP)
+                        Costo por {getUnitShortLabel(matUnit)} ({settings.currency})
                       </label>
                       <input
                         id="first-cost-cop"
                         type="number"
                         min={0}
+                        step={getMoneyInputStep(settings.currency)}
                         required
                         value={firstCostCOP}
                         onChange={(e) => setFirstCostCOP(e.target.value)}
@@ -2099,12 +2119,13 @@ export const InventoryView: React.FC = () => {
                     htmlFor="var-cost"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Costo unitario (COP)
+                    Costo unitario ({settings.currency})
                   </label>
                   <input
                     id="var-cost"
                     type="number"
                     min={0}
+                    step={getMoneyInputStep(settings.currency)}
                     required
                     value={varCostCOP}
                     onChange={(e) => setVarCostCOP(e.target.value)}
@@ -2819,6 +2840,15 @@ export const InventoryView: React.FC = () => {
         isBusy={busy}
         onCancel={() => setMaterialToDelete(null)}
         onConfirm={() => void handleConfirmDeleteMaterial()}
+      />
+
+      <FeatureGate
+        mode="modal"
+        isOpen={reserveGateOpen}
+        onClose={() => setReserveGateOpen(false)}
+        featureTitle="Reservas compartidas entre proyectos en PRO"
+        description="Aparta ovillos, madejas o insumos específicos para un proyecto o pieza concreta antes de tejerlos, protegiendo tu stock disponible frente a otros encargos."
+        freeIncludedNote="En FREE puedes registrar materiales y colores ilimitados, ajustar stock, consultar todo el Kardex y registrar consumos directos en tus proyectos. Cualquier reserva ya existente sigue pudiendo consumirse, modificarse o liberarse libremente."
       />
     </>
   );

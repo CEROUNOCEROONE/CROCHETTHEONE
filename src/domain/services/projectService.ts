@@ -7,6 +7,8 @@ import type {
   ProjectPaymentSummaryStatus,
   ProjectStatus,
 } from '@/src/domain/models/index.ts';
+import { roundCurrencyAmount } from './currencyCatalog.ts';
+import { getActiveCurrency } from './formatters.ts';
 
 export interface CreateProjectInput {
   readonly name: string;
@@ -133,7 +135,10 @@ export function buildNewProjectEntity(
     targetTotalMinutes: Math.max(0, Math.round(input.targetTotalMinutes || 0)),
     dailyGoalMinutes: Math.max(0, Math.round(input.dailyGoalMinutes || 0)),
     weeklyGoalMinutes: Math.max(0, Math.round(input.weeklyGoalMinutes || 0)),
-    estimatedBudgetCOP: Math.max(0, Math.round(input.estimatedBudgetCOP || 0)),
+    estimatedBudgetCOP: Math.max(
+      0,
+      roundCurrencyAmount(input.estimatedBudgetCOP || 0, getActiveCurrency()),
+    ),
     status: input.status,
     paymentStatus: input.paymentStatus,
     notes: input.notes.trim(),
@@ -180,7 +185,10 @@ export function applyProjectUpdates(
         : existing.weeklyGoalMinutes,
     estimatedBudgetCOP:
       updates.estimatedBudgetCOP !== undefined
-        ? Math.max(0, Math.round(updates.estimatedBudgetCOP))
+        ? Math.max(
+            0,
+            roundCurrencyAmount(updates.estimatedBudgetCOP, getActiveCurrency()),
+          )
         : existing.estimatedBudgetCOP,
     status: updates.status ?? existing.status,
     paymentStatus: updates.paymentStatus ?? existing.paymentStatus,

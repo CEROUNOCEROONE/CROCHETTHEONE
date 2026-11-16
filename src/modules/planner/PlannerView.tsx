@@ -44,9 +44,15 @@ import {
   type SmartAlertItem,
   type TaskBlockEvaluation,
 } from '@/src/domain/services/planningService.ts';
+import {
+  canConfigureAdvancedReminders,
+  canUseTaskMaterialDependency,
+  STANDARD_REMINDER_LEAD_DAYS,
+} from '@/src/domain/services/planCapabilities.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -125,6 +131,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
 }) => {
   const {
     settings,
+    effectiveTier,
     projects,
     components,
     workSessions,
@@ -146,6 +153,9 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     deleteReminder,
   } = useWorkshopData();
 
+  const canCustomizeReminders = canConfigureAdvancedReminders(effectiveTier);
+  const canLinkNewMaterialDep = canUseTaskMaterialDependency(effectiveTier);
+
   const snapDeckRef = useRef<SnapDeckHandle | null>(null);
   const viewportProfile = useViewportProfile();
 
@@ -165,6 +175,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
   // Estado formulario de tareas
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskInitialPendingId, setEditingTaskInitialPendingId] = useState<string>('');
   const [taskProjectId, setTaskProjectId] = useState<string>(projects[0]?.id ?? '');
   const [taskComponentId, setTaskComponentId] = useState<string>('');
   const [taskPendingId, setTaskPendingId] = useState<string>('');
@@ -309,10 +320,27 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     [todayKey, settings.dailyGoalMinutes, enrichedTasks, workSessions],
   );
 
+  const effectiveReminderSettings = useMemo(
+    () =>
+      canCustomizeReminders
+        ? settings
+        : {
+            ...settings,
+            reminderLeadDaysDelivery: STANDARD_REMINDER_LEAD_DAYS.delivery,
+            reminderLeadDaysInstallment: STANDARD_REMINDER_LEAD_DAYS.installment,
+            reminderLeadDaysPurchase: STANDARD_REMINDER_LEAD_DAYS.purchase,
+            enableDeliveryReminders: true,
+            enableInstallmentReminders: true,
+            enablePurchaseReminders: true,
+            enableLowStockReminders: true,
+          },
+    [canCustomizeReminders, settings],
+  );
+
   const smartAlerts = useMemo(
     () =>
       resolveSmartRemindersAndAlerts({
-        settings,
+        settings: effectiveReminderSettings,
         reminders,
         projects,
         pendingMaterials,
@@ -323,7 +351,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         clients,
       }),
     [
-      settings,
+      effectiveReminderSettings,
       reminders,
       projects,
       pendingMaterials,
@@ -448,6 +476,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
       projects[0]?.id ??
       '';
     setEditingTaskId(null);
+    setEditingTaskInitialPendingId('');
     setTaskProjectId(defaultProjId);
     setTaskComponentId('');
     setTaskPendingId('');
@@ -461,6 +490,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
 
   const openEditTaskForm = (entry: EnrichedTask) => {
     setEditingTaskId(entry.task.id);
+    setEditingTaskInitialPendingId(entry.task.dependsOnPendingMaterialId ?? '');
     setTaskProjectId(entry.task.projectId);
     setTaskComponentId(entry.task.componentId ?? '');
     setTaskPendingId(entry.task.dependsOnPendingMaterialId ?? '');
@@ -481,6 +511,16 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
       });
       return;
     }
+
+    const canKeepExistingPending =
+      Boolean(editingTaskId) &&
+      Boolean(editingTaskInitialPendingId) &&
+      (taskPendingId === '' || taskPendingId === editingTaskInitialPendingId);
+    const resolvedPendingId =
+      canLinkNewMaterialDep || canKeepExistingPending
+        ? taskPendingId || null
+        : null;
+
     setBusy(true);
     setFeedback(null);
     try {
@@ -488,7 +528,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         const updated = await updatePlannedTask(editingTaskId, {
           projectId: taskProjectId,
           componentId: taskComponentId || null,
-          dependsOnPendingMaterialId: taskPendingId || null,
+          dependsOnPendingMaterialId: resolvedPendingId,
           title: taskTitle,
           scheduledDate: taskDateKey,
           allocatedMinutes: taskMinutes,
@@ -505,7 +545,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         const created = await createPlannedTask({
           projectId: taskProjectId,
           componentId: taskComponentId || null,
-          dependsOnPendingMaterialId: taskPendingId || null,
+          dependsOnPendingMaterialId: resolvedPendingId,
           title: taskTitle,
           scheduledDate: taskDateKey,
           allocatedMinutes: taskMinutes,
@@ -601,6 +641,9 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
 
   const handleSaveReminderRules = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCustomizeReminders) {
+      return;
+    }
     setBusy(true);
     setFeedback(null);
     try {
@@ -1489,7 +1532,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     Centro de recordatorios y alertas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Entregas ({settings.reminderLeadDaysDelivery ?? 3}d), cuotas ({settings.reminderLeadDaysInstallment ?? 2}d) y compras ({settings.reminderLeadDaysPurchase ?? 1}d).
+                    Entregas ({effectiveReminderSettings.reminderLeadDaysDelivery ?? STANDARD_REMINDER_LEAD_DAYS.delivery}d), cuotas ({effectiveReminderSettings.reminderLeadDaysInstallment ?? STANDARD_REMINDER_LEAD_DAYS.installment}d) y compras ({effectiveReminderSettings.reminderLeadDaysPurchase ?? STANDARD_REMINDER_LEAD_DAYS.purchase}d).
                   </p>
                 </div>
                 {renderAlertFilterControls()}
@@ -1805,29 +1848,50 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                 />
               </div>
 
-              <div className="sm:col-span-2">
+              <div className="sm:col-span-2 space-y-2">
                 <label htmlFor="task-pending-dep" className="block text-xs font-semibold text-slate-700">
                   Dependencia explícita con compra pendiente (opcional)
                 </label>
-                <select
-                  id="task-pending-dep"
-                  value={taskPendingId}
-                  onChange={(e) => setTaskPendingId(e.target.value)}
-                  className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-                >
-                  <option value="">Detectar automáticamente según pieza</option>
-                  {formOpenPendings.map((pm) => {
-                    const variant = variantMap.get(pm.variantId);
-                    const mat = variant ? materialMap.get(variant.materialId) : undefined;
-                    return (
-                      <option key={pm.id} value={pm.id}>
-                        {mat?.name ?? 'Material'} ({variant?.colorName ?? 'Color'}) — Falta{' '}
-                        {Math.max(0, pm.quantityNeeded - pm.quantityReceived)}{' '}
-                        {mat?.unit ?? 'u'}
-                      </option>
-                    );
-                  })}
-                </select>
+                {canLinkNewMaterialDep || Boolean(editingTaskId && editingTaskInitialPendingId) ? (
+                  <select
+                    id="task-pending-dep"
+                    value={taskPendingId}
+                    onChange={(e) => {
+                      const nextVal = e.target.value;
+                      if (
+                        !canLinkNewMaterialDep &&
+                        nextVal !== '' &&
+                        nextVal !== editingTaskInitialPendingId
+                      ) {
+                        return;
+                      }
+                      setTaskPendingId(nextVal);
+                    }}
+                    className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  >
+                    <option value="">Detectar automáticamente según pieza</option>
+                    {formOpenPendings.map((pm) => {
+                      const variant = variantMap.get(pm.variantId);
+                      const mat = variant ? materialMap.get(variant.materialId) : undefined;
+                      const optionLocked =
+                        !canLinkNewMaterialDep && pm.id !== editingTaskInitialPendingId;
+                      return (
+                        <option key={pm.id} value={pm.id} disabled={optionLocked}>
+                          {mat?.name ?? 'Material'} ({variant?.colorName ?? 'Color'}) — Falta{' '}
+                          {Math.max(0, pm.quantityNeeded - pm.quantityReceived)}{' '}
+                          {mat?.unit ?? 'u'}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <FeatureGate
+                    mode="inline-banner"
+                    featureTitle="Dependencias nuevas por material pendiente (PRO)"
+                    description="Vincula tareas de tu agenda directamente a compras de material pendientes para bloquearlas automáticamente hasta que lleguen al taller."
+                    freeIncludedNote="Puedes crear, editar y completar tus tareas y su detección automática por pieza normalmente. Las tareas existentes con dependencia previa siguen funcionando sin bloqueo."
+                  />
+                )}
               </div>
 
               <div className="sm:col-span-2">
@@ -1915,15 +1979,25 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
               </button>
             </div>
 
+            {!canCustomizeReminders && (
+              <FeatureGate
+                mode="inline-banner"
+                featureTitle="Configuración avanzada de recordatorios (PRO)"
+                description="Personaliza libremente los días de anticipación para entregas, vencimientos de cuotas y compras pendientes, o activa y desactiva categorías automáticas según tu flujo de trabajo."
+                freeIncludedNote={`En tu plan FREE funcionan las alertas automáticas estándar (${STANDARD_REMINDER_LEAD_DAYS.delivery} días para entregas, ${STANDARD_REMINDER_LEAD_DAYS.installment} días para cuotas y ${STANDARD_REMINDER_LEAD_DAYS.purchase} día para compras) junto con recordatorios manuales ilimitados.`}
+              />
+            )}
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
                 <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-800">
                   <span>Entregas estimadas de proyectos</span>
                   <input
                     type="checkbox"
-                    checked={enableDelivery}
+                    disabled={!canCustomizeReminders}
+                    checked={canCustomizeReminders ? enableDelivery : true}
                     onChange={(e) => setEnableDelivery(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700 disabled:opacity-50"
                   />
                 </label>
                 <div>
@@ -1935,8 +2009,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     type="number"
                     min={0}
                     max={60}
-                    disabled={!enableDelivery}
-                    value={leadDelivery}
+                    disabled={!canCustomizeReminders || !enableDelivery}
+                    value={
+                      canCustomizeReminders
+                        ? leadDelivery
+                        : String(STANDARD_REMINDER_LEAD_DAYS.delivery)
+                    }
                     onChange={(e) => setLeadDelivery(e.target.value)}
                     className="mt-1 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums disabled:opacity-50"
                   />
@@ -1948,9 +2026,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                   <span>Vencimiento de cuotas y cobros</span>
                   <input
                     type="checkbox"
-                    checked={enableInstallment}
+                    disabled={!canCustomizeReminders}
+                    checked={canCustomizeReminders ? enableInstallment : true}
                     onChange={(e) => setEnableInstallment(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700 disabled:opacity-50"
                   />
                 </label>
                 <div>
@@ -1962,8 +2041,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     type="number"
                     min={0}
                     max={60}
-                    disabled={!enableInstallment}
-                    value={leadInstallment}
+                    disabled={!canCustomizeReminders || !enableInstallment}
+                    value={
+                      canCustomizeReminders
+                        ? leadInstallment
+                        : String(STANDARD_REMINDER_LEAD_DAYS.installment)
+                    }
                     onChange={(e) => setLeadInstallment(e.target.value)}
                     className="mt-1 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums disabled:opacity-50"
                   />
@@ -1975,9 +2058,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                   <span>Compras pendientes y llegadas</span>
                   <input
                     type="checkbox"
-                    checked={enablePurchase}
+                    disabled={!canCustomizeReminders}
+                    checked={canCustomizeReminders ? enablePurchase : true}
                     onChange={(e) => setEnablePurchase(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700 disabled:opacity-50"
                   />
                 </label>
                 <div>
@@ -1989,8 +2073,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     type="number"
                     min={0}
                     max={60}
-                    disabled={!enablePurchase}
-                    value={leadPurchase}
+                    disabled={!canCustomizeReminders || !enablePurchase}
+                    value={
+                      canCustomizeReminders
+                        ? leadPurchase
+                        : String(STANDARD_REMINDER_LEAD_DAYS.purchase)
+                    }
                     onChange={(e) => setLeadPurchase(e.target.value)}
                     className="mt-1 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums disabled:opacity-50"
                   />
@@ -2002,9 +2090,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                   <span>Alertas de stock mínimo por color</span>
                   <input
                     type="checkbox"
-                    checked={enableLowStock}
+                    disabled={!canCustomizeReminders}
+                    checked={canCustomizeReminders ? enableLowStock : true}
                     onChange={(e) => setEnableLowStock(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700 disabled:opacity-50"
                   />
                 </label>
                 <p className="mt-2 text-xs text-slate-500">
@@ -2021,13 +2110,15 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
               >
                 Cerrar
               </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className="inline-flex min-h-[42px] items-center rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-              >
-                {busy ? 'Guardando...' : 'Guardar preferencias'}
-              </button>
+              {canCustomizeReminders && (
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="inline-flex min-h-[42px] items-center rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {busy ? 'Guardando...' : 'Guardar preferencias'}
+                </button>
+              )}
             </div>
           </form>
         </div>

@@ -5,9 +5,12 @@ import {
   ArrowRight,
   Calculator,
   Check,
+  Crown,
   Database,
   Download,
   FileCheck2,
+  Fingerprint,
+  FlaskConical,
   HelpCircle,
   ShieldCheck,
   SlidersHorizontal,
@@ -22,15 +25,25 @@ import type {
 } from '@/src/data/ports/DataStorePort.ts';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
 import {
+  CURRENCY_CATALOG,
+  getCurrencySpec,
+  getMoneyInputStep,
+  roundCurrencyAmount,
+  type WorkshopCurrencyCode,
+} from '@/src/domain/services/currencyCatalog.ts';
+import {
   formatCOP,
+  formatDateCO,
   formatDateTimeCO,
   formatDurationMinutes,
 } from '@/src/domain/services/formatters.ts';
+import { formatUsdRatePerUnit } from '@/src/domain/services/exchangeRateService.ts';
 import { calculateQuoteSummary } from '@/src/domain/services/quoteMath.ts';
 import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -110,12 +123,20 @@ export const WorkshopSettingsView: React.FC = () => {
     settings,
     stats,
     schemaMeta,
+    usdRates,
+    usdRatesStatus,
+    syncDailyUsdRates,
     updateSettings,
     loadDemoData,
     purgeDemoData,
     exportBackup,
     inspectBackup,
     importBackup,
+    installationId,
+    effectiveTier,
+    capabilities,
+    devTierOverride,
+    setDevTierOverride,
   } = useWorkshopData();
   const isOnline = useOnlineStatus();
 
@@ -125,6 +146,7 @@ export const WorkshopSettingsView: React.FC = () => {
 
   const [workshopName, setWorkshopName] = useState(settings.workshopName);
   const [ownerDisplayName, setOwnerDisplayName] = useState(settings.ownerDisplayName);
+  const [currency, setCurrency] = useState<WorkshopCurrencyCode>(settings.currency);
   const [hourlyRateCOP, setHourlyRateCOP] = useState(String(settings.hourlyRateCOP));
   const [dailyGoalMinutes, setDailyGoalMinutes] = useState(
     String(settings.dailyGoalMinutes),
@@ -170,6 +192,7 @@ export const WorkshopSettingsView: React.FC = () => {
   useEffect(() => {
     setWorkshopName(settings.workshopName);
     setOwnerDisplayName(settings.ownerDisplayName);
+    setCurrency(settings.currency);
     setHourlyRateCOP(String(settings.hourlyRateCOP));
     setDailyGoalMinutes(String(settings.dailyGoalMinutes));
     setWeeklyGoalMinutes(String(settings.weeklyGoalMinutes));
@@ -183,6 +206,7 @@ export const WorkshopSettingsView: React.FC = () => {
   const parsePercent = (raw: string) =>
     Math.round(Math.max(0, Math.min(100, Number(raw) || 0)) * 100) / 100;
 
+  const selectedCurrencySpec = getCurrencySpec(currency);
   const sampleMarkup = Number(defaultMarkupPercent) || 0;
   const rentPct = parsePercent(rentCostPercent);
   const electricityPct = parsePercent(electricityCostPercent);
@@ -194,10 +218,15 @@ export const WorkshopSettingsView: React.FC = () => {
   const hasUnsavedSettings = useMemo(() => {
     const cleanName = workshopName.trim() || BRAND_CONFIG.defaultWorkshopName;
     const cleanOwner = ownerDisplayName.trim() || 'Artesana';
+    const nextHourly = Math.max(
+      0,
+      roundCurrencyAmount(Number(hourlyRateCOP) || 0, currency),
+    );
     return (
       cleanName !== settings.workshopName ||
       cleanOwner !== settings.ownerDisplayName ||
-      Math.max(0, Number(hourlyRateCOP) || 0) !== settings.hourlyRateCOP ||
+      currency !== settings.currency ||
+      nextHourly !== settings.hourlyRateCOP ||
       Math.max(15, Number(dailyGoalMinutes) || 60) !== settings.dailyGoalMinutes ||
       Math.max(30, Number(weeklyGoalMinutes) || 300) !== settings.weeklyGoalMinutes ||
       Math.max(0, Math.min(500, Number(defaultMarkupPercent) || 0)) !==
@@ -210,6 +239,7 @@ export const WorkshopSettingsView: React.FC = () => {
   }, [
     workshopName,
     ownerDisplayName,
+    currency,
     hourlyRateCOP,
     dailyGoalMinutes,
     weeklyGoalMinutes,
@@ -222,17 +252,18 @@ export const WorkshopSettingsView: React.FC = () => {
   ]);
 
   const formulaPreview = calculateQuoteSummary({
-    materialsTotalCOP: 40000,
+    materialsTotalCOP: selectedCurrencySpec.sampleMaterials,
     effectiveMinutes: 180,
     hourlyRateCOP: Number(hourlyRateCOP) || 0,
     indirectCostsCOP: 0,
-    packagingCostCOP: 5000,
+    packagingCostCOP: selectedCurrencySpec.samplePackaging,
     shippingOrOtherCOP: 0,
     markupPercent: sampleMarkup,
     rentPercent: rentPct,
     electricityPercent: electricityPct,
     internetPercent: internetPct,
     wasteContingencyPercent: wastePct,
+    currency,
   });
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
@@ -243,7 +274,11 @@ export const WorkshopSettingsView: React.FC = () => {
       await updateSettings({
         workshopName: workshopName.trim() || BRAND_CONFIG.defaultWorkshopName,
         ownerDisplayName: ownerDisplayName.trim() || 'Artesana',
-        hourlyRateCOP: Math.max(0, Number(hourlyRateCOP) || 0),
+        currency,
+        hourlyRateCOP: Math.max(
+          0,
+          roundCurrencyAmount(Number(hourlyRateCOP) || 0, currency),
+        ),
         dailyGoalMinutes: Math.max(15, Number(dailyGoalMinutes) || 60),
         weeklyGoalMinutes: Math.max(30, Number(weeklyGoalMinutes) || 300),
         defaultMarkupPercent: Math.max(0, Math.min(500, Number(defaultMarkupPercent) || 0)),
@@ -391,6 +426,20 @@ export const WorkshopSettingsView: React.FC = () => {
           <p className="truncate font-display text-sm font-bold text-slate-900 sm:text-base">
             Ajustes · {settings.workshopName}
           </p>
+          <button
+            type="button"
+            onClick={() => goToStep('system')}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+              capabilities.isPro
+                ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Crown className="h-3 w-3" aria-hidden="true" />
+            <span>
+              {capabilities.isPro ? 'PRO' : 'Plan FREE'}
+            </span>
+          </button>
           {hasUnsavedSettings && (
             <span className="inline-flex shrink-0 items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
               Sin guardar
@@ -489,7 +538,7 @@ export const WorkshopSettingsView: React.FC = () => {
                     Identidad, tarifa y metas de tejido
                   </h3>
                   <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
-                    Valores guardados localmente en IndexedDB para el panel principal y los cálculos del cotizador en COP.
+                    Valores guardados localmente en IndexedDB para todo el taller. Cambiar de moneda ajusta el formato y decimales sin alterar los importes ya guardados.
                   </p>
                 </div>
 
@@ -530,21 +579,83 @@ export const WorkshopSettingsView: React.FC = () => {
 
                   <div>
                     <label
+                      htmlFor="workshopCurrency"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Moneda del taller
+                    </label>
+                    <select
+                      id="workshopCurrency"
+                      value={currency}
+                      onChange={(e) => {
+                        const next = e.target.value as WorkshopCurrencyCode;
+                        setCurrency(next);
+                        if (next !== 'USD') {
+                          void syncDailyUsdRates();
+                        }
+                      }}
+                      className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    >
+                      <optgroup label="Latinoamérica">
+                        {CURRENCY_CATALOG.filter((c) => c.regionGroup === 'Latinoamérica').map(
+                          (item) => (
+                            <option key={item.code} value={item.code}>
+                              {item.code} · {item.name} ({item.countries})
+                            </option>
+                          ),
+                        )}
+                      </optgroup>
+                      <optgroup label="Dólar y Euro">
+                        {CURRENCY_CATALOG.filter((c) => c.regionGroup === 'Dólar y Euro').map(
+                          (item) => (
+                            <option key={item.code} value={item.code}>
+                              {item.code} · {item.name} ({item.countries})
+                            </option>
+                          ),
+                        )}
+                      </optgroup>
+                    </select>
+                    {currency !== 'USD' && (
+                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 tabular-nums">
+                        {usdRatesStatus === 'loading' && !usdRates
+                          ? 'Consultando tasa de referencia USD del día...'
+                          : formatUsdRatePerUnit(currency, usdRates)
+                            ? `Comparativa automática (1 vez/día): ${formatUsdRatePerUnit(currency, usdRates)} · ${
+                                usdRatesStatus === 'offline_cached'
+                                  ? `guardada el ${formatDateCO(usdRates?.fetchedAt)}`
+                                  : `actualizada hoy (${formatDateCO(usdRates?.fetchedAt)})`
+                              }`
+                            : 'La comparativa en dólares (USD) se cargará automáticamente cuando haya conexión.'}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
                       htmlFor="hourlyRateCOP"
                       className="block text-xs font-semibold text-slate-700"
                     >
-                      Tarifa por hora de mano de obra (COP)
+                      Tarifa por hora de mano de obra ({currency})
                     </label>
                     <input
                       id="hourlyRateCOP"
                       type="number"
                       min={0}
-                      step={500}
+                      step={getMoneyInputStep(currency)}
                       required
                       value={hourlyRateCOP}
                       onChange={(e) => setHourlyRateCOP(e.target.value)}
                       className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                     />
+                    {currency !== 'USD' && Number(hourlyRateCOP) > 0 && (
+                      <UsdEquiv
+                        amount={Number(hourlyRateCOP)}
+                        currency={currency}
+                        prefix="Equivalente por hora: "
+                        block
+                        className="mt-1"
+                      />
+                    )}
                   </div>
 
                   <div>
@@ -781,10 +892,15 @@ export const WorkshopSettingsView: React.FC = () => {
                       <strong className="text-amber-900">Asume pequeñas pérdidas:</strong>{' '}
                       puntas de hilo, nudos o ajustes menores. Ej.: un{' '}
                       <span className="font-mono font-semibold">5%</span> sobre{' '}
-                      <span className="font-mono">{formatCOP(formulaPreview.directBaseCostCOP)}</span>{' '}
+                      <span className="font-mono">
+                        {formatCOP(formulaPreview.directBaseCostCOP, currency)}
+                      </span>{' '}
                       reserva{' '}
                       <span className="font-mono font-semibold text-amber-900">
-                        {formatCOP(Math.round(formulaPreview.directBaseCostCOP * 0.05))}
+                        {formatCOP(
+                          roundCurrencyAmount(formulaPreview.directBaseCostCOP * 0.05, currency),
+                          currency,
+                        )}
                       </span>{' '}
                       (rango típico: 3%–8%).
                     </p>
@@ -794,46 +910,54 @@ export const WorkshopSettingsView: React.FC = () => {
                 {/* Vista previa en vivo compacta */}
                 <div className="rounded-xl border border-slate-200 bg-white p-3.5 sm:p-4">
                   <p className="text-xs font-semibold text-slate-800">
-                    Simulación en vivo (3 h tejido + $40.000 mat. + $5.000 empaque)
+                    Simulación en vivo ({currency}: 3 h tejido +{' '}
+                    {formatCOP(selectedCurrencySpec.sampleMaterials, currency)} mat. +{' '}
+                    {formatCOP(selectedCurrencySpec.samplePackaging, currency)} empaque)
                   </p>
                   <div className="mt-2.5 grid grid-cols-2 gap-2.5 border-b border-slate-100 pb-2.5 text-xs sm:grid-cols-4">
                     <div>
                       <p className="text-slate-500">Base directa</p>
                       <p className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {formatCOP(formulaPreview.directBaseCostCOP)}
+                        {formatCOP(formulaPreview.directBaseCostCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.directBaseCostCOP} currency={currency} block />
                     </div>
                     <div>
                       <p className="text-slate-500">Fijos ({totalFixedPercent.toFixed(1)}%)</p>
                       <p className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {formatCOP(formulaPreview.fixedServicesIndirectCOP)}
+                        {formatCOP(formulaPreview.fixedServicesIndirectCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.fixedServicesIndirectCOP} currency={currency} block />
                     </div>
                     <div>
                       <p className="text-slate-500">Imprev. ({wastePct.toFixed(1)}%)</p>
                       <p className="font-mono font-semibold text-amber-800 tabular-nums">
-                        {formatCOP(formulaPreview.wasteContingencyCOP)}
+                        {formatCOP(formulaPreview.wasteContingencyCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.wasteContingencyCOP} currency={currency} block />
                     </div>
                     <div>
                       <p className="text-slate-500">Costo total</p>
                       <p className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {formatCOP(formulaPreview.totalProductionCostCOP)}
+                        {formatCOP(formulaPreview.totalProductionCostCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.totalProductionCostCOP} currency={currency} block />
                     </div>
                   </div>
                   <div className="mt-2.5 grid grid-cols-3 gap-2.5 text-xs">
                     <div>
                       <p className="text-slate-500">Precio ({formulaPreview.markupPercent}%)</p>
                       <p className="font-mono font-bold text-teal-800 tabular-nums">
-                        {formatCOP(formulaPreview.suggestedPriceCOP)}
+                        {formatCOP(formulaPreview.suggestedPriceCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.suggestedPriceCOP} currency={currency} block />
                     </div>
                     <div>
                       <p className="text-slate-500">Ganancia neta</p>
                       <p className="font-mono font-bold text-emerald-700 tabular-nums">
-                        {formatCOP(formulaPreview.expectedProfitCOP)}
+                        {formatCOP(formulaPreview.expectedProfitCOP, currency)}
                       </p>
+                      <UsdEquiv amount={formulaPreview.expectedProfitCOP} currency={currency} block />
                     </div>
                     <div>
                       <p className="text-slate-500">Margen s/ venta</p>
@@ -890,7 +1014,7 @@ export const WorkshopSettingsView: React.FC = () => {
                     Respaldo y restauración local (.json)
                   </h3>
                   <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
-                    Exporta o restaura tu base local con validación de versión, detección de duplicados e integridad referencial.
+                    Exporta o restaura tu base local con validación de versión, detección de duplicados e integridad referencial. El respaldo JSON local es gratuito en todos los planes; el respaldo automático en la nube formará parte de futuras fases PRO.
                   </p>
                 </div>
 
@@ -1167,7 +1291,7 @@ export const WorkshopSettingsView: React.FC = () => {
                         Datos de demostración aislados
                       </h4>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                        Carga ejemplos prácticos (Mariposa de crochet, Amigurumi por $180.000 COP e Hilo de Algodón Blanco de 500 g). Se etiquetan como &ldquo;Ejemplo&rdquo; y pueden eliminarse de forma segura sin afectar tus datos reales.
+                        Carga ejemplos prácticos (Mariposa de crochet, Amigurumi personalizado e Hilo de Algodón Blanco de 500 g). Se etiquetan como &ldquo;Ejemplo&rdquo; y pueden eliminarse de forma segura sin afectar tus datos reales.
                       </p>
                     </div>
                   </div>
@@ -1224,6 +1348,132 @@ export const WorkshopSettingsView: React.FC = () => {
                     <PWAInstallButton />
                   </div>
                 </div>
+
+                {/* Tu Plan Actual (FREE / PRO) e identificadores técnicos */}
+                <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <Crown
+                        className={`mt-0.5 h-5 w-5 shrink-0 ${
+                          capabilities.isPro ? 'text-amber-600' : 'text-teal-700'
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-semibold text-slate-900">
+                            Tu Plan Actual
+                          </h4>
+                          <span
+                            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${
+                              capabilities.isPro
+                                ? 'bg-amber-100 text-amber-900'
+                                : 'bg-teal-50 text-teal-800 border border-teal-200'
+                            }`}
+                          >
+                            {effectiveTier === 'pro_annual'
+                              ? 'PRO Anual'
+                              : effectiveTier === 'pro_monthly'
+                                ? 'PRO Mensual'
+                                : 'FREE'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          {capabilities.isPro
+                            ? 'Acceso completo a proyectos ilimitados, cotizaciones ilimitadas, pagos multi-cuota flexibles, estados de cuenta, reservas de stock, recordatorios avanzados y dependencias de materiales.'
+                            : 'Tu taller opera completo en el plan FREE: hasta 5 proyectos reales activos, 5 cotizaciones reales guardadas, planes de hasta 2 cuotas libres, caja financiera, inventario Kardex y respaldos JSON locales ilimitados.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50/70 p-3 text-xs sm:grid-cols-2">
+                    <div className="flex items-start gap-2">
+                      <Fingerprint
+                        className="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-700">
+                          ID persistente del taller (workshopInstanceId)
+                        </p>
+                        <p className="mt-0.5 break-all font-mono text-[11px] text-slate-500">
+                          {settings.workshopInstanceId}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Fingerprint
+                        className="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-700">
+                          ID de esta instalación (installationId)
+                        </p>
+                        <p className="mt-0.5 break-all font-mono text-[11px] text-slate-500">
+                          {installationId}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulador efímero exclusivo de desarrollo */}
+                {import.meta.env.DEV && (
+                  <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 sm:p-5 space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <FlaskConical
+                        className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <h4 className="text-sm font-semibold text-amber-950">
+                          Simulador de desarrollo (solo en memoria, sin persistencia)
+                        </h4>
+                        <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
+                          Disponible únicamente en modo desarrollo (VITE DEV). Permite probar límites FREE y capacidades PRO en memoria sin modificar IndexedDB ni incluir este panel en producción.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDevTierOverride(null)}
+                        className={`inline-flex min-h-[38px] items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                          devTierOverride === null
+                            ? 'bg-slate-900 text-white'
+                            : 'border border-amber-300 bg-white text-slate-700 hover:bg-amber-100/60'
+                        }`}
+                      >
+                        Simular FREE (Por defecto)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevTierOverride('pro_monthly')}
+                        className={`inline-flex min-h-[38px] items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                          devTierOverride === 'pro_monthly'
+                            ? 'bg-amber-700 text-white'
+                            : 'border border-amber-300 bg-white text-slate-700 hover:bg-amber-100/60'
+                        }`}
+                      >
+                        Simular PRO Mensual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDevTierOverride('pro_annual')}
+                        className={`inline-flex min-h-[38px] items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                          devTierOverride === 'pro_annual'
+                            ? 'bg-amber-700 text-white'
+                            : 'border border-amber-300 bg-white text-slate-700 hover:bg-amber-100/60'
+                        }`}
+                      >
+                        Simular PRO Anual
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">

@@ -7,6 +7,8 @@ import type {
   MoneyCOP,
   ReservationStatus,
 } from '@/src/domain/models/index.ts';
+import { roundCurrencyAmount } from './currencyCatalog.ts';
+import { getActiveCurrency } from './formatters.ts';
 
 export const MATERIAL_CATEGORY_OPTIONS: Array<{
   readonly value: MaterialCategory;
@@ -173,7 +175,8 @@ export function getReservationRemaining(
 export function getVariantInventoryValueCOP(
   variant: Pick<MaterialVariant, 'physicalStock' | 'unitCostCOP'>,
 ): MoneyCOP {
-  return Math.round(
+  return roundCurrencyAmount(
     Math.max(0, variant.physicalStock) * Math.max(0, variant.unitCostCOP),
+    getActiveCurrency(),
   );
 }

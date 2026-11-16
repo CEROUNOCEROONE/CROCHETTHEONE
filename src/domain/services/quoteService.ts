@@ -11,7 +11,16 @@ import type {
   QuoteStatus,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
-import { formatCOP, formatDateCO, formatDurationMinutes } from './formatters.ts';
+import {
+  roundCurrencyAmount,
+  type WorkshopCurrencyCode,
+} from './currencyCatalog.ts';
+import {
+  formatCOP,
+  formatDateCO,
+  formatDurationMinutes,
+  getActiveCurrency,
+} from './formatters.ts';
 import { calculateQuoteSummary } from './quoteMath.ts';
 
 export const QUOTE_STATUS_OPTIONS: Array<{
@@ -122,6 +131,7 @@ function createQuoteId(): string {
 
 export function normalizeQuoteMaterialLines(
   lines: CreateQuoteMaterialLineInput[],
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): QuoteMaterialLine[] {
   return lines.map((line) => {
     const cleanLabel = line.label.trim();
@@ -132,7 +142,10 @@ export function normalizeQuoteMaterialLines(
     if (quantity <= 0) {
       throw new Error(`La cantidad de "${cleanLabel}" debe ser mayor a 0.`);
     }
-    const unitCostCOP = Math.max(0, Math.round(Number(line.unitCostCOP) || 0));
+    const unitCostCOP = Math.max(
+      0,
+      roundCurrencyAmount(Number(line.unitCostCOP) || 0, currency),
+    );
     return {
       variantId: line.variantId ? line.variantId : null,
       label: cleanLabel,
@@ -140,7 +153,7 @@ export function normalizeQuoteMaterialLines(
       unit: line.unit?.trim() || 'unit',
       quantity,
       unitCostCOP,
-      subtotalCOP: Math.round(quantity * unitCostCOP),
+      subtotalCOP: roundCurrencyAmount(quantity * unitCostCOP, currency),
     };
   });
 }
@@ -158,28 +171,36 @@ export function computeQuoteSnapshotPricing(params: {
   readonly shippingOrOtherCOP?: MoneyCOP;
   readonly markupPercent: number;
   readonly finalAgreedPriceCOP?: MoneyCOP | null;
+  readonly currency?: WorkshopCurrencyCode;
 }) {
-  const normalizedLines = normalizeQuoteMaterialLines(params.materialsSnapshot);
-  const materialsTotalCOP = normalizedLines.reduce(
-    (sum, item) => sum + item.subtotalCOP,
-    0,
+  const currency = params.currency ?? getActiveCurrency();
+  const normalizedLines = normalizeQuoteMaterialLines(
+    params.materialsSnapshot,
+    currency,
+  );
+  const materialsTotalCOP = roundCurrencyAmount(
+    normalizedLines.reduce((sum, item) => sum + item.subtotalCOP, 0),
+    currency,
   );
   const effectiveMinutesUsed = Math.max(
     0,
     Math.round(Number(params.effectiveMinutesUsed) || 0),
   );
-  const hourlyRateCOP = Math.max(0, Math.round(Number(params.hourlyRateCOP) || 0));
+  const hourlyRateCOP = Math.max(
+    0,
+    roundCurrencyAmount(Number(params.hourlyRateCOP) || 0, currency),
+  );
   const manualIndirectCostsCOP = Math.max(
     0,
-    Math.round(Number(params.manualIndirectCostsCOP) || 0),
+    roundCurrencyAmount(Number(params.manualIndirectCostsCOP) || 0, currency),
   );
   const packagingCostCOP = Math.max(
     0,
-    Math.round(Number(params.packagingCostCOP) || 0),
+    roundCurrencyAmount(Number(params.packagingCostCOP) || 0, currency),
   );
   const shippingOrOtherCOP = Math.max(
     0,
-    Math.round(Number(params.shippingOrOtherCOP) || 0),
+    roundCurrencyAmount(Number(params.shippingOrOtherCOP) || 0, currency),
   );
   const rentPercent = clampPercent(params.rentPercent);
   const electricityPercent = clampPercent(params.electricityPercent);
@@ -199,17 +220,20 @@ export function computeQuoteSnapshotPricing(params: {
     electricityPercent,
     internetPercent,
     wasteContingencyPercent,
+    currency,
   });
 
-  const indirectCostsCOP =
+  const indirectCostsCOP = roundCurrencyAmount(
     manualIndirectCostsCOP +
-    summary.fixedServicesIndirectCOP +
-    summary.wasteContingencyCOP;
+      summary.fixedServicesIndirectCOP +
+      summary.wasteContingencyCOP,
+    currency,
+  );
 
   const finalAgreedPriceCOP =
     typeof params.finalAgreedPriceCOP === 'number' &&
     Number.isFinite(params.finalAgreedPriceCOP)
-      ? Math.max(0, Math.round(params.finalAgreedPriceCOP))
+      ? Math.max(0, roundCurrencyAmount(params.finalAgreedPriceCOP, currency))
       : null;
 
   return {
@@ -274,7 +298,7 @@ export function buildNewQuoteEntity(
     projectId: input.projectId ? input.projectId : null,
     clientId: input.clientId ? input.clientId : null,
     title: cleanTitle,
-    currency: 'COP',
+    currency: getActiveCurrency(),
     materialsSnapshot: pricing.normalizedLines,
     materialsTotalCOP: pricing.materialsTotalCOP,
     effectiveHoursUsed: pricing.effectiveHoursUsed,
@@ -388,10 +412,11 @@ export function applyQuoteUpdates(
 export function calculateAgreedPriceMetrics(
   totalProductionCostCOP: MoneyCOP,
   effectivePriceCOP: MoneyCOP,
+  currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): AgreedPriceMetrics {
-  const safeCost = Math.max(0, Math.round(totalProductionCostCOP));
-  const safePrice = Math.max(0, Math.round(effectivePriceCOP));
-  const profitAtAgreedCOP = safePrice - safeCost;
+  const safeCost = Math.max(0, roundCurrencyAmount(totalProductionCostCOP, currency));
+  const safePrice = Math.max(0, roundCurrencyAmount(effectivePriceCOP, currency));
+  const profitAtAgreedCOP = roundCurrencyAmount(safePrice - safeCost, currency);
   const grossMarginAtAgreedPercent =
     safePrice > 0
       ? Number(((profitAtAgreedCOP / safePrice) * 100).toFixed(2))
@@ -481,7 +506,7 @@ export function extractProjectQuotePrefill(params: {
     const variant = variantById.get(variantId);
     if (!variant || quantity <= 0) continue;
     const material = materialById.get(variant.materialId);
-    const unitCostCOP = Math.max(0, Math.round(variant.unitCostCOP));
+    const unitCostCOP = Math.max(0, roundCurrencyAmount(variant.unitCostCOP));
     materialLines.push({
       variantId: variant.id,
       label: material?.name ?? 'Material',
@@ -489,7 +514,7 @@ export function extractProjectQuotePrefill(params: {
       unit: material?.unit ?? 'unit',
       quantity,
       unitCostCOP,
-      subtotalCOP: Math.round(quantity * unitCostCOP),
+      subtotalCOP: roundCurrencyAmount(quantity * unitCostCOP),
     });
   }
 
@@ -575,7 +600,7 @@ export function formatQuoteClientSummaryText(params: {
   }
 
   lines.push('');
-  lines.push(`*Valor total estimado: ${formatCOP(params.finalPriceCOP)} COP*`);
+  lines.push(`*Valor total estimado: ${formatCOP(params.finalPriceCOP)} ${getActiveCurrency()}*`);
 
   if (params.notes?.trim()) {
     lines.push('');

@@ -60,7 +60,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     plannedCapabilities: [
       'Indicadores reales de proyectos en curso, pendientes y finalizados',
       'Alertas de stock bajo por color y entregas próximas',
-      'Resumen de saldos y cobros pendientes en COP',
+      'Resumen de saldos y cobros pendientes',
     ],
   },
   {
@@ -131,7 +131,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     id: 'quoting',
     label: 'Cotizador',
     shortLabel: 'Cotizar',
-    description: 'Cálculo transparente de costos, mano de obra, Markup y margen real en COP.',
+    description: 'Cálculo transparente de costos, mano de obra, Markup y margen real.',
     group: 'Comercial',
     phase: 6,
     isActiveInCurrentPhase: true,

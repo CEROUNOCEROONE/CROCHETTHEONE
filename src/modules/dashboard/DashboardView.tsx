@@ -18,6 +18,7 @@ import {
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -141,7 +142,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-medium text-slate-500">
-              {settings.workshopName} · Tarifa hora: {formatCOP(settings.hourlyRateCOP)} · Hoy:{' '}
+              {settings.workshopName} · Tarifa hora: {formatCOP(settings.hourlyRateCOP)}
+              <UsdEquiv amount={settings.hourlyRateCOP} prefix=" (" suffix=")" /> · Hoy:{' '}
               {formatDurationMinutes(stats.todayEffectiveMinutes)} / meta{' '}
               {formatDurationMinutes(settings.dailyGoalMinutes)}
             </p>
@@ -313,20 +315,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <dl className="mt-4 space-y-3">
         <div className="flex items-center justify-between text-sm">
           <dt className="text-slate-600">Total acordado</dt>
-          <dd className="font-mono font-semibold text-slate-900 tabular-nums">
-            {formatCOP(stats.totalAgreedCOP)}
+          <dd className="text-right font-mono font-semibold text-slate-900 tabular-nums">
+            <span>{formatCOP(stats.totalAgreedCOP)}</span>
+            <UsdEquiv amount={stats.totalAgreedCOP} block />
           </dd>
         </div>
         <div className="flex items-center justify-between text-sm">
           <dt className="text-slate-600">Anticipos y cuotas recibidas</dt>
-          <dd className="font-mono font-semibold text-emerald-700 tabular-nums">
-            {formatCOP(stats.totalPaidCOP)}
+          <dd className="text-right font-mono font-semibold text-emerald-700 tabular-nums">
+            <span>{formatCOP(stats.totalPaidCOP)}</span>
+            <UsdEquiv amount={stats.totalPaidCOP} block />
           </dd>
         </div>
         <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
           <dt className="font-medium text-slate-900">Saldo pendiente por cobrar</dt>
-          <dd className="font-mono font-bold text-slate-900 tabular-nums">
-            {formatCOP(stats.totalPendingBalanceCOP)}
+          <dd className="text-right font-mono font-bold text-slate-900 tabular-nums">
+            <span>{formatCOP(stats.totalPendingBalanceCOP)}</span>
+            <UsdEquiv amount={stats.totalPendingBalanceCOP} block />
           </dd>
         </div>
       </dl>
@@ -339,29 +344,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <ul className="mt-2.5 space-y-2.5">
             {stats.upcomingInstallments
               .slice(0, 4)
-              .map(({ installment, projectName, clientName }) => (
-                <li
-                  key={installment.id}
-                  className="flex items-center justify-between gap-3 text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-800">
-                      {installment.concept} · {clientName}
-                    </p>
-                    <p className="truncate text-slate-500">
-                      {projectName} · Vence {formatDateCO(installment.dueDate)}
-                    </p>
-                  </div>
-                  <span className="font-mono font-semibold text-slate-900 tabular-nums shrink-0">
-                    {formatCOP(
-                      Math.max(
-                        0,
-                        installment.scheduledAmountCOP - installment.paidAmountCOP,
-                      ),
-                    )}
-                  </span>
-                </li>
-              ))}
+              .map(({ installment, projectName, clientName }) => {
+                const pendingAmount = Math.max(
+                  0,
+                  installment.scheduledAmountCOP - installment.paidAmountCOP,
+                );
+                return (
+                  <li
+                    key={installment.id}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-800">
+                        {installment.concept} · {clientName}
+                      </p>
+                      <p className="truncate text-slate-500">
+                        {projectName} · Vence {formatDateCO(installment.dueDate)}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className="font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatCOP(pendingAmount)}
+                      </span>
+                      <UsdEquiv amount={pendingAmount} block className="text-[10px]" />
+                    </div>
+                  </li>
+                );
+              })}
           </ul>
         </div>
       )}
@@ -434,7 +443,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <EmptyState
               icon={Sparkles}
               title="Aún no hay proyectos ni materiales registrados"
-              description="Puedes cargar los ejemplos prácticos del taller (Mariposa de crochet, Amigurumi personalizado por $180.000 COP e Hilo Algodón Blanco de 500 g) para revisar la estructura, y eliminarlos luego sin afectar tus datos reales."
+              description="Puedes cargar los ejemplos prácticos del taller (Mariposa de crochet, Amigurumi personalizado e Hilo Algodón Blanco de 500 g) para revisar la estructura, y eliminarlos luego sin afectar tus datos reales."
               primaryAction={{
                 label: seeding ? 'Cargando ejemplos...' : 'Cargar ejemplos del taller',
                 onClick: () => void handleLoadDemo(),

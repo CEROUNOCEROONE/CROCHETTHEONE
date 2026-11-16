@@ -162,6 +162,7 @@ export interface WorkshopDataEngine {
         WorkshopSettings,
         | 'workshopName'
         | 'ownerDisplayName'
+        | 'currency'
         | 'hourlyRateCOP'
         | 'dailyGoalMinutes'
         | 'weeklyGoalMinutes'

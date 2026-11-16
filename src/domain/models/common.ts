@@ -19,6 +19,23 @@ export interface SyncMetadata {
 
 export type BaseEntity = SyncMetadata;
 
+export type SubscriptionTier = 'free' | 'pro_monthly' | 'pro_annual';
+export type SubscriptionStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'expired';
+export type PlanMetadataSource = 'local_default' | 'server_cached';
+
+export interface WorkshopPlanMetadata {
+  readonly tier: SubscriptionTier;
+  readonly status: SubscriptionStatus;
+  readonly source: PlanMetadataSource;
+  readonly updatedAt: ISODate;
+  readonly lastVerifiedAt?: ISODate | null;
+}
+
 export interface SchemaMigrationRecord {
   readonly version: number;
   readonly name: string;

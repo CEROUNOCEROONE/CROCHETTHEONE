@@ -1,4 +1,5 @@
 import type { BaseEntity, MoneyCOP } from './common.ts';
+import type { WorkshopCurrencyCode } from '@/src/domain/services/currencyCatalog.ts';
 
 export type QuoteStatus = 'draft' | 'sent' | 'approved' | 'rejected';
 
@@ -16,7 +17,7 @@ export interface Quote extends BaseEntity {
   readonly projectId: string | null;
   readonly clientId: string | null;
   readonly title: string;
-  readonly currency: 'COP';
+  readonly currency: WorkshopCurrencyCode;
   readonly materialsSnapshot: QuoteMaterialLine[];
   readonly materialsTotalCOP: MoneyCOP;
   readonly effectiveHoursUsed: number;
