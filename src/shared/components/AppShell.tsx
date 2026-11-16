@@ -18,6 +18,7 @@ interface AppShellProps {
    * En Fase 1 permanece desacoplado sin lógica funcional de cronómetro.
    */
   readonly timerDockSlot?: React.ReactNode;
+  readonly headerActionsSlot?: React.ReactNode;
   readonly children: React.ReactNode;
   onSelectRoute(routeId: ModuleRouteId): void;
 }
@@ -26,6 +27,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   activeRoute,
   workshopName,
   timerDockSlot,
+  headerActionsSlot,
   children,
   onSelectRoute,
 }) => {
@@ -116,12 +118,12 @@ export const AppShell: React.FC<AppShellProps> = ({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Barra superior fija sin solapamiento */}
         <header className="z-30 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
-          <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:h-16">
-            <div className="flex min-w-0 items-center gap-3">
+          <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 lg:h-16">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setMobileDrawerOpen(true)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 lg:hidden"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 lg:hidden"
                 aria-label="Abrir menú de módulos"
               >
                 <Menu className="h-5 w-5" />
@@ -133,8 +135,11 @@ export const AppShell: React.FC<AppShellProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
-              <PWAInstallButton compact />
+            <div className="flex items-center gap-2 shrink-0 sm:gap-3">
+              <div className="hidden sm:flex items-center">
+                <PWAInstallButton compact />
+              </div>
+              {headerActionsSlot}
             </div>
           </div>
           <OfflineIndicator />

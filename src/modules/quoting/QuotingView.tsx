@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Calculator,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -164,7 +163,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   // Mensajes de estado y acciones
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
   const [sharePreviewText, setSharePreviewText] = useState<string | null>(null);
@@ -453,11 +452,6 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         variantId: null,
       })),
     );
-    setFeedback({
-      type: 'success',
-      message:
-        'Se desvincularon los datos de ejemplo. Ahora puedes guardarla como una cotización propia del taller.',
-    });
   };
 
   const handleAddCatalogLine = () => {
@@ -663,19 +657,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       };
 
       if (editingQuoteId) {
-        const updated = await updateQuote(editingQuoteId, payload);
-        setFeedback({
-          type: 'success',
-          message: `Cotización "${updated.title}" actualizada correctamente.`,
-        });
+        await updateQuote(editingQuoteId, payload);
       } else {
         const created = await createQuote(payload);
         setEditingQuoteId(created.id);
         setEditingIsDemo(created.isDemo);
-        setFeedback({
-          type: 'success',
-          message: `Cotización "${created.title}" guardada en tu historial local.`,
-        });
       }
     } catch (err) {
       setFeedback({
@@ -785,11 +771,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     setBusyQuoteId(quoteId);
     setFeedback(null);
     try {
-      const updatedProj = await applyQuotePriceToProject(quoteId);
-      setFeedback({
-        type: 'success',
-        message: `Presupuesto de "${updatedProj.name}" actualizado a ${formatCOP(updatedProj.estimatedBudgetCOP)}.`,
-      });
+      await applyQuotePriceToProject(quoteId);
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -813,10 +795,6 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       if (editingQuoteId === targetId) {
         resetSimulatorToNew();
       }
-      setFeedback({
-        type: 'success',
-        message: 'Cotización eliminada del historial.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -976,19 +954,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
               {feedback && (
                 <div
-                  role={feedback.type === 'error' ? 'alert' : 'status'}
-                  className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm ${
-                    feedback.type === 'error'
-                      ? 'border-rose-200 bg-rose-50 text-rose-800'
-                      : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  }`}
+                  role="alert"
+                  className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-800 sm:text-sm"
                 >
                   <div className="flex items-start gap-2">
-                    {feedback.type === 'error' ? (
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    )}
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                     <span>{feedback.message}</span>
                   </div>
                   <button

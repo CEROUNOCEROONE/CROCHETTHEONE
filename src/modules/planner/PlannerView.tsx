@@ -5,7 +5,6 @@ import {
   Calendar,
   CalendarDays,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -156,7 +155,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
   const [alertFilter, setAlertFilter] = useState<AlertFilter>('active');
 
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'warning' | 'error';
     message: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -493,13 +492,13 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
           allocatedMinutes: taskMinutes,
           notes: taskNotes,
         });
-        setFeedback({
-          type: 'success',
-          message:
-            updated.status === 'blocked_by_material'
-              ? 'Tarea actualizada. Permanece bloqueada preventivamente por material pendiente.'
-              : 'Tarea actualizada correctamente en tu agenda.',
-        });
+        if (updated.status === 'blocked_by_material') {
+          setFeedback({
+            type: 'warning',
+            message:
+              'La tarea permanece bloqueada preventivamente por material pendiente.',
+          });
+        }
       } else {
         const created = await createPlannedTask({
           projectId: taskProjectId,
@@ -511,13 +510,13 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
           notes: taskNotes,
         });
         setSelectedDateKey(taskDateKey);
-        setFeedback({
-          type: 'success',
-          message:
-            created.status === 'blocked_by_material'
-              ? 'Tarea agendada con bloqueo preventivo: espera llegada de insumos.'
-              : 'Tarea agendada correctamente en IndexedDB.',
-        });
+        if (created.status === 'blocked_by_material') {
+          setFeedback({
+            type: 'warning',
+            message:
+              'Tarea agendada con bloqueo preventivo: espera llegada de insumos.',
+          });
+        }
       }
       setTaskFormOpen(false);
     } catch (err) {
@@ -548,13 +547,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         completedMinutes:
           nextStatus === 'completed' ? entry.task.allocatedMinutes : 0,
       });
-      setFeedback({
-        type: 'success',
-        message:
-          nextStatus === 'completed'
-            ? 'Tarea marcada como completada.'
-            : 'Tarea reabierta como programada.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -578,10 +570,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             ? 'blocked_by_material'
             : 'scheduled',
       });
-      setFeedback({
-        type: 'success',
-        message: `Tarea reprogramada para ${formatDateCO(nextKey)}.`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -599,10 +587,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     try {
       await deletePlannedTask(taskToDelete.task.id);
       setTaskToDelete(null);
-      setFeedback({
-        type: 'success',
-        message: 'Tarea eliminada de la agenda.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -628,10 +612,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         enableLowStockReminders: enableLowStock,
       });
       setRulesPanelOpen(false);
-      setFeedback({
-        type: 'success',
-        message: 'Preferencias de recordatorios automáticos guardadas en IndexedDB.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -686,10 +666,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
           triggerAt: remDateKey,
           leadDays: Math.max(0, Number(remLeadDays) || 0),
         });
-        setFeedback({
-          type: 'success',
-          message: 'Recordatorio actualizado correctamente.',
-        });
       } else {
         await createReminder({
           type: remType,
@@ -700,10 +676,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
           relatedEntityType: selectedProj ? 'project' : null,
           leadDays: Math.max(0, Number(remLeadDays) || 0),
           isDemo: Boolean(selectedProj?.isDemo),
-        });
-        setFeedback({
-          type: 'success',
-          message: 'Recordatorio creado y guardado en IndexedDB.',
         });
       }
       setReminderFormOpen(false);
@@ -739,12 +711,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         });
         await updateReminder(created.id, { isCompleted: true, isRead: true });
       }
-      setFeedback({
-        type: 'success',
-        message: alert.isCompleted
-          ? 'Recordatorio reactivado.'
-          : 'Recordatorio marcado como atendido.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -785,10 +751,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
           isRead: true,
         });
       }
-      setFeedback({
-        type: 'success',
-        message: `Recordatorio pospuesto para ${formatDateCO(nextDateKey)}.`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -807,10 +769,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     try {
       await deleteReminder(reminderToDelete.id);
       setReminderToDelete(null);
-      setFeedback({
-        type: 'success',
-        message: 'Recordatorio eliminado.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -914,19 +872,19 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
 
       {feedback && (
         <div
-          role="status"
+          role={feedback.type === 'error' ? 'alert' : 'status'}
           className={`flex items-start justify-between gap-3 rounded-xl border p-2.5 text-xs sm:text-sm ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+            feedback.type === 'warning'
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
               : 'border-rose-200 bg-rose-50 text-rose-900'
           }`}
         >
           <div className="flex items-start gap-2">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-            )}
+            <AlertTriangle
+              className={`mt-0.5 h-4 w-4 shrink-0 ${
+                feedback.type === 'warning' ? 'text-amber-700' : 'text-rose-700'
+              }`}
+            />
             <p>{feedback.message}</p>
           </div>
           <button

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
-  CheckCircle2,
   Clock,
   Edit3,
   History,
@@ -82,7 +81,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
   const [busy, setBusy] = useState(false);
   const profile = useViewportProfile();
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
 
@@ -289,10 +288,6 @@ export const TimerView: React.FC<TimerViewProps> = ({
       if (sessionNotes.trim().length > 0) {
         setTimerNoteDraft(selectedComponentId, sessionNotes);
       }
-      setFeedback({
-        type: 'success',
-        message: `Cronómetro iniciado en "${selectedComponent?.name ?? 'pieza'}".`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -350,18 +345,13 @@ export const TimerView: React.FC<TimerViewProps> = ({
     setFeedback(null);
     try {
       const finalNotes = resolveFinalNotesForSession(session);
-      const saved = await finishTimerSession(session.id, {
+      await finishTimerSession(session.id, {
         notes: finalNotes,
       });
       clearTimerNoteDraft(session.componentId);
       if (session.componentId === selectedComponentId) {
         setSessionNotes('');
       }
-      const compName = componentMap.get(saved.componentId)?.name ?? 'la pieza';
-      setFeedback({
-        type: 'success',
-        message: `Sesión finalizada: se sumaron ${formatClockHHMMSS(saved.effectiveSeconds)} efectivos a "${compName}".`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -430,20 +420,12 @@ export const TimerView: React.FC<TimerViewProps> = ({
         if (adjustModalState.session.componentId === selectedComponentId) {
           setSessionNotes('');
         }
-        setFeedback({
-          type: 'success',
-          message: `Sesión finalizada y ajustada a ${formatDurationMinutes(parsedMinutes)}.`,
-        });
       } else {
         await adjustCompletedWorkSession(
           adjustModalState.session.id,
           parsedMinutes,
           reason,
         );
-        setFeedback({
-          type: 'success',
-          message: `Tiempo efectivo de la sesión ajustado a ${formatDurationMinutes(parsedMinutes)}.`,
-        });
       }
       setAdjustModalState(null);
     } catch (err) {
@@ -509,10 +491,6 @@ export const TimerView: React.FC<TimerViewProps> = ({
         notes: manualNotes,
       });
       setManualModalOpen(false);
-      setFeedback({
-        type: 'success',
-        message: `Se registraron ${formatDurationMinutes(mins)} manualmente en la pieza seleccionada.`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -575,19 +553,11 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
   const feedbackBanner = feedback ? (
     <div
-      role="status"
-      className={`flex items-start justify-between gap-3 rounded-xl border p-3 text-xs sm:text-sm ${
-        feedback.type === 'success'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-          : 'border-rose-200 bg-rose-50 text-rose-900'
-      }`}
+      role="alert"
+      className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 sm:text-sm"
     >
       <div className="flex items-start gap-2">
-        {feedback.type === 'success' ? (
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-        ) : (
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-        )}
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
         <p>{feedback.message}</p>
       </div>
       <button

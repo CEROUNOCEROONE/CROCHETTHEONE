@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ArrowRightLeft,
   BookmarkCheck,
-  CheckCircle2,
   Edit3,
   History,
   MinusCircle,
@@ -105,7 +104,7 @@ export const InventoryView: React.FC = () => {
 
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
 
@@ -416,10 +415,6 @@ export const InventoryView: React.FC = () => {
           unit: matUnit,
           description: matDescription,
         });
-        setFeedback({
-          type: 'success',
-          message: `Material "${matName.trim()}" actualizado.`,
-        });
       } else {
         const createdMat = await createMaterial({
           name: matName,
@@ -439,10 +434,6 @@ export const InventoryView: React.FC = () => {
           initialPhysicalStock: Number(firstInitialStock) || 0,
           minStock: Number(firstMinStock) || 0,
           notes: '',
-        });
-        setFeedback({
-          type: 'success',
-          message: `Material "${createdMat.name}" creado con su color "${firstColorName.trim()}".`,
         });
       }
       setMaterialModalOpen(false);
@@ -505,10 +496,6 @@ export const InventoryView: React.FC = () => {
           minStock: Number(varMinStock) || 0,
           notes: varNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: `Color "${varColorName.trim()}" actualizado.`,
-        });
       } else {
         await createVariant({
           materialId: variantParentMaterial.id,
@@ -521,10 +508,6 @@ export const InventoryView: React.FC = () => {
           initialPhysicalStock: Number(varInitialStock) || 0,
           minStock: Number(varMinStock) || 0,
           notes: varNotes,
-        });
-        setFeedback({
-          type: 'success',
-          message: `Color "${varColorName.trim()}" agregado a "${variantParentMaterial.name}".`,
         });
       }
       setVariantModalOpen(false);
@@ -567,12 +550,7 @@ export const InventoryView: React.FC = () => {
         quantityDelta: delta,
         notes: adjustNotes,
       });
-      const mat = materialMap.get(adjustStockVariant.materialId);
       setAdjustStockVariant(null);
-      setFeedback({
-        type: 'success',
-        message: `Ajuste registrado en Kardex para ${mat?.name ?? 'material'} · ${adjustStockVariant.colorName}.`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -630,10 +608,6 @@ export const InventoryView: React.FC = () => {
         notes: reserveNotes,
       });
       setReserveModalOpen(false);
-      setFeedback({
-        type: 'success',
-        message: 'Reserva creada correctamente y registrada en el Kardex.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -671,10 +645,6 @@ export const InventoryView: React.FC = () => {
         notes: directNotes,
       });
       setDirectConsumeVariant(null);
-      setFeedback({
-        type: 'success',
-        message: 'Consumo directo descontado del stock y guardado en Kardex.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -701,10 +671,6 @@ export const InventoryView: React.FC = () => {
         notes: consumeResNotes,
       });
       setConsumeResModal(null);
-      setFeedback({
-        type: 'success',
-        message: 'Consumo descontado de la reserva y registrado en Kardex.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -731,10 +697,6 @@ export const InventoryView: React.FC = () => {
         modifyResNotes,
       );
       setModifyResModal(null);
-      setFeedback({
-        type: 'success',
-        message: 'Reserva actualizada correctamente en el Kardex.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -755,10 +717,6 @@ export const InventoryView: React.FC = () => {
     try {
       await releaseReservation(reservationToRelease.id);
       setReservationToRelease(null);
-      setFeedback({
-        type: 'success',
-        message: 'Reserva liberada. El material volvió al stock disponible.',
-      });
     } catch (err) {
       setReservationToRelease(null);
       setFeedback({
@@ -778,13 +736,8 @@ export const InventoryView: React.FC = () => {
     setBusy(true);
     setFeedback(null);
     try {
-      const colorName = variantToDelete.colorName;
       await deleteVariant(variantToDelete.id);
       setVariantToDelete(null);
-      setFeedback({
-        type: 'success',
-        message: `Color "${colorName}" eliminado.`,
-      });
     } catch (err) {
       setVariantToDelete(null);
       setFeedback({
@@ -802,13 +755,8 @@ export const InventoryView: React.FC = () => {
     setBusy(true);
     setFeedback(null);
     try {
-      const matNameDeleted = materialToDelete.name;
       await deleteMaterial(materialToDelete.id);
       setMaterialToDelete(null);
-      setFeedback({
-        type: 'success',
-        message: `Material "${matNameDeleted}" eliminado.`,
-      });
     } catch (err) {
       setMaterialToDelete(null);
       setFeedback({
@@ -906,19 +854,11 @@ export const InventoryView: React.FC = () => {
 
             {feedback && (
               <div
-                role="status"
-                className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm ${
-                  feedback.type === 'success'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                    : 'border-rose-200 bg-rose-50 text-rose-900'
-                }`}
+                role="alert"
+                className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-900 sm:text-sm"
               >
                 <div className="flex items-start gap-2">
-                  {feedback.type === 'success' ? (
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-                  ) : (
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-                  )}
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
                   <p>{feedback.message}</p>
                 </div>
                 <button

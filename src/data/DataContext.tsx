@@ -79,10 +79,17 @@ import type {
 import { localWorkshopEngine } from './local/LocalRepository.ts';
 import { createDefaultWorkshopSettings } from './local/indexedDbClient.ts';
 
+export interface SavePulse {
+  readonly seq: number;
+  readonly at: string;
+  readonly summary: string;
+}
+
 interface DataContextValue {
   readonly engine: WorkshopDataEngine;
   readonly isLoading: boolean;
   readonly error: string | null;
+  readonly lastSaved: SavePulse | null;
   readonly settings: WorkshopSettings;
   readonly projects: Project[];
   readonly components: ProjectComponent[];
@@ -259,6 +266,7 @@ const EMPTY_STATS = computeWorkshopStats({
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<SavePulse | null>(null);
   const [settings, setSettings] = useState<WorkshopSettings>(EMPTY_SETTINGS);
   const [projects, setProjects] = useState<Project[]>([]);
   const [components, setComponents] = useState<ProjectComponent[]>([]);
@@ -279,6 +287,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
   const [schemaMeta, setSchemaMeta] = useState<SchemaMeta | null>(null);
+
+  const markSaved = useCallback((summary: string) => {
+    setLastSaved((prev) => ({
+      seq: (prev?.seq ?? 0) + 1,
+      at: new Date().toISOString(),
+      summary,
+    }));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -349,44 +365,49 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ) => {
       const updated = await localWorkshopEngine.saveWorkshopSettings(partial);
       await refresh();
+      markSaved('Configuración del taller');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createProject = useCallback(
     async (input: CreateProjectInput) => {
       const created = await localWorkshopEngine.createProject(input);
       await refresh();
+      markSaved(`Proyecto "${created.name}" creado`);
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateProject = useCallback(
     async (projectId: string, updates: UpdateProjectInput) => {
       const updated = await localWorkshopEngine.updateProject(projectId, updates);
       await refresh();
+      markSaved(`Proyecto "${updated.name}" actualizado`);
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteProject = useCallback(
     async (projectId: string) => {
       await localWorkshopEngine.deleteProjectCascade(projectId);
       await refresh();
+      markSaved('Proyecto eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createComponent = useCallback(
     async (input: CreateComponentInput) => {
       const created = await localWorkshopEngine.createComponent(input);
       await refresh();
+      markSaved(`Pieza "${created.name}" agregada`);
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateComponent = useCallback(
@@ -396,25 +417,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updates,
       );
       await refresh();
+      markSaved(`Pieza "${updated.name}" actualizada`);
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const reorderComponent = useCallback(
     async (componentId: string, direction: 'up' | 'down') => {
       await localWorkshopEngine.reorderComponent(componentId, direction);
       await refresh();
+      markSaved('Orden de piezas actualizado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteComponent = useCallback(
     async (componentId: string) => {
       await localWorkshopEngine.deleteComponent(componentId);
       await refresh();
+      markSaved('Pieza eliminada');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const startTimerSession = useCallback(
@@ -425,27 +449,30 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notes,
       );
       await refresh();
+      markSaved('Sesión de cronómetro iniciada');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const pauseTimerSession = useCallback(
     async (sessionId: string) => {
       const session = await localWorkshopEngine.pauseTimerSession(sessionId);
       await refresh();
+      markSaved('Cronómetro en pausa');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const resumeTimerSession = useCallback(
     async (sessionId: string) => {
       const session = await localWorkshopEngine.resumeTimerSession(sessionId);
       await refresh();
+      markSaved('Cronómetro reanudado');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const finishTimerSession = useCallback(
@@ -455,18 +482,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         options,
       );
       await refresh();
+      markSaved('Sesión de tiempo guardada');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const logManualWorkSession = useCallback(
     async (input: ManualWorkSessionInput) => {
       const session = await localWorkshopEngine.logManualWorkSession(input);
       await refresh();
+      markSaved('Tiempo manual registrado');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const adjustCompletedWorkSession = useCallback(
@@ -481,9 +510,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adjustmentReason,
       );
       await refresh();
+      markSaved('Tiempo de sesión ajustado');
       return session;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const activeTimerSession = useMemo(() => {
@@ -499,35 +529,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (input: CreateMaterialInput) => {
       const created = await localWorkshopEngine.createMaterial(input);
       await refresh();
+      markSaved(`Material "${created.name}" guardado`);
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateMaterial = useCallback(
     async (materialId: string, updates: UpdateMaterialInput) => {
       const updated = await localWorkshopEngine.updateMaterial(materialId, updates);
       await refresh();
+      markSaved(`Material "${updated.name}" actualizado`);
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteMaterial = useCallback(
     async (materialId: string) => {
       await localWorkshopEngine.deleteMaterial(materialId);
       await refresh();
+      markSaved('Material eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createVariant = useCallback(
     async (input: CreateVariantInput) => {
       const created = await localWorkshopEngine.createVariant(input);
       await refresh();
+      markSaved(`Color "${created.colorName}" guardado`);
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateVariantMetadata = useCallback(
@@ -537,35 +571,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updates,
       );
       await refresh();
+      markSaved(`Color "${updated.colorName}" actualizado`);
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteVariant = useCallback(
     async (variantId: string) => {
       await localWorkshopEngine.deleteVariant(variantId);
       await refresh();
+      markSaved('Color eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const adjustVariantStock = useCallback(
     async (input: AdjustStockInput) => {
       const updated = await localWorkshopEngine.adjustVariantStock(input);
       await refresh();
+      markSaved('Ajuste de inventario guardado');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createReservation = useCallback(
     async (input: CreateReservationInput) => {
       const created = await localWorkshopEngine.createReservation(input);
       await refresh();
+      markSaved('Reserva de material guardada');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const modifyReservationQuantity = useCallback(
@@ -580,18 +618,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notes,
       );
       await refresh();
+      markSaved('Reserva actualizada');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const consumeFromReservation = useCallback(
     async (input: ConsumeFromReservationInput) => {
       const updated = await localWorkshopEngine.consumeFromReservation(input);
       await refresh();
+      markSaved('Consumo de reserva registrado');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const releaseReservation = useCallback(
@@ -601,9 +641,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notes,
       );
       await refresh();
+      markSaved('Reserva liberada');
       return released;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const recordDirectProjectConsumption = useCallback(
@@ -612,18 +653,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         input,
       );
       await refresh();
+      markSaved('Consumo directo registrado');
       return movement;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createPendingMaterial = useCallback(
     async (input: CreatePendingMaterialInput) => {
       const created = await localWorkshopEngine.createPendingMaterial(input);
       await refresh();
+      markSaved('Material pendiente guardado');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updatePendingMaterial = useCallback(
@@ -633,52 +676,62 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updates,
       );
       await refresh();
+      markSaved('Material pendiente actualizado');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deletePendingMaterial = useCallback(
     async (pendingId: string) => {
       await localWorkshopEngine.deletePendingMaterial(pendingId);
       await refresh();
+      markSaved('Material pendiente eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createNoteOrList = useCallback(
     async (input: CreateNoteOrListInput) => {
       const created = await localWorkshopEngine.createNoteOrList(input);
       await refresh();
+      markSaved(
+        created.type === 'shopping_list' ? 'Lista de compras creada' : 'Nota guardada',
+      );
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateNoteOrList = useCallback(
     async (noteId: string, updates: UpdateNoteOrListInput) => {
       const updated = await localWorkshopEngine.updateNoteOrList(noteId, updates);
       await refresh();
+      markSaved(
+        updated.type === 'shopping_list' ? 'Lista actualizada' : 'Nota actualizada',
+      );
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteNoteOrList = useCallback(
     async (noteId: string) => {
       await localWorkshopEngine.deleteNoteOrList(noteId);
       await refresh();
+      markSaved('Registro eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createShoppingListItem = useCallback(
     async (input: CreateShoppingListItemInput) => {
       const created = await localWorkshopEngine.createShoppingListItem(input);
       await refresh();
+      markSaved('Ítem agregado a la lista');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateShoppingListItem = useCallback(
@@ -688,17 +741,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updates,
       );
       await refresh();
+      markSaved('Ítem de lista actualizado');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteShoppingListItem = useCallback(
     async (itemId: string) => {
       await localWorkshopEngine.deleteShoppingListItem(itemId);
       await refresh();
+      markSaved('Ítem eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const sendPendingMaterialToShoppingList = useCallback(
@@ -708,44 +763,49 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         listId,
       );
       await refresh();
+      markSaved('Material enviado a lista de compras');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const receivePurchaseReceipt = useCallback(
     async (input: CreatePurchaseReceiptInput) => {
       const receipt = await localWorkshopEngine.receivePurchaseReceipt(input);
       await refresh();
+      markSaved('Recepción de compra guardada');
       return receipt;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createQuote = useCallback(
     async (input: CreateQuoteInput) => {
       const created = await localWorkshopEngine.createQuote(input);
       await refresh();
+      markSaved(`Cotización "${created.title}" guardada`);
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateQuote = useCallback(
     async (quoteId: string, updates: UpdateQuoteInput) => {
       const updated = await localWorkshopEngine.updateQuote(quoteId, updates);
       await refresh();
+      markSaved(`Cotización "${updated.title}" actualizada`);
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteQuote = useCallback(
     async (quoteId: string) => {
       await localWorkshopEngine.deleteQuote(quoteId);
       await refresh();
+      markSaved('Cotización eliminada');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const applyQuotePriceToProject = useCallback(
@@ -753,82 +813,92 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updatedProject =
         await localWorkshopEngine.applyQuotePriceToProject(quoteId);
       await refresh();
+      markSaved(`Presupuesto de "${updatedProject.name}" actualizado`);
       return updatedProject;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createPlannedTask = useCallback(
     async (input: CreateScheduledTaskInput) => {
       const created = await localWorkshopEngine.createPlannedTask(input);
       await refresh();
+      markSaved('Tarea agendada');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updatePlannedTask = useCallback(
     async (taskId: string, updates: UpdateScheduledTaskInput) => {
       const updated = await localWorkshopEngine.updatePlannedTask(taskId, updates);
       await refresh();
+      markSaved('Tarea actualizada');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deletePlannedTask = useCallback(
     async (taskId: string) => {
       await localWorkshopEngine.deletePlannedTask(taskId);
       await refresh();
+      markSaved('Tarea eliminada');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const createReminder = useCallback(
     async (input: CreateReminderInput) => {
       const created = await localWorkshopEngine.createReminder(input);
       await refresh();
+      markSaved('Recordatorio guardado');
       return created;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const updateReminder = useCallback(
     async (reminderId: string, updates: UpdateReminderInput) => {
       const updated = await localWorkshopEngine.updateReminder(reminderId, updates);
       await refresh();
+      markSaved('Recordatorio actualizado');
       return updated;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const deleteReminder = useCallback(
     async (reminderId: string) => {
       await localWorkshopEngine.deleteReminder(reminderId);
       await refresh();
+      markSaved('Recordatorio eliminado');
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const loadDemoData = useCallback(async () => {
     const res = await localWorkshopEngine.loadDemoData();
     await refresh();
+    markSaved('Ejemplos del taller cargados');
     return res;
-  }, [refresh]);
+  }, [refresh, markSaved]);
 
   const purgeDemoData = useCallback(async () => {
     const res = await localWorkshopEngine.purgeDemoData();
     await refresh();
+    markSaved('Ejemplos eliminados');
     return res;
-  }, [refresh]);
+  }, [refresh, markSaved]);
 
   const exportBackup = useCallback(
     async (includeDemo: boolean) => {
       const envelope = await localWorkshopEngine.exportBackup({ includeDemo });
       await refresh();
+      markSaved('Respaldo JSON exportado');
       return envelope;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const inspectBackup = useCallback(async (rawJson: string) => {
@@ -839,9 +909,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (inspection: BackupInspectionResult, strategy: BackupImportStrategy) => {
       const outcome = await localWorkshopEngine.importBackup(inspection, strategy);
       await refresh();
+      markSaved('Respaldo restaurado');
       return outcome;
     },
-    [refresh],
+    [refresh, markSaved],
   );
 
   const value = useMemo<DataContextValue>(
@@ -849,6 +920,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       engine: localWorkshopEngine,
       isLoading,
       error,
+      lastSaved,
       settings,
       projects,
       components,
@@ -927,6 +999,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [
       isLoading,
       error,
+      lastSaved,
       settings,
       projects,
       components,

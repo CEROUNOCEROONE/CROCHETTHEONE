@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Calculator,
   Check,
-  CheckCircle2,
   Database,
   Download,
   FileCheck2,
@@ -151,7 +150,7 @@ export const WorkshopSettingsView: React.FC = () => {
 
   const [savingSettings, setSavingSettings] = useState(false);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
 
@@ -253,10 +252,6 @@ export const WorkshopSettingsView: React.FC = () => {
         internetCostPercent: internetPct,
         wasteAndContingencyPercent: wastePct,
       });
-      setFeedback({
-        type: 'success',
-        message: 'Configuración del taller guardada correctamente en IndexedDB.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -271,11 +266,7 @@ export const WorkshopSettingsView: React.FC = () => {
     setDemoBusy(true);
     setFeedback(null);
     try {
-      const { insertedCount } = await loadDemoData();
-      setFeedback({
-        type: 'success',
-        message: `Se cargaron ${insertedCount} registros de ejemplo identificados como "Ejemplo" sin alterar tus datos reales.`,
-      });
+      await loadDemoData();
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -290,12 +281,8 @@ export const WorkshopSettingsView: React.FC = () => {
     setDemoBusy(true);
     setFeedback(null);
     try {
-      const { deletedCount, preservedRealCount } = await purgeDemoData();
+      await purgeDemoData();
       setConfirmPurgeDemoOpen(false);
-      setFeedback({
-        type: 'success',
-        message: `Se eliminaron ${deletedCount} registros de ejemplo. Se conservaron intactos ${preservedRealCount} registros reales.`,
-      });
     } catch (err) {
       setConfirmPurgeDemoOpen(false);
       setFeedback({
@@ -326,11 +313,6 @@ export const WorkshopSettingsView: React.FC = () => {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-
-      setFeedback({
-        type: 'success',
-        message: 'Respaldo JSON exportado y descargado correctamente.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -370,13 +352,9 @@ export const WorkshopSettingsView: React.FC = () => {
     setImportBusy(true);
     setFeedback(null);
     try {
-      const outcome = await importBackup(inspection, selectedStrategy);
+      await importBackup(inspection, selectedStrategy);
       setConfirmImportOpen(false);
       setInspection(null);
-      setFeedback({
-        type: 'success',
-        message: `Restauración completada: ${outcome.insertedCount} insertados, ${outcome.updatedCount} actualizados y ${outcome.skippedCount} omitidos.`,
-      });
     } catch (err) {
       setConfirmImportOpen(false);
       setFeedback({
@@ -459,19 +437,11 @@ export const WorkshopSettingsView: React.FC = () => {
 
       {feedback && (
         <div
-          role="status"
-          className={`flex items-start justify-between gap-3 rounded-xl border p-2.5 text-xs sm:text-sm ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-900 sm:text-sm"
         >
           <div className="flex items-start gap-2">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-            )}
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
             <p>{feedback.message}</p>
           </div>
           <button

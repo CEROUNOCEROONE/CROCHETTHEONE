@@ -10,6 +10,7 @@ import { FloatingTimerDock } from '@/src/modules/timer/FloatingTimerDock.tsx';
 import { TimerView } from '@/src/modules/timer/TimerView.tsx';
 import { WorkshopSettingsView } from '@/src/modules/settings/WorkshopSettingsView.tsx';
 import { AppShell } from '@/src/shared/components/AppShell.tsx';
+import { HeaderStatusBar } from '@/src/shared/components/HeaderStatusBar.tsx';
 import { PlannedModuleView } from '@/src/shared/components/PlannedModuleView.tsx';
 import {
   getRouteDefinition,
@@ -119,6 +120,12 @@ function AppWorkspace() {
       activeRoute={activeRoute}
       workshopName={settings.workshopName}
       onSelectRoute={setActiveRoute}
+      headerActionsSlot={
+        <HeaderStatusBar
+          onNavigate={setActiveRoute}
+          onOpenProject={handleOpenProjectFromDashboard}
+        />
+      }
       timerDockSlot={
         activeTimerSession ? (
           <FloatingTimerDock onOpenTimerView={() => setActiveRoute('timer')} />

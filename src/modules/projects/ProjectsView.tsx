@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowUp,
   Calculator,
-  CheckCircle2,
   Clock,
   Edit3,
   FolderKanban,
@@ -107,7 +106,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const profile = useViewportProfile();
 
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
 
@@ -238,10 +237,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           paymentStatus: formPaymentStatus,
           notes: formNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: `Proyecto "${formName.trim()}" actualizado correctamente.`,
-        });
       } else {
         const input: CreateProjectInput = {
           name: formName,
@@ -265,10 +260,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         };
         const created = await createProject(input);
         setSelectedProjectId(created.id);
-        setFeedback({
-          type: 'success',
-          message: `Proyecto "${created.name}" creado con sus componentes iniciales.`,
-        });
       }
       setProjectModalOpen(false);
     } catch (err) {
@@ -287,17 +278,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     setDeletingProject(true);
     setFeedback(null);
     try {
-      const deletedName = projectToDelete.name;
       const deletedId = projectToDelete.id;
       await deleteProject(deletedId);
       setProjectToDelete(null);
       if (selectedProjectId === deletedId) {
         setSelectedProjectId(null);
       }
-      setFeedback({
-        type: 'success',
-        message: `Proyecto "${deletedName}" eliminado correctamente.`,
-      });
     } catch (err) {
       setProjectToDelete(null);
       setFeedback({
@@ -347,10 +333,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           status: compStatus,
           notes: compNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: `Pieza "${compName.trim()}" actualizada.`,
-        });
       } else {
         await createComponent({
           projectId: selectedProject.id,
@@ -359,10 +341,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           effectiveMinutesSpent: Number(compEffectiveMinutes) || 0,
           status: compStatus,
           notes: compNotes,
-        });
-        setFeedback({
-          type: 'success',
-          message: `Pieza "${compName.trim()}" agregada al proyecto.`,
         });
       }
       setCompModalOpen(false);
@@ -418,13 +396,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     setDeletingComponent(true);
     setFeedback(null);
     try {
-      const deletedName = componentToDelete.name;
       await deleteComponent(componentToDelete.id);
       setComponentToDelete(null);
-      setFeedback({
-        type: 'success',
-        message: `Pieza "${deletedName}" eliminada del proyecto.`,
-      });
     } catch (err) {
       setComponentToDelete(null);
       setFeedback({
@@ -508,19 +481,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   const feedbackBanner = feedback ? (
     <div
-      role="status"
-      className={`flex items-start justify-between gap-3 rounded-xl border p-3 text-xs sm:text-sm ${
-        feedback.type === 'success'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-          : 'border-rose-200 bg-rose-50 text-rose-900'
-      }`}
+      role="alert"
+      className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 sm:text-sm"
     >
       <div className="flex items-start gap-2">
-        {feedback.type === 'success' ? (
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-        ) : (
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-        )}
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
         <p>{feedback.message}</p>
       </div>
       <button

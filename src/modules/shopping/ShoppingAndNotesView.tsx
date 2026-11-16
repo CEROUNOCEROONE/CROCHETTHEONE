@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Archive,
   ArrowRight,
-  CheckCircle2,
   ClipboardList,
   Edit3,
   FileText,
@@ -143,7 +142,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{
-    type: 'success' | 'error';
+    type: 'error';
     message: string;
   } | null>(null);
 
@@ -499,10 +498,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               : pendStatus,
           notes: pendNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: 'Material pendiente actualizado correctamente.',
-        });
       } else {
         if (!pendProjectId) {
           throw new Error('Selecciona el proyecto que necesita el material.');
@@ -547,10 +542,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           markComponentBlocked: Boolean(pendComponentId) && pendMarkBlocked,
           notes: pendNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: 'Material pendiente registrado correctamente.',
-        });
       }
       setPendingModalOpen(false);
     } catch (err) {
@@ -573,10 +564,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       await updatePendingMaterial(pm.id, {
         status: 'ordered',
         orderedDate: new Date().toISOString(),
-      });
-      setFeedback({
-        type: 'success',
-        message: 'Material marcado como comprado en camino.',
       });
     } catch (err) {
       setFeedback({
@@ -619,10 +606,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
       await sendPendingMaterialToShoppingList(sendToListPending.id, listIdToUse);
       setSendToListPending(null);
-      setFeedback({
-        type: 'success',
-        message: 'Material agregado a la lista de compras.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -666,26 +649,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           projectId: noteProjectId || null,
           content: noteContent,
         });
-        setFeedback({
-          type: 'success',
-          message:
-            editingNote.type === 'shopping_list'
-              ? 'Lista de compras actualizada.'
-              : 'Nota actualizada correctamente.',
-        });
       } else {
         await createNoteOrList({
           title: noteTitle,
           type: noteType,
           projectId: noteProjectId || null,
           content: noteContent,
-        });
-        setFeedback({
-          type: 'success',
-          message:
-            noteType === 'shopping_list'
-              ? 'Lista de compras creada correctamente.'
-              : 'Nota guardada correctamente.',
         });
       }
       setNoteModalOpen(false);
@@ -705,13 +674,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     try {
       const nextStatus = note.status === 'active' ? 'archived' : 'active';
       await updateNoteOrList(note.id, { status: nextStatus });
-      setFeedback({
-        type: 'success',
-        message:
-          nextStatus === 'archived'
-            ? 'Elemento archivado.'
-            : 'Elemento reactivado.',
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -782,10 +744,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               : itemStatus,
           notes: itemNotes,
         });
-        setFeedback({
-          type: 'success',
-          message: 'Ítem de la lista actualizado.',
-        });
       } else {
         await createShoppingListItem({
           listId: itemListId,
@@ -798,10 +756,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           provider: itemProvider,
           status: itemStatus,
           notes: itemNotes,
-        });
-        setFeedback({
-          type: 'success',
-          message: 'Ítem agregado a la lista de compras.',
         });
       }
       setItemModalOpen(false);
@@ -823,10 +777,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       await updateShoppingListItem(item.id, {
         status: 'purchased_waiting_delivery',
         purchasedQuantity: item.plannedQuantity,
-      });
-      setFeedback({
-        type: 'success',
-        message: 'Ítem marcado como comprado en camino (aún pendiente de recibir en stock).',
       });
     } catch (err) {
       setFeedback({
@@ -948,7 +898,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     setBusy(true);
     setFeedback(null);
     try {
-      const receipt = await receivePurchaseReceipt({
+      await receivePurchaseReceipt({
         provider: receiptProvider,
         receiptDate: dateInputToIso(receiptDate) ?? new Date().toISOString(),
         referenceCode: receiptRefCode.trim() || null,
@@ -964,10 +914,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
         })),
       });
       setReceiptModalOpen(false);
-      setFeedback({
-        type: 'success',
-        message: `Recepción registrada por ${formatCOP(receipt.totalCostCOP)}. El stock físico y el Kardex de Inventario se actualizaron automáticamente.`,
-      });
     } catch (err) {
       setFeedback({
         type: 'error',
@@ -988,7 +934,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     try {
       await deletePendingMaterial(pendingToDelete.id);
       setPendingToDelete(null);
-      setFeedback({ type: 'success', message: 'Material pendiente eliminado.' });
     } catch (err) {
       setPendingToDelete(null);
       setFeedback({
@@ -1008,7 +953,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     try {
       await deleteNoteOrList(noteToDelete.id);
       setNoteToDelete(null);
-      setFeedback({ type: 'success', message: 'Registro eliminado correctamente.' });
     } catch (err) {
       setNoteToDelete(null);
       setFeedback({
@@ -1027,7 +971,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     try {
       await deleteShoppingListItem(itemToDelete.id);
       setItemToDelete(null);
-      setFeedback({ type: 'success', message: 'Ítem eliminado de la lista.' });
     } catch (err) {
       setItemToDelete(null);
       setFeedback({
@@ -1149,19 +1092,11 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
             {feedback && (
               <div
-                role="status"
-                className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm ${
-                  feedback.type === 'success'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                    : 'border-rose-200 bg-rose-50 text-rose-900'
-                }`}
+                role="alert"
+                className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-900 sm:text-sm"
               >
                 <div className="flex items-start gap-2">
-                  {feedback.type === 'success' ? (
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-                  ) : (
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-                  )}
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
                   <p>{feedback.message}</p>
                 </div>
                 <button
