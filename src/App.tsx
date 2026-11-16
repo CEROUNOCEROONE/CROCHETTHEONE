@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { DataProvider, useWorkshopData } from '@/src/data/DataContext.tsx';
 import { DashboardView } from '@/src/modules/dashboard/DashboardView.tsx';
 import { InventoryView } from '@/src/modules/inventory/InventoryView.tsx';
+import { PlannerView } from '@/src/modules/planner/PlannerView.tsx';
 import { ProjectsView } from '@/src/modules/projects/ProjectsView.tsx';
+import { QuotingView } from '@/src/modules/quoting/QuotingView.tsx';
 import { ShoppingAndNotesView } from '@/src/modules/shopping/ShoppingAndNotesView.tsx';
 import { FloatingTimerDock } from '@/src/modules/timer/FloatingTimerDock.tsx';
 import { TimerView } from '@/src/modules/timer/TimerView.tsx';
@@ -17,6 +19,9 @@ import {
 function AppWorkspace() {
   const [activeRoute, setActiveRoute] = useState<ModuleRouteId>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [quotingProjectTargetId, setQuotingProjectTargetId] = useState<string | null>(
+    null,
+  );
   const [timerTarget, setTimerTarget] = useState<{
     projectId: string;
     componentId: string;
@@ -36,6 +41,11 @@ function AppWorkspace() {
     setActiveRoute('timer');
   };
 
+  const handleQuoteProject = (projectId: string) => {
+    setQuotingProjectTargetId(projectId);
+    setActiveRoute('quoting');
+  };
+
   const renderContent = () => {
     if (activeRoute === 'dashboard') {
       return (
@@ -52,6 +62,7 @@ function AppWorkspace() {
           onClearInitialSelection={() => setSelectedProjectId(null)}
           onStartTimerForComponent={handleStartTimerForComponent}
           onNavigateToInventory={() => setActiveRoute('inventory')}
+          onQuoteProject={handleQuoteProject}
         />
       );
     }
@@ -73,6 +84,26 @@ function AppWorkspace() {
         <ShoppingAndNotesView
           onNavigateToInventory={() => setActiveRoute('inventory')}
           onOpenProject={handleOpenProjectFromDashboard}
+        />
+      );
+    }
+    if (activeRoute === 'quoting') {
+      return (
+        <QuotingView
+          initialProjectId={quotingProjectTargetId}
+          onClearInitialProject={() => setQuotingProjectTargetId(null)}
+          onNavigateToSettings={() => setActiveRoute('settings')}
+          onOpenProject={handleOpenProjectFromDashboard}
+        />
+      );
+    }
+    if (activeRoute === 'planner') {
+      return (
+        <PlannerView
+          onOpenProject={handleOpenProjectFromDashboard}
+          onStartTimerForComponent={handleStartTimerForComponent}
+          onNavigateToShopping={() => setActiveRoute('shopping')}
+          onNavigateToInventory={() => setActiveRoute('inventory')}
         />
       );
     }

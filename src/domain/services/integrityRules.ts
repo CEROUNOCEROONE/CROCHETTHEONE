@@ -46,12 +46,21 @@ export const STORE_FOREIGN_KEYS: Partial<Record<WorkshopStoreName, ForeignKeyCon
     { field: 'projectId', targetStore: 'projects', required: true },
     { field: 'clientId', targetStore: 'clients', required: true },
   ],
+  quotes: [
+    { field: 'projectId', targetStore: 'projects', required: false },
+    { field: 'clientId', targetStore: 'clients', required: false },
+  ],
   payment_installments: [{ field: 'planId', targetStore: 'payment_plans', required: true }],
   financial_transactions: [
     { field: 'planId', targetStore: 'payment_plans', required: true },
     { field: 'projectId', targetStore: 'projects', required: true },
     { field: 'clientId', targetStore: 'clients', required: true },
     { field: 'installmentId', targetStore: 'payment_installments', required: false },
+  ],
+  planned_tasks: [
+    { field: 'projectId', targetStore: 'projects', required: true },
+    { field: 'componentId', targetStore: 'project_components', required: false },
+    { field: 'dependsOnPendingMaterialId', targetStore: 'pending_materials', required: false },
   ],
 };
 
@@ -69,13 +78,16 @@ export const DATA_STORES_TOPOLOGICAL_ORDER: WorkshopStoreName[] = [
   'work_sessions',
   'inventory_reservations',
   'pending_materials',
+  'planned_tasks',
   'notes_and_lists',
   'shopping_list_items',
   'purchase_receipts',
   'inventory_movements',
+  'quotes',
   'payment_plans',
   'payment_installments',
   'financial_transactions',
+  'reminders',
 ];
 
 export function assertValidEntityShape(
@@ -209,6 +221,40 @@ export function validateCrossRecordIntegrity(
             `Aislamiento violado en recepción "${receipt.id}": referencia un elemento de ejemplo "${val}".`,
           );
         }
+      }
+    }
+  }
+
+  // Validación referencial de líneas embebidas en quotes.materialsSnapshot[]
+  const quotes = recordsByStore.quotes ?? [];
+  for (const quote of quotes) {
+    const obj = quote as unknown as { materialsSnapshot?: unknown };
+    if (!Array.isArray(obj.materialsSnapshot)) {
+      errors.push(`Registro "${quote.id}" en "quotes" requiere lista materialsSnapshot.`);
+      continue;
+    }
+    for (const rawLine of obj.materialsSnapshot) {
+      if (!rawLine || typeof rawLine !== 'object') {
+        errors.push(`Línea de material inválida en cotización "${quote.id}".`);
+        continue;
+      }
+      const line = rawLine as Record<string, unknown>;
+      const varId = line.variantId;
+      if (varId === null || varId === undefined || varId === '') continue;
+      if (typeof varId !== 'string') {
+        errors.push(`"variantId" inválido en cotización "${quote.id}".`);
+        continue;
+      }
+      const inBundle = idIndex.get('material_variants')?.get(varId);
+      const inExternal = externalIdLookup?.material_variants?.has(varId) ?? false;
+      if (!inBundle && !inExternal) {
+        errors.push(
+          `Referencia rota en cotización "${quote.id}": "variantId" (${varId}) no existe en "material_variants".`,
+        );
+      } else if (inBundle && !quote.isDemo && inBundle.isDemo) {
+        errors.push(
+          `Aislamiento violado en cotización "${quote.id}": referencia un material de ejemplo "${varId}".`,
+        );
       }
     }
   }

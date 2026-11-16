@@ -24,12 +24,21 @@ export interface ScheduledTask extends BaseEntity {
   readonly notes: string;
 }
 
+export type ReminderRelatedEntityType =
+  | 'project'
+  | 'installment'
+  | 'pending_material'
+  | 'variant';
+
 export interface Reminder extends BaseEntity {
   readonly type: ReminderType;
   readonly title: string;
   readonly message: string;
   readonly triggerAt: ISODate;
   readonly relatedEntityId: string | null;
+  readonly relatedEntityType?: ReminderRelatedEntityType | null;
+  readonly leadDays?: number;
+  readonly snoozedUntil?: ISODate | null;
   readonly isRead: boolean;
   readonly isCompleted: boolean;
 }

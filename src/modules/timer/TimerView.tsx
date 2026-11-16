@@ -25,7 +25,13 @@ import {
 } from '@/src/domain/services/timerEngine.ts';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import {
+  chunkIntoPages,
+  pickPageSize,
+  useViewportProfile,
+} from '@/src/shared/hooks/useViewportPageSize.ts';
 import {
   clearTimerNoteDraft,
   getTimerNoteDraft,
@@ -74,6 +80,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
   const [sessionNotes, setSessionNotes] = useState<string>('');
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const profile = useViewportProfile();
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -521,19 +528,23 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
   if (projects.length === 0) {
     return (
-      <EmptyState
-        icon={Clock}
-        title="Crea un proyecto antes de usar el cronómetro"
-        description="El tiempo trabajado siempre se vincula a una pieza específica de un proyecto para alimentar tus metas y futuros costos de mano de obra."
-        primaryAction={
-          onNavigateToProjects
-            ? {
-                label: 'Ir a Proyectos',
-                onClick: onNavigateToProjects,
-              }
-            : undefined
-        }
-      />
+      <SnapDeck ariaLabel="Cronómetro del taller">
+        <SnapSlide id="timer-empty" label="Cronómetro">
+          <EmptyState
+            icon={Clock}
+            title="Crea un proyecto antes de usar el cronómetro"
+            description="El tiempo trabajado siempre se vincula a una pieza específica de un proyecto para alimentar tus metas y futuros costos de mano de obra."
+            primaryAction={
+              onNavigateToProjects
+                ? {
+                    label: 'Ir a Proyectos',
+                    onClick: onNavigateToProjects,
+                  }
+                : undefined
+            }
+          />
+        </SnapSlide>
+      </SnapDeck>
     );
   }
 
@@ -547,63 +558,83 @@ export const TimerView: React.FC<TimerViewProps> = ({
         )
       : 0;
 
+  const openSessionsList = [
+    selectedPieceSession,
+    ...otherUnfinishedSessions,
+  ].filter((s): s is WorkSession => Boolean(s));
+
+  const historyPageSize = pickPageSize(profile, {
+    mobileCompact: 3,
+    mobileRegular: 4,
+    tablet: 5,
+    desktopCompact: 5,
+    desktopRegular: 6,
+    desktopTall: 7,
+  });
+  const historyPages = chunkIntoPages(completedHistory, historyPageSize);
+
+  const feedbackBanner = feedback ? (
+    <div
+      role="status"
+      className={`flex items-start justify-between gap-3 rounded-xl border p-3 text-xs sm:text-sm ${
+        feedback.type === 'success'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+          : 'border-rose-200 bg-rose-50 text-rose-900'
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        {feedback.type === 'success' ? (
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        ) : (
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+        )}
+        <p>{feedback.message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setFeedback(null)}
+        className="text-xs font-medium underline shrink-0"
+      >
+        Cerrar
+      </button>
+    </div>
+  ) : null;
+
   return (
-    <div className="space-y-6">
-      {feedback && (
-        <div
-          role="status"
-          className={`flex items-start justify-between gap-3 rounded-xl border p-4 text-sm ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
-        >
-          <div className="flex items-start gap-2.5">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
-            )}
-            <p>{feedback.message}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFeedback(null)}
-            className="text-xs font-medium underline"
-          >
-            Cerrar
-          </button>
-        </div>
-      )}
+    <>
+      <SnapDeck
+        ariaLabel="Cronómetro del taller"
+        topSlot={feedbackBanner ?? undefined}
+      >
+        {/* Vista 1: Cabecera + Reloj principal */}
+        <SnapSlide id="timer-clock" label="Cronómetro">
+          <div className="space-y-4">
+            {/* Cabecera de resumen de tiempo del día */}
+            <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">
+                    Hoy: {formatDurationMinutes(stats.todayEffectiveMinutes)} de meta{' '}
+                    {formatDurationMinutes(settings.dailyGoalMinutes)} ({dailyGoalPct}%) ·
+                    Acumulado taller: {formatDurationMinutes(stats.totalEffectiveMinutes)}
+                  </p>
+                  <h2 className="mt-1 font-display text-lg font-semibold text-slate-900 sm:text-xl">
+                    Control de tiempo por pieza
+                  </h2>
+                </div>
 
-      {/* Cabecera de resumen de tiempo del día */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-medium text-slate-500">
-              Hoy: {formatDurationMinutes(stats.todayEffectiveMinutes)} de meta{' '}
-              {formatDurationMinutes(settings.dailyGoalMinutes)} ({dailyGoalPct}%) ·
-              Acumulado taller: {formatDurationMinutes(stats.totalEffectiveMinutes)}
-            </p>
-            <h2 className="mt-1 font-display text-lg font-semibold text-slate-900 sm:text-xl">
-              Control de tiempo por pieza
-            </h2>
-          </div>
+                <button
+                  type="button"
+                  onClick={openManualModal}
+                  className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
+                >
+                  <Plus className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                  <span>Registrar tiempo manual</span>
+                </button>
+              </div>
+            </section>
 
-          <button
-            type="button"
-            onClick={openManualModal}
-            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
-          >
-            <Plus className="h-4 w-4 text-teal-700" aria-hidden="true" />
-            <span>Registrar tiempo manual</span>
-          </button>
-        </div>
-      </section>
-
-      {/* Selector de proyecto/pieza + Reloj principal */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-7 space-y-5">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label
@@ -910,33 +941,34 @@ export const TimerView: React.FC<TimerViewProps> = ({
               módulo Proyectos para medir tiempo por componente.
             </div>
           )}
-        </section>
-
-        {/* Columna derecha: Sesiones en pausa o activas en otras piezas */}
-        <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-5 space-y-4">
-          <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3.5">
-            <Clock className="h-5 w-5 text-teal-700" aria-hidden="true" />
-            <div>
-              <h3 className="font-display text-base font-semibold text-slate-900">
-                Sesiones abiertas en el taller
-              </h3>
-              <p className="text-xs text-slate-500">
-                Persisten aunque cierres la aplicación gracias al registro por
-                marcas de tiempo.
-              </p>
-            </div>
+            </section>
           </div>
+        </SnapSlide>
 
-          {!selectedPieceSession && otherUnfinishedSessions.length === 0 ? (
-            <div className="py-6 text-center text-xs text-slate-500">
-              No hay sesiones abiertas ni pausadas en este momento. Inicia el
-              cronómetro o registra tiempo manual cuando lo necesites.
+        {/* Vista 2: Sesiones abiertas en el taller */}
+        <SnapSlide id="timer-open-sessions" label="Sesiones abiertas">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4">
+            <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3.5">
+              <Clock className="h-5 w-5 text-teal-700" aria-hidden="true" />
+              <div>
+                <h3 className="font-display text-base font-semibold text-slate-900">
+                  Sesiones abiertas en el taller ({openSessionsList.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Persisten aunque cierres la aplicación gracias al registro por
+                  marcas de tiempo.
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {[selectedPieceSession, ...otherUnfinishedSessions]
-                .filter((s): s is WorkSession => Boolean(s))
-                .map((sess) => {
+
+            {openSessionsList.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-500">
+                No hay sesiones abiertas ni pausadas en este momento. Inicia el
+                cronómetro o registra tiempo manual cuando lo necesites.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {openSessionsList.map((sess) => {
                   const proj = projectMap.get(sess.projectId);
                   const comp = componentMap.get(sess.componentId);
                   const breakdown = calculateSessionDurations(sess, nowMs);
@@ -945,25 +977,23 @@ export const TimerView: React.FC<TimerViewProps> = ({
                   return (
                     <div
                       key={sess.id}
-                      className="flex flex-col gap-2.5 py-3.5 first:pt-1 last:pb-0"
+                      className="flex flex-col gap-2.5 py-3.5 first:pt-1 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900">
-                            {comp?.name ?? 'Pieza'}
-                          </p>
-                          <p className="truncate text-xs text-slate-500">
-                            {proj?.name ?? 'Proyecto'} · Inicio{' '}
-                            {formatDateTimeCO(sess.startTime)}
-                          </p>
-                        </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {comp?.name ?? 'Pieza'}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          {proj?.name ?? 'Proyecto'} · Inicio{' '}
+                          {formatDateTimeCO(sess.startTime)}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
                         <StatusBadge
                           label={isRunning ? 'En curso' : 'En pausa'}
                           tone={isRunning ? 'active' : 'warning'}
                         />
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-base font-bold text-slate-900 tabular-nums">
                           {formatClockHHMMSS(breakdown.effectiveSeconds)}
                         </span>
@@ -1005,126 +1035,187 @@ export const TimerView: React.FC<TimerViewProps> = ({
                     </div>
                   );
                 })}
-            </div>
-          )}
-        </section>
-      </div>
+              </div>
+            )}
+          </section>
+        </SnapSlide>
 
-      {/* Historial auditable de sesiones completadas */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <History className="h-5 w-5 text-teal-700" aria-hidden="true" />
-            <div>
-              <h3 className="font-display text-base font-semibold text-slate-900">
-                Historial de sesiones de trabajo
-              </h3>
-              <p className="text-xs text-slate-500">
-                Cada registro conserva la fecha, el tiempo bruto, las pausas y
-                cualquier ajuste con su motivo.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setHistoryFilterMode('all')}
-              className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                historyFilterMode === 'all'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Todo el taller
-            </button>
-            <button
-              type="button"
-              onClick={() => setHistoryFilterMode('project')}
-              className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                historyFilterMode === 'project'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Solo proyecto actual
-            </button>
-          </div>
-        </div>
-
-        {completedHistory.length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-500">
-            Aún no hay sesiones completadas para mostrar con este filtro.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {completedHistory.map((session) => {
-              const proj = projectMap.get(session.projectId);
-              const comp = componentMap.get(session.componentId);
-              const entryMeta = ENTRY_TYPE_META[session.entryType];
-              const hadPauses = session.pauseIntervals.length > 0;
-
-              return (
-                <div
-                  key={session.id}
-                  className="flex flex-col gap-3 py-4 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {proj?.name ?? 'Proyecto'} · {comp?.name ?? 'Pieza'}
-                      </p>
-                      <StatusBadge
-                        label={entryMeta.label}
-                        tone={entryMeta.tone}
-                      />
-                      {session.isDemo && (
-                        <span className="text-xs text-slate-400">· Ejemplo</span>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-slate-500 tabular-nums">
-                      {formatDateTimeCO(session.endTime ?? session.startTime)}
-                      {hadPauses
-                        ? ` · Bruto: ${formatClockHHMMSS(session.elapsedSeconds)} (${session.pauseIntervals.length} pausa${session.pauseIntervals.length > 1 ? 's' : ''})`
-                        : ''}
-                      {session.notes ? ` · ${session.notes}` : ''}
+        {/* Vista 3+: Historial auditable paginado */}
+        {historyPages.length === 0 ? (
+          <SnapSlide id="timer-history-empty" label="Historial">
+            <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2.5">
+                  <History className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                  <div>
+                    <h3 className="font-display text-base font-semibold text-slate-900">
+                      Historial de sesiones de trabajo
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Cada registro conserva la fecha, el tiempo bruto, las pausas y
+                      cualquier ajuste con su motivo.
                     </p>
+                  </div>
+                </div>
 
-                    {session.adjustmentReason && (
-                      <p className="text-xs text-amber-800">
-                        Motivo: {session.adjustmentReason}
+                <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryFilterMode('all')}
+                    className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      historyFilterMode === 'all'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Todo el taller
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryFilterMode('project')}
+                    className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      historyFilterMode === 'project'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Solo proyecto actual
+                  </button>
+                </div>
+              </div>
+              <div className="py-10 text-center text-sm text-slate-500">
+                Aún no hay sesiones completadas para mostrar con este filtro.
+              </div>
+            </section>
+          </SnapSlide>
+        ) : (
+          historyPages.map((pageSessions, pageIdx) => (
+            <SnapSlide
+              key={`timer-history-${pageIdx}`}
+              id={`timer-history-${pageIdx}`}
+              label={
+                historyPages.length > 1
+                  ? `Historial (${pageIdx + 1}/${historyPages.length})`
+                  : 'Historial'
+              }
+            >
+              <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <History className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                    <div>
+                      <h3 className="font-display text-base font-semibold text-slate-900">
+                        Historial de sesiones de trabajo
+                        {historyPages.length > 1
+                          ? ` · ${pageIdx + 1}/${historyPages.length}`
+                          : ''}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Cada registro conserva la fecha, el tiempo bruto, las pausas y
+                        cualquier ajuste con su motivo.
                       </p>
-                    )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 sm:justify-end shrink-0">
-                    <div className="text-right">
-                      <p className="font-mono text-sm font-bold text-slate-900 tabular-nums">
-                        {formatClockHHMMSS(session.effectiveSeconds)}
-                      </p>
-                      <p className="text-[11px] text-slate-500 tabular-nums">
-                        {formatDurationMinutes(
-                          Math.round(session.effectiveSeconds / 60),
-                        )}
-                      </p>
-                    </div>
-
+                  <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
                     <button
                       type="button"
-                      onClick={() => openEditCompletedModal(session)}
-                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      onClick={() => setHistoryFilterMode('all')}
+                      className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        historyFilterMode === 'all'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>Ajustar</span>
+                      Todo el taller
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryFilterMode('project')}
+                      className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        historyFilterMode === 'project'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Solo proyecto actual
                     </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="divide-y divide-slate-100">
+                  {pageSessions.map((session) => {
+                    const proj = projectMap.get(session.projectId);
+                    const comp = componentMap.get(session.componentId);
+                    const entryMeta = ENTRY_TYPE_META[session.entryType];
+                    const hadPauses = session.pauseIntervals.length > 0;
+
+                    return (
+                      <div
+                        key={session.id}
+                        className="flex flex-col gap-3 py-3.5 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {proj?.name ?? 'Proyecto'} · {comp?.name ?? 'Pieza'}
+                            </p>
+                            <StatusBadge
+                              label={entryMeta.label}
+                              tone={entryMeta.tone}
+                            />
+                            {session.isDemo && (
+                              <span className="text-xs text-slate-400">
+                                · Ejemplo
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-slate-500 tabular-nums">
+                            {formatDateTimeCO(session.endTime ?? session.startTime)}
+                            {hadPauses
+                              ? ` · Bruto: ${formatClockHHMMSS(session.elapsedSeconds)} (${session.pauseIntervals.length} pausa${session.pauseIntervals.length > 1 ? 's' : ''})`
+                              : ''}
+                            {session.notes ? ` · ${session.notes}` : ''}
+                          </p>
+
+                          {session.adjustmentReason && (
+                            <p className="text-xs text-amber-800">
+                              Motivo: {session.adjustmentReason}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 sm:justify-end shrink-0">
+                          <div className="text-right">
+                            <p className="font-mono text-sm font-bold text-slate-900 tabular-nums">
+                              {formatClockHHMMSS(session.effectiveSeconds)}
+                            </p>
+                            <p className="text-[11px] text-slate-500 tabular-nums">
+                              {formatDurationMinutes(
+                                Math.round(session.effectiveSeconds / 60),
+                              )}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => openEditCompletedModal(session)}
+                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                            <span>Ajustar</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </SnapSlide>
+          ))
         )}
-      </section>
+      </SnapDeck>
 
       {/* MODAL REGISTRO MANUAL */}
       {manualModalOpen && (
@@ -1400,6 +1491,6 @@ export const TimerView: React.FC<TimerViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

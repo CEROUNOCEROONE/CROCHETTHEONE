@@ -42,6 +42,13 @@ export function createDefaultWorkshopSettings(): WorkshopSettings {
     currency: BRAND_CONFIG.currency,
     demoDataLoaded: false,
     lastBackupExportAt: null,
+    reminderLeadDaysDelivery: 3,
+    reminderLeadDaysInstallment: 2,
+    reminderLeadDaysPurchase: 1,
+    enableDeliveryReminders: true,
+    enableInstallmentReminders: true,
+    enablePurchaseReminders: true,
+    enableLowStockReminders: true,
   };
 }
 
@@ -74,6 +81,37 @@ export function normalizeWorkshopSettings(
       Number.isFinite(raw.wasteAndContingencyPercent)
         ? raw.wasteAndContingencyPercent
         : defaults.wasteAndContingencyPercent,
+    reminderLeadDaysDelivery:
+      typeof raw.reminderLeadDaysDelivery === 'number' &&
+      Number.isFinite(raw.reminderLeadDaysDelivery)
+        ? Math.max(0, Math.round(raw.reminderLeadDaysDelivery))
+        : defaults.reminderLeadDaysDelivery,
+    reminderLeadDaysInstallment:
+      typeof raw.reminderLeadDaysInstallment === 'number' &&
+      Number.isFinite(raw.reminderLeadDaysInstallment)
+        ? Math.max(0, Math.round(raw.reminderLeadDaysInstallment))
+        : defaults.reminderLeadDaysInstallment,
+    reminderLeadDaysPurchase:
+      typeof raw.reminderLeadDaysPurchase === 'number' &&
+      Number.isFinite(raw.reminderLeadDaysPurchase)
+        ? Math.max(0, Math.round(raw.reminderLeadDaysPurchase))
+        : defaults.reminderLeadDaysPurchase,
+    enableDeliveryReminders:
+      typeof raw.enableDeliveryReminders === 'boolean'
+        ? raw.enableDeliveryReminders
+        : defaults.enableDeliveryReminders,
+    enableInstallmentReminders:
+      typeof raw.enableInstallmentReminders === 'boolean'
+        ? raw.enableInstallmentReminders
+        : defaults.enableInstallmentReminders,
+    enablePurchaseReminders:
+      typeof raw.enablePurchaseReminders === 'boolean'
+        ? raw.enablePurchaseReminders
+        : defaults.enablePurchaseReminders,
+    enableLowStockReminders:
+      typeof raw.enableLowStockReminders === 'boolean'
+        ? raw.enableLowStockReminders
+        : defaults.enableLowStockReminders,
   };
 }
 

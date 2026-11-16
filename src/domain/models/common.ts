@@ -47,6 +47,9 @@ export type WorkshopStoreName =
   | 'purchase_receipts'
   | 'inventory_movements'
   | 'clients'
+  | 'quotes'
   | 'payment_plans'
   | 'payment_installments'
-  | 'financial_transactions';
+  | 'financial_transactions'
+  | 'planned_tasks'
+  | 'reminders';

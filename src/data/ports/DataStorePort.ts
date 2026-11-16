@@ -13,6 +13,9 @@ import type {
   Project,
   ProjectComponent,
   PurchaseReceipt,
+  Quote,
+  Reminder,
+  ScheduledTask,
   SchemaMeta,
   ShoppingListItem,
   WorkSession,
@@ -98,6 +101,16 @@ import type {
   UpdatePendingMaterialInput,
   UpdateShoppingListItemInput,
 } from '@/src/domain/services/procurementService.ts';
+import type {
+  CreateQuoteInput,
+  UpdateQuoteInput,
+} from '@/src/domain/services/quoteService.ts';
+import type {
+  CreateReminderInput,
+  CreateScheduledTaskInput,
+  UpdateReminderInput,
+  UpdateScheduledTaskInput,
+} from '@/src/domain/services/planningService.ts';
 
 export interface FinishTimerSessionOptions {
   readonly overrideEffectiveMinutes?: number;
@@ -127,9 +140,12 @@ export interface WorkshopDataEngine {
   readonly purchaseReceipts: DataStorePort<PurchaseReceipt>;
   readonly movements: DataStorePort<InventoryMovement>;
   readonly clients: DataStorePort<Client>;
+  readonly quotes: DataStorePort<Quote>;
   readonly paymentPlans: DataStorePort<PaymentPlan>;
   readonly installments: DataStorePort<PaymentInstallment>;
   readonly transactions: DataStorePort<FinancialTransaction>;
+  readonly plannedTasks: DataStorePort<ScheduledTask>;
+  readonly reminders: DataStorePort<Reminder>;
 
   getSchemaMeta(): Promise<SchemaMeta | null>;
   loadWorkshopSnapshot(): Promise<WorkshopSnapshotInput>;
@@ -147,6 +163,13 @@ export interface WorkshopDataEngine {
         | 'electricityCostPercent'
         | 'internetCostPercent'
         | 'wasteAndContingencyPercent'
+        | 'reminderLeadDaysDelivery'
+        | 'reminderLeadDaysInstallment'
+        | 'reminderLeadDaysPurchase'
+        | 'enableDeliveryReminders'
+        | 'enableInstallmentReminders'
+        | 'enablePurchaseReminders'
+        | 'enableLowStockReminders'
       >
     >,
   ): Promise<WorkshopSettings>;
@@ -236,6 +259,19 @@ export interface WorkshopDataEngine {
   receivePurchaseReceipt(
     input: CreatePurchaseReceiptInput,
   ): Promise<PurchaseReceipt>;
+  createQuote(input: CreateQuoteInput): Promise<Quote>;
+  updateQuote(quoteId: string, updates: UpdateQuoteInput): Promise<Quote>;
+  deleteQuote(quoteId: string): Promise<void>;
+  applyQuotePriceToProject(quoteId: string): Promise<Project>;
+  createPlannedTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
+  updatePlannedTask(
+    taskId: string,
+    updates: UpdateScheduledTaskInput,
+  ): Promise<ScheduledTask>;
+  deletePlannedTask(taskId: string): Promise<void>;
+  createReminder(input: CreateReminderInput): Promise<Reminder>;
+  updateReminder(reminderId: string, updates: UpdateReminderInput): Promise<Reminder>;
+  deleteReminder(reminderId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope>;

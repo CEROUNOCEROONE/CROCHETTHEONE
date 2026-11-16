@@ -39,10 +39,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
+    <div className="flex h-dvh flex-col overflow-hidden bg-slate-50 text-slate-900 lg:flex-row">
       {/* Sidebar fijo en escritorio */}
-      <aside className="hidden lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:border-r lg:border-slate-200 lg:bg-white">
-        <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
+      <aside className="hidden lg:flex lg:h-full lg:w-64 lg:shrink-0 lg:flex-col lg:border-r lg:border-slate-200 lg:bg-white">
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 px-5">
           <img
             src="/icon.svg"
             alt={BRAND_CONFIG.appName}
@@ -106,16 +106,16 @@ export const AppShell: React.FC<AppShellProps> = ({
           })}
         </nav>
 
-        {/* Contenedor reservado en escritorio para futuro widget de cronómetro (Fase 3) */}
+        {/* Contenedor reservado en escritorio para widget de cronómetro */}
         {timerDockSlot && (
-          <div className="border-t border-slate-200 p-3">{timerDockSlot}</div>
+          <div className="shrink-0 border-t border-slate-200 p-3">{timerDockSlot}</div>
         )}
       </aside>
 
-      {/* Columna principal */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Barra superior de 3 zonas */}
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
+      {/* Columna principal bloqueada al viewport */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Barra superior fija sin solapamiento */}
+        <header className="z-30 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6 lg:h-16">
             <div className="flex min-w-0 items-center gap-3">
               <button
@@ -140,21 +140,17 @@ export const AppShell: React.FC<AppShellProps> = ({
           <OfflineIndicator />
         </header>
 
-        {/* Contenido principal con espacio inferior seguro en móvil */}
-        <main
-          className={`mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:py-8 ${
-            timerDockSlot ? 'pb-36 lg:pb-10' : 'pb-24 lg:pb-10'
-          }`}
-        >
+        {/* Escenario principal 100% libre para vistas por pantalla */}
+        <main className="relative min-h-0 w-full flex-1 overflow-hidden">
           {children}
         </main>
       </div>
 
-      {/* Espacio reservado sobre la barra inferior móvil para futuro Mini-Reproductor (Fase 3) */}
+      {/* Mini-reproductor móvil sobre barra inferior sin tapar contenido */}
       {timerDockSlot && (
         <div
           data-slot="timer-dock-mobile"
-          className="fixed bottom-16 left-0 right-0 z-30 px-3 pb-2 lg:hidden"
+          className="z-30 shrink-0 border-t border-slate-200/80 bg-slate-50 px-3 py-1.5 lg:hidden"
         >
           {timerDockSlot}
         </div>
@@ -163,7 +159,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       {/* Barra inferior fija en móvil (Thumb-zone navigation) */}
       <nav
         aria-label="Accesos principales móviles"
-        className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur-md pb-safe lg:hidden"
+        className="z-40 shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md pb-safe lg:hidden"
       >
         <div className="grid h-16 grid-cols-5 items-center">
           {mobileBottomRoutes.map((route) => {

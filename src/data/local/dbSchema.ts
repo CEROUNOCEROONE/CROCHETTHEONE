@@ -1,7 +1,7 @@
 import type { WorkshopStoreName } from '@/src/domain/models/index.ts';
 
 export const DB_NAME = 'app_crochet_db';
-export const DB_VERSION = 2;
+export const DB_VERSION = 4;
 
 export interface StoreIndexDefinition {
   readonly name: string;
@@ -142,6 +142,17 @@ export const STORE_DEFINITIONS: StoreSchemaDefinition[] = [
     ],
   },
   {
+    name: 'quotes',
+    keyPath: 'id',
+    indexes: [
+      { name: 'projectId', keyPath: 'projectId' },
+      { name: 'clientId', keyPath: 'clientId' },
+      { name: 'status', keyPath: 'status' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+      { name: 'updatedAt', keyPath: 'updatedAt' },
+    ],
+  },
+  {
     name: 'payment_plans',
     keyPath: 'id',
     indexes: [
@@ -168,6 +179,29 @@ export const STORE_DEFINITIONS: StoreSchemaDefinition[] = [
       { name: 'planId', keyPath: 'planId' },
       { name: 'projectId', keyPath: 'projectId' },
       { name: 'paymentDate', keyPath: 'paymentDate' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'planned_tasks',
+    keyPath: 'id',
+    indexes: [
+      { name: 'projectId', keyPath: 'projectId' },
+      { name: 'componentId', keyPath: 'componentId' },
+      { name: 'scheduledDate', keyPath: 'scheduledDate' },
+      { name: 'status', keyPath: 'status' },
+      { name: 'dependsOnPendingMaterialId', keyPath: 'dependsOnPendingMaterialId' },
+      { name: 'isDemo', keyPath: 'isDemo' },
+    ],
+  },
+  {
+    name: 'reminders',
+    keyPath: 'id',
+    indexes: [
+      { name: 'type', keyPath: 'type' },
+      { name: 'triggerAt', keyPath: 'triggerAt' },
+      { name: 'relatedEntityId', keyPath: 'relatedEntityId' },
+      { name: 'isCompleted', keyPath: 'isCompleted' },
       { name: 'isDemo', keyPath: 'isDemo' },
     ],
   },

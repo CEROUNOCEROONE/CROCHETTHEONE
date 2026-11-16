@@ -13,10 +13,15 @@ import type {
   Material,
   MaterialVariant,
   NoteOrList,
+  PaymentInstallment,
+  PaymentPlan,
   PendingMaterial,
   Project,
   ProjectComponent,
   PurchaseReceipt,
+  Quote,
+  Reminder,
+  ScheduledTask,
   SchemaMeta,
   ShoppingListItem,
   WorkSession,
@@ -47,6 +52,16 @@ import type {
   UpdatePendingMaterialInput,
   UpdateShoppingListItemInput,
 } from '@/src/domain/services/procurementService.ts';
+import type {
+  CreateQuoteInput,
+  UpdateQuoteInput,
+} from '@/src/domain/services/quoteService.ts';
+import type {
+  CreateReminderInput,
+  CreateScheduledTaskInput,
+  UpdateReminderInput,
+  UpdateScheduledTaskInput,
+} from '@/src/domain/services/planningService.ts';
 import {
   computeWorkshopStats,
   type WorkshopDashboardStats,
@@ -82,6 +97,11 @@ interface DataContextValue {
   readonly purchaseReceipts: PurchaseReceipt[];
   readonly movements: InventoryMovement[];
   readonly clients: Client[];
+  readonly quotes: Quote[];
+  readonly paymentPlans: PaymentPlan[];
+  readonly installments: PaymentInstallment[];
+  readonly plannedTasks: ScheduledTask[];
+  readonly reminders: Reminder[];
   readonly stats: WorkshopDashboardStats;
   readonly schemaMeta: SchemaMeta | null;
   refresh(): Promise<void>;
@@ -99,6 +119,13 @@ interface DataContextValue {
         | 'electricityCostPercent'
         | 'internetCostPercent'
         | 'wasteAndContingencyPercent'
+        | 'reminderLeadDaysDelivery'
+        | 'reminderLeadDaysInstallment'
+        | 'reminderLeadDaysPurchase'
+        | 'enableDeliveryReminders'
+        | 'enableInstallmentReminders'
+        | 'enablePurchaseReminders'
+        | 'enableLowStockReminders'
       >
     >,
   ): Promise<WorkshopSettings>;
@@ -188,6 +215,19 @@ interface DataContextValue {
   receivePurchaseReceipt(
     input: CreatePurchaseReceiptInput,
   ): Promise<PurchaseReceipt>;
+  createQuote(input: CreateQuoteInput): Promise<Quote>;
+  updateQuote(quoteId: string, updates: UpdateQuoteInput): Promise<Quote>;
+  deleteQuote(quoteId: string): Promise<void>;
+  applyQuotePriceToProject(quoteId: string): Promise<Project>;
+  createPlannedTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
+  updatePlannedTask(
+    taskId: string,
+    updates: UpdateScheduledTaskInput,
+  ): Promise<ScheduledTask>;
+  deletePlannedTask(taskId: string): Promise<void>;
+  createReminder(input: CreateReminderInput): Promise<Reminder>;
+  updateReminder(reminderId: string, updates: UpdateReminderInput): Promise<Reminder>;
+  deleteReminder(reminderId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
   exportBackup(includeDemo: boolean): Promise<BackupEnvelope>;
@@ -211,6 +251,7 @@ const EMPTY_STATS = computeWorkshopStats({
   reservations: [],
   movements: [],
   clients: [],
+  quotes: [],
   paymentPlans: [],
   installments: [],
 });
@@ -231,6 +272,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [purchaseReceipts, setPurchaseReceipts] = useState<PurchaseReceipt[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [paymentPlans, setPaymentPlans] = useState<PaymentPlan[]>([]);
+  const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
+  const [plannedTasks, setPlannedTasks] = useState<ScheduledTask[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
   const [schemaMeta, setSchemaMeta] = useState<SchemaMeta | null>(null);
 
@@ -254,6 +300,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPurchaseReceipts(snapshot.purchaseReceipts ?? []);
       setMovements(snapshot.movements);
       setClients(snapshot.clients);
+      setQuotes(snapshot.quotes ?? []);
+      setPaymentPlans(snapshot.paymentPlans ?? []);
+      setInstallments(snapshot.installments ?? []);
+      setPlannedTasks(snapshot.plannedTasks ?? []);
+      setReminders(snapshot.reminders ?? []);
       setStats(computeWorkshopStats(snapshot));
       setSchemaMeta(meta);
     } catch (err) {
@@ -286,6 +337,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           | 'electricityCostPercent'
           | 'internetCostPercent'
           | 'wasteAndContingencyPercent'
+          | 'reminderLeadDaysDelivery'
+          | 'reminderLeadDaysInstallment'
+          | 'reminderLeadDaysPurchase'
+          | 'enableDeliveryReminders'
+          | 'enableInstallmentReminders'
+          | 'enablePurchaseReminders'
+          | 'enableLowStockReminders'
         >
       >,
     ) => {
@@ -664,6 +722,94 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [refresh],
   );
 
+  const createQuote = useCallback(
+    async (input: CreateQuoteInput) => {
+      const created = await localWorkshopEngine.createQuote(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateQuote = useCallback(
+    async (quoteId: string, updates: UpdateQuoteInput) => {
+      const updated = await localWorkshopEngine.updateQuote(quoteId, updates);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deleteQuote = useCallback(
+    async (quoteId: string) => {
+      await localWorkshopEngine.deleteQuote(quoteId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const applyQuotePriceToProject = useCallback(
+    async (quoteId: string) => {
+      const updatedProject =
+        await localWorkshopEngine.applyQuotePriceToProject(quoteId);
+      await refresh();
+      return updatedProject;
+    },
+    [refresh],
+  );
+
+  const createPlannedTask = useCallback(
+    async (input: CreateScheduledTaskInput) => {
+      const created = await localWorkshopEngine.createPlannedTask(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updatePlannedTask = useCallback(
+    async (taskId: string, updates: UpdateScheduledTaskInput) => {
+      const updated = await localWorkshopEngine.updatePlannedTask(taskId, updates);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deletePlannedTask = useCallback(
+    async (taskId: string) => {
+      await localWorkshopEngine.deletePlannedTask(taskId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const createReminder = useCallback(
+    async (input: CreateReminderInput) => {
+      const created = await localWorkshopEngine.createReminder(input);
+      await refresh();
+      return created;
+    },
+    [refresh],
+  );
+
+  const updateReminder = useCallback(
+    async (reminderId: string, updates: UpdateReminderInput) => {
+      const updated = await localWorkshopEngine.updateReminder(reminderId, updates);
+      await refresh();
+      return updated;
+    },
+    [refresh],
+  );
+
+  const deleteReminder = useCallback(
+    async (reminderId: string) => {
+      await localWorkshopEngine.deleteReminder(reminderId);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const loadDemoData = useCallback(async () => {
     const res = await localWorkshopEngine.loadDemoData();
     await refresh();
@@ -717,6 +863,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       purchaseReceipts,
       movements,
       clients,
+      quotes,
+      paymentPlans,
+      installments,
+      plannedTasks,
+      reminders,
       stats,
       schemaMeta,
       refresh,
@@ -757,6 +908,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteShoppingListItem,
       sendPendingMaterialToShoppingList,
       receivePurchaseReceipt,
+      createQuote,
+      updateQuote,
+      deleteQuote,
+      applyQuotePriceToProject,
+      createPlannedTask,
+      updatePlannedTask,
+      deletePlannedTask,
+      createReminder,
+      updateReminder,
+      deleteReminder,
       loadDemoData,
       purgeDemoData,
       exportBackup,
@@ -780,6 +941,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       purchaseReceipts,
       movements,
       clients,
+      quotes,
+      paymentPlans,
+      installments,
+      plannedTasks,
+      reminders,
       stats,
       schemaMeta,
       refresh,
@@ -820,6 +986,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteShoppingListItem,
       sendPendingMaterialToShoppingList,
       receivePurchaseReceipt,
+      createQuote,
+      updateQuote,
+      deleteQuote,
+      applyQuotePriceToProject,
+      createPlannedTask,
+      updatePlannedTask,
+      deletePlannedTask,
+      createReminder,
+      updateReminder,
+      deleteReminder,
       loadDemoData,
       purgeDemoData,
       exportBackup,

@@ -12,10 +12,19 @@ import type {
   Project,
   ProjectComponent,
   PurchaseReceipt,
+  Quote,
+  Reminder,
+  ScheduledTask,
   ShoppingListItem,
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
+import {
+  evaluateTaskMaterialBlock,
+  resolveEffectiveTaskStatus,
+  resolveSmartRemindersAndAlerts,
+  toLocalDateKey as toPlanningLocalDateKey,
+} from './planningService.ts';
 
 export interface VariantAvailabilitySummary {
   readonly variantId: string;
@@ -64,6 +73,12 @@ export interface WorkshopDashboardStats {
   readonly pendingMaterialsCount: number;
   readonly inTransitPurchasesCount: number;
   readonly activeNotesCount: number;
+  readonly quotesCount: number;
+  readonly approvedQuotesCount: number;
+  readonly todayPlannedMinutes: number;
+  readonly pendingTasksCount: number;
+  readonly blockedTasksCount: number;
+  readonly activeRemindersCount: number;
   readonly hasDemoData: boolean;
   readonly hasRealData: boolean;
 }
@@ -77,13 +92,16 @@ export interface WorkshopSnapshotInput {
   readonly variants: MaterialVariant[];
   readonly reservations: InventoryReservation[];
   readonly pendingMaterials?: PendingMaterial[];
+  readonly plannedTasks?: ScheduledTask[];
   readonly notesAndLists?: NoteOrList[];
   readonly shoppingItems?: ShoppingListItem[];
   readonly purchaseReceipts?: PurchaseReceipt[];
   readonly movements: InventoryMovement[];
   readonly clients: Client[];
+  readonly quotes?: Quote[];
   readonly paymentPlans: PaymentPlan[];
   readonly installments: PaymentInstallment[];
+  readonly reminders?: Reminder[];
 }
 
 export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopDashboardStats {
@@ -225,6 +243,51 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
     shoppingItems.filter((i) => i.status === 'purchased_waiting_delivery').length;
 
   const activeNotesCount = notesAndLists.filter((n) => n.status === 'active').length;
+  const quotes = snapshot.quotes ?? [];
+  const quotesCount = quotes.length;
+  const approvedQuotesCount = quotes.filter((q) => q.status === 'approved').length;
+
+  const plannedTasks = snapshot.plannedTasks ?? [];
+  const reminders = snapshot.reminders ?? [];
+
+  let todayPlannedMinutes = 0;
+  let pendingTasksCount = 0;
+  let blockedTasksCount = 0;
+
+  for (const task of plannedTasks) {
+    const evalResult = evaluateTaskMaterialBlock({
+      projectId: task.projectId,
+      componentId: task.componentId,
+      dependsOnPendingMaterialId: task.dependsOnPendingMaterialId,
+      components: snapshot.components,
+      pendingMaterials,
+      materials: snapshot.materials,
+      variants: snapshot.variants,
+    });
+    const effStatus = resolveEffectiveTaskStatus(task, evalResult);
+    if (
+      toPlanningLocalDateKey(task.scheduledDate) === todayKey &&
+      effStatus !== 'rescheduled'
+    ) {
+      todayPlannedMinutes += Math.max(0, task.allocatedMinutes);
+    }
+    if (effStatus === 'scheduled') pendingTasksCount += 1;
+    if (effStatus === 'blocked_by_material') blockedTasksCount += 1;
+  }
+
+  const resolvedAlerts = resolveSmartRemindersAndAlerts({
+    settings: snapshot.settings,
+    reminders,
+    projects: snapshot.projects,
+    pendingMaterials,
+    materials: snapshot.materials,
+    variants: snapshot.variants,
+    paymentPlans: snapshot.paymentPlans,
+    installments: snapshot.installments,
+    clients: snapshot.clients,
+    nowDate,
+  });
+  const activeRemindersCount = resolvedAlerts.filter((a) => !a.isCompleted).length;
 
   return {
     activeProjectsCount,
@@ -246,6 +309,12 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
     pendingMaterialsCount,
     inTransitPurchasesCount,
     activeNotesCount,
+    quotesCount,
+    approvedQuotesCount,
+    todayPlannedMinutes,
+    pendingTasksCount,
+    blockedTasksCount,
+    activeRemindersCount,
     hasDemoData,
     hasRealData,
   };

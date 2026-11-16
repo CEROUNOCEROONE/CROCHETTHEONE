@@ -15,6 +15,9 @@ import type {
   ProjectComponent,
   PurchaseReceipt,
   PurchaseReceiptItem,
+  Quote,
+  Reminder,
+  ScheduledTask,
   SchemaMeta,
   ShoppingListItem,
   WorkSession,
@@ -72,6 +75,20 @@ import type {
   UpdatePendingMaterialInput,
   UpdateShoppingListItemInput,
 } from '@/src/domain/services/procurementService.ts';
+import {
+  applyQuoteUpdates,
+  buildNewQuoteEntity,
+  type CreateQuoteInput,
+  type UpdateQuoteInput,
+} from '@/src/domain/services/quoteService.ts';
+import {
+  dateKeyToMiddayIso,
+  evaluateTaskMaterialBlock,
+  type CreateReminderInput,
+  type CreateScheduledTaskInput,
+  type UpdateReminderInput,
+  type UpdateScheduledTaskInput,
+} from '@/src/domain/services/planningService.ts';
 import {
   createDefaultWorkshopSettings,
   getIndexedDb,
@@ -335,6 +352,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   );
   readonly movements = new IndexedDbStoreRepository<InventoryMovement>('inventory_movements');
   readonly clients = new IndexedDbStoreRepository<Client>('clients');
+  readonly quotes = new IndexedDbStoreRepository<Quote>('quotes');
   readonly paymentPlans = new IndexedDbStoreRepository<PaymentPlan>('payment_plans');
   readonly installments = new IndexedDbStoreRepository<PaymentInstallment>(
     'payment_installments',
@@ -342,6 +360,8 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   readonly transactions = new IndexedDbStoreRepository<FinancialTransaction>(
     'financial_transactions',
   );
+  readonly plannedTasks = new IndexedDbStoreRepository<ScheduledTask>('planned_tasks');
+  readonly reminders = new IndexedDbStoreRepository<Reminder>('reminders');
 
   async getSchemaMeta(): Promise<SchemaMeta | null> {
     const db = await getIndexedDb();
@@ -388,13 +408,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 variants: (result.material_variants as MaterialVariant[]) ?? [],
                 reservations: (result.inventory_reservations as InventoryReservation[]) ?? [],
                 pendingMaterials: (result.pending_materials as PendingMaterial[]) ?? [],
+                plannedTasks: (result.planned_tasks as ScheduledTask[]) ?? [],
                 notesAndLists: (result.notes_and_lists as NoteOrList[]) ?? [],
                 shoppingItems: (result.shopping_list_items as ShoppingListItem[]) ?? [],
                 purchaseReceipts: (result.purchase_receipts as PurchaseReceipt[]) ?? [],
                 movements: (result.inventory_movements as InventoryMovement[]) ?? [],
                 clients: (result.clients as Client[]) ?? [],
+                quotes: (result.quotes as Quote[]) ?? [],
                 paymentPlans: (result.payment_plans as PaymentPlan[]) ?? [],
                 installments: (result.payment_installments as PaymentInstallment[]) ?? [],
+                reminders: (result.reminders as Reminder[]) ?? [],
               });
             }
           };
@@ -417,6 +440,13 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         | 'electricityCostPercent'
         | 'internetCostPercent'
         | 'wasteAndContingencyPercent'
+        | 'reminderLeadDaysDelivery'
+        | 'reminderLeadDaysInstallment'
+        | 'reminderLeadDaysPurchase'
+        | 'enableDeliveryReminders'
+        | 'enableInstallmentReminders'
+        | 'enablePurchaseReminders'
+        | 'enableLowStockReminders'
       >
     >,
   ): Promise<WorkshopSettings> {
@@ -424,6 +454,8 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     const current = normalizeWorkshopSettings(rawCurrent);
     const clampPercent = (value: number) =>
       Math.round(Math.max(0, Math.min(100, value)) * 100) / 100;
+    const clampDays = (value: number | undefined, fallback: number) =>
+      Math.max(0, Math.min(60, Math.round(value ?? fallback)));
 
     const updated: WorkshopSettings = {
       ...current,
@@ -458,6 +490,26 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       wasteAndContingencyPercent: clampPercent(
         partial.wasteAndContingencyPercent ?? current.wasteAndContingencyPercent,
       ),
+      reminderLeadDaysDelivery: clampDays(
+        partial.reminderLeadDaysDelivery,
+        current.reminderLeadDaysDelivery ?? 3,
+      ),
+      reminderLeadDaysInstallment: clampDays(
+        partial.reminderLeadDaysInstallment,
+        current.reminderLeadDaysInstallment ?? 2,
+      ),
+      reminderLeadDaysPurchase: clampDays(
+        partial.reminderLeadDaysPurchase,
+        current.reminderLeadDaysPurchase ?? 1,
+      ),
+      enableDeliveryReminders:
+        partial.enableDeliveryReminders ?? current.enableDeliveryReminders ?? true,
+      enableInstallmentReminders:
+        partial.enableInstallmentReminders ?? current.enableInstallmentReminders ?? true,
+      enablePurchaseReminders:
+        partial.enablePurchaseReminders ?? current.enablePurchaseReminders ?? true,
+      enableLowStockReminders:
+        partial.enableLowStockReminders ?? current.enableLowStockReminders ?? true,
     };
     return this.settings.upsert(updated);
   }
@@ -540,11 +592,14 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         'work_sessions',
         'inventory_reservations',
         'pending_materials',
+        'planned_tasks',
         'notes_and_lists',
         'shopping_list_items',
         'inventory_movements',
+        'quotes',
         'payment_plans',
         'financial_transactions',
+        'reminders',
       ],
       'readwrite',
       (tx, done, fail) => {
@@ -566,15 +621,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           const sessReq = tx.objectStore('work_sessions').getAll();
           const compReq = tx.objectStore('project_components').getAll();
           const pendReq = tx.objectStore('pending_materials').getAll();
+          const taskReq = tx.objectStore('planned_tasks').getAll();
           const noteReq = tx.objectStore('notes_and_lists').getAll();
           const sliReq = tx.objectStore('shopping_list_items').getAll();
+          const quoteReq = tx.objectStore('quotes').getAll();
+          const remReq = tx.objectStore('reminders').getAll();
 
           let completedReads = 0;
           let aborted = false;
 
           const checkDone = () => {
             completedReads += 1;
-            if (completedReads < 9 || aborted) return;
+            if (completedReads < 12 || aborted) return;
 
             const movements = (movReq.result as InventoryMovement[]) ?? [];
             const transactions = (txReq.result as FinancialTransaction[]) ?? [];
@@ -583,8 +641,11 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             const sessions = (sessReq.result as WorkSession[]) ?? [];
             const comps = (compReq.result as ProjectComponent[]) ?? [];
             const pendings = (pendReq.result as PendingMaterial[]) ?? [];
+            const tasks = (taskReq.result as ScheduledTask[]) ?? [];
             const notes = (noteReq.result as NoteOrList[]) ?? [];
             const shoppingItems = (sliReq.result as ShoppingListItem[]) ?? [];
+            const quotes = (quoteReq.result as Quote[]) ?? [];
+            const reminders = (remReq.result as Reminder[]) ?? [];
 
             const hasMovements = movements.some((m) => m.projectId === projectId);
             const hasTransactions = transactions.some((t) => t.projectId === projectId);
@@ -629,6 +690,25 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               }
             }
 
+            // Eliminar tareas planificadas del proyecto eliminado
+            const taskStore = tx.objectStore('planned_tasks');
+            for (const t of tasks) {
+              if (t.projectId === projectId) {
+                taskStore.delete(t.id);
+              }
+            }
+
+            // Eliminar recordatorios asociados directamente al proyecto o a sus pendientes
+            const remStore = tx.objectStore('reminders');
+            for (const r of reminders) {
+              if (
+                r.relatedEntityId === projectId ||
+                (r.relatedEntityId && projPendingIds.has(r.relatedEntityId))
+              ) {
+                remStore.delete(r.id);
+              }
+            }
+
             // Eliminar materiales pendientes sin recepciones del proyecto
             const pendStore = tx.objectStore('pending_materials');
             for (const p of projPendings) {
@@ -643,6 +723,19 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                   ...n,
                   projectId: null,
                   version: n.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
+            }
+
+            // Desvincular cotizaciones que referenciaban al proyecto eliminado (conservando el historial)
+            const quoteStore = tx.objectStore('quotes');
+            for (const q of quotes) {
+              if (q.projectId === projectId) {
+                quoteStore.put({
+                  ...q,
+                  projectId: null,
+                  version: q.version + 1,
                   updatedAt: nowIso,
                 });
               }
@@ -674,8 +767,11 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             sessReq,
             compReq,
             pendReq,
+            taskReq,
             noteReq,
             sliReq,
+            quoteReq,
+            remReq,
           ]) {
             req.onerror = () => {
               if (!aborted) {
@@ -805,6 +901,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         'work_sessions',
         'inventory_reservations',
         'pending_materials',
+        'planned_tasks',
       ],
       'readwrite',
       (tx, done, fail) => {
@@ -824,17 +921,19 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             .getAll(componentId);
           const resReq = tx.objectStore('inventory_reservations').getAll();
           const pendReq = tx.objectStore('pending_materials').getAll();
+          const taskReq = tx.objectStore('planned_tasks').getAll();
 
           let reads = 0;
           let aborted = false;
 
           const finishCheck = () => {
             reads += 1;
-            if (reads < 3 || aborted) return;
+            if (reads < 4 || aborted) return;
 
             const sessions = (sessReq.result as WorkSession[]) ?? [];
             const reservations = (resReq.result as InventoryReservation[]) ?? [];
             const pendings = (pendReq.result as PendingMaterial[]) ?? [];
+            const tasks = (taskReq.result as ScheduledTask[]) ?? [];
             const hasReservation = reservations.some(
               (r) => r.componentId === componentId && r.status === 'active',
             );
@@ -857,6 +956,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                   ...pm,
                   componentId: null,
                   version: pm.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
+            }
+
+            const taskStore = tx.objectStore('planned_tasks');
+            for (const task of tasks) {
+              if (task.componentId === componentId) {
+                taskStore.put({
+                  ...task,
+                  componentId: null,
+                  version: task.version + 1,
                   updatedAt: nowIso,
                 });
               }
@@ -889,7 +1000,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             };
           };
 
-          for (const req of [sessReq, resReq, pendReq]) {
+          for (const req of [sessReq, resReq, pendReq, taskReq]) {
             req.onerror = () => {
               if (!aborted) {
                 aborted = true;
@@ -1759,6 +1870,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         'pending_materials',
         'shopping_list_items',
         'purchase_receipts',
+        'quotes',
       ],
       'readwrite',
       (tx, done, fail) => {
@@ -1779,18 +1891,20 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           .index('variantId')
           .getAll(variantId);
         const recReq = tx.objectStore('purchase_receipts').getAll();
+        const quoteReq = tx.objectStore('quotes').getAll();
 
         let reads = 0;
         let aborted = false;
 
         const onRead = () => {
           reads += 1;
-          if (reads < 5 || aborted) return;
+          if (reads < 6 || aborted) return;
           const reservations = (resReq.result as InventoryReservation[]) ?? [];
           const movements = (movReq.result as InventoryMovement[]) ?? [];
           const pendings = (pendReq.result as PendingMaterial[]) ?? [];
           const shoppingItems = (sliReq.result as ShoppingListItem[]) ?? [];
           const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const quotes = (quoteReq.result as Quote[]) ?? [];
           const hasReceiptRef = receipts.some((r) =>
             r.items.some((item) => item.variantId === variantId),
           );
@@ -1810,12 +1924,29 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             );
             return;
           }
+
+          // Desvincular snapshot de cotizaciones que usaban esta variante sin borrar el histórico cotizado
+          const nowIso = new Date().toISOString();
+          const quoteStore = tx.objectStore('quotes');
+          for (const q of quotes) {
+            if (q.materialsSnapshot.some((line) => line.variantId === variantId)) {
+              quoteStore.put({
+                ...q,
+                materialsSnapshot: q.materialsSnapshot.map((line) =>
+                  line.variantId === variantId ? { ...line, variantId: null } : line,
+                ),
+                version: q.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+          }
+
           const delReq = tx.objectStore('material_variants').delete(variantId);
           delReq.onerror = () => fail(delReq.error);
           delReq.onsuccess = () => done(undefined);
         };
 
-        for (const req of [resReq, movReq, pendReq, sliReq, recReq]) {
+        for (const req of [resReq, movReq, pendReq, sliReq, recReq, quoteReq]) {
           req.onerror = () => {
             if (!aborted) {
               aborted = true;
@@ -2571,65 +2702,167 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     pendingId: string,
     updates: UpdatePendingMaterialInput,
   ): Promise<PendingMaterial> {
-    const existing = await this.pendingMaterials.getById(pendingId);
-    if (!existing) {
-      throw new Error('El material pendiente no existe.');
-    }
-    const nextQty =
-      updates.quantityNeeded !== undefined
-        ? this.roundQuantity(updates.quantityNeeded)
-        : existing.quantityNeeded;
-    if (!Number.isFinite(nextQty) || nextQty <= 0) {
-      throw new Error('La cantidad necesaria debe ser mayor a 0.');
-    }
-    if (nextQty < existing.quantityReceived) {
-      throw new Error(
-        `La cantidad necesaria no puede ser menor a lo ya recibido (${existing.quantityReceived}).`,
-      );
-    }
-
-    const nextStatus = updates.status ?? existing.status;
     const nowIso = new Date().toISOString();
-    const nextOrderedDate =
-      updates.orderedDate !== undefined
-        ? updates.orderedDate
-        : nextStatus === 'ordered' && !existing.orderedDate
-          ? nowIso
-          : existing.orderedDate;
 
-    return this.pendingMaterials.upsert({
-      ...existing,
-      quantityNeeded: nextQty,
-      provider:
-        updates.provider !== undefined ? updates.provider.trim() : existing.provider,
-      orderedDate: nextOrderedDate,
-      estimatedArrivalDate:
-        updates.estimatedArrivalDate !== undefined
-          ? updates.estimatedArrivalDate
-          : existing.estimatedArrivalDate,
-      status: nextStatus,
-      notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
-    });
-  }
-
-  async deletePendingMaterial(pendingId: string): Promise<void> {
-    return runAtomicTransaction<void>(
-      ['pending_materials', 'shopping_list_items', 'purchase_receipts'],
+    return runAtomicTransaction<PendingMaterial>(
+      [
+        'pending_materials',
+        'project_components',
+        'materials',
+        'material_variants',
+        'planned_tasks',
+      ],
       'readwrite',
       (tx, done, fail) => {
-        const getReq = tx.objectStore('pending_materials').get(pendingId);
-        const sliReq = tx
-          .objectStore('shopping_list_items')
-          .index('pendingMaterialId')
-          .getAll(pendingId);
-        const recReq = tx.objectStore('purchase_receipts').getAll();
+        const pendReq = tx.objectStore('pending_materials').getAll();
+        const compReq = tx.objectStore('project_components').getAll();
+        const matReq = tx.objectStore('materials').getAll();
+        const varReq = tx.objectStore('material_variants').getAll();
+        const taskReq = tx.objectStore('planned_tasks').getAll();
 
         let reads = 0;
         let aborted = false;
 
         const onRead = () => {
           reads += 1;
-          if (reads < 3 || aborted) return;
+          if (reads < 5 || aborted) return;
+
+          const allPendings = (pendReq.result as PendingMaterial[]) ?? [];
+          const existing = allPendings.find((p) => p.id === pendingId);
+          if (!existing) {
+            aborted = true;
+            fail(new Error('El material pendiente no existe.'));
+            return;
+          }
+
+          const nextQty =
+            updates.quantityNeeded !== undefined
+              ? this.roundQuantity(updates.quantityNeeded)
+              : existing.quantityNeeded;
+          if (!Number.isFinite(nextQty) || nextQty <= 0) {
+            aborted = true;
+            fail(new Error('La cantidad necesaria debe ser mayor a 0.'));
+            return;
+          }
+          if (nextQty < existing.quantityReceived) {
+            aborted = true;
+            fail(
+              new Error(
+                `La cantidad necesaria no puede ser menor a lo ya recibido (${existing.quantityReceived}).`,
+              ),
+            );
+            return;
+          }
+
+          const nextStatus = updates.status ?? existing.status;
+          const nextOrderedDate =
+            updates.orderedDate !== undefined
+              ? updates.orderedDate
+              : nextStatus === 'ordered' && !existing.orderedDate
+                ? nowIso
+                : existing.orderedDate;
+
+          const updated: PendingMaterial = {
+            ...existing,
+            quantityNeeded: nextQty,
+            provider:
+              updates.provider !== undefined
+                ? updates.provider.trim()
+                : existing.provider,
+            orderedDate: nextOrderedDate,
+            estimatedArrivalDate:
+              updates.estimatedArrivalDate !== undefined
+                ? updates.estimatedArrivalDate
+                : existing.estimatedArrivalDate,
+            status: nextStatus,
+            notes:
+              updates.notes !== undefined ? updates.notes.trim() : existing.notes,
+            version: existing.version + 1,
+            updatedAt: nowIso,
+          };
+
+          tx.objectStore('pending_materials').put(updated);
+
+          const nextPendingList = allPendings.map((p) =>
+            p.id === updated.id ? updated : p,
+          );
+          const allComponents = (compReq.result as ProjectComponent[]) ?? [];
+          const allMaterials = (matReq.result as Material[]) ?? [];
+          const allVariants = (varReq.result as MaterialVariant[]) ?? [];
+          const allTasks = (taskReq.result as ScheduledTask[]) ?? [];
+
+          const taskStore = tx.objectStore('planned_tasks');
+          for (const task of allTasks) {
+            if (task.status === 'completed' || task.status === 'rescheduled') continue;
+            const evalRes = evaluateTaskMaterialBlock({
+              projectId: task.projectId,
+              componentId: task.componentId,
+              dependsOnPendingMaterialId: task.dependsOnPendingMaterialId,
+              components: allComponents,
+              pendingMaterials: nextPendingList,
+              materials: allMaterials,
+              variants: allVariants,
+            });
+            const desiredStatus = evalRes.isBlocked
+              ? 'blocked_by_material'
+              : 'scheduled';
+            if (task.status !== desiredStatus) {
+              taskStore.put({
+                ...task,
+                status: desiredStatus,
+                version: task.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+          }
+
+          done(updated);
+        };
+
+        for (const req of [pendReq, compReq, matReq, varReq, taskReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async deletePendingMaterial(pendingId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      [
+        'pending_materials',
+        'shopping_list_items',
+        'purchase_receipts',
+        'planned_tasks',
+        'project_components',
+        'materials',
+        'material_variants',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const getReq = tx.objectStore('pending_materials').get(pendingId);
+        const allPendReq = tx.objectStore('pending_materials').getAll();
+        const sliReq = tx
+          .objectStore('shopping_list_items')
+          .index('pendingMaterialId')
+          .getAll(pendingId);
+        const recReq = tx.objectStore('purchase_receipts').getAll();
+        const taskReq = tx.objectStore('planned_tasks').getAll();
+        const compReq = tx.objectStore('project_components').getAll();
+        const matReq = tx.objectStore('materials').getAll();
+        const varReq = tx.objectStore('material_variants').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 8 || aborted) return;
           const existing = getReq.result as PendingMaterial | undefined;
           if (!existing) {
             done(undefined);
@@ -2637,6 +2870,14 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           }
           const linkedItems = (sliReq.result as ShoppingListItem[]) ?? [];
           const receipts = (recReq.result as PurchaseReceipt[]) ?? [];
+          const tasks = (taskReq.result as ScheduledTask[]) ?? [];
+          const remainingPendings = ((allPendReq.result as PendingMaterial[]) ?? []).filter(
+            (p) => p.id !== pendingId,
+          );
+          const allComponents = (compReq.result as ProjectComponent[]) ?? [];
+          const allMaterials = (matReq.result as Material[]) ?? [];
+          const allVariants = (varReq.result as MaterialVariant[]) ?? [];
+
           const hasReceipt =
             existing.quantityReceived > 0 ||
             receipts.some((r) =>
@@ -2664,11 +2905,56 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             });
           }
 
+          const taskStore = tx.objectStore('planned_tasks');
+          for (const task of tasks) {
+            const unlinkedDep =
+              task.dependsOnPendingMaterialId === pendingId
+                ? null
+                : task.dependsOnPendingMaterialId;
+            const evalRes = evaluateTaskMaterialBlock({
+              projectId: task.projectId,
+              componentId: task.componentId,
+              dependsOnPendingMaterialId: unlinkedDep,
+              components: allComponents,
+              pendingMaterials: remainingPendings,
+              materials: allMaterials,
+              variants: allVariants,
+            });
+            const nextStatus =
+              task.status === 'completed' || task.status === 'rescheduled'
+                ? task.status
+                : evalRes.isBlocked
+                  ? 'blocked_by_material'
+                  : 'scheduled';
+
+            if (
+              task.dependsOnPendingMaterialId === pendingId ||
+              nextStatus !== task.status
+            ) {
+              taskStore.put({
+                ...task,
+                dependsOnPendingMaterialId: unlinkedDep,
+                status: nextStatus,
+                version: task.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+          }
+
           tx.objectStore('pending_materials').delete(pendingId);
           done(undefined);
         };
 
-        for (const req of [getReq, sliReq, recReq]) {
+        for (const req of [
+          getReq,
+          allPendReq,
+          sliReq,
+          recReq,
+          taskReq,
+          compReq,
+          matReq,
+          varReq,
+        ]) {
           req.onerror = () => {
             if (!aborted) {
               aborted = true;
@@ -3083,6 +3369,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         'shopping_list_items',
         'pending_materials',
         'project_components',
+        'planned_tasks',
         'purchase_receipts',
         'inventory_movements',
       ],
@@ -3093,6 +3380,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         const sliReq = tx.objectStore('shopping_list_items').getAll();
         const pendReq = tx.objectStore('pending_materials').getAll();
         const compReq = tx.objectStore('project_components').getAll();
+        const taskReq = tx.objectStore('planned_tasks').getAll();
         const recReq = tx.objectStore('purchase_receipts').getAll();
 
         let reads = 0;
@@ -3100,7 +3388,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
 
         const onRead = () => {
           reads += 1;
-          if (reads < 6 || aborted) return;
+          if (reads < 7 || aborted) return;
 
           const allReceipts = (recReq.result as PurchaseReceipt[]) ?? [];
           if (input.idempotencyKey) {
@@ -3382,6 +3670,37 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             if (c) compStore.put(c);
           }
 
+          // Re-evaluar tareas planificadas bloqueadas tras la recepción de materiales
+          const updatedComponentsList = Array.from(componentMap.values());
+          const updatedPendingsList = Array.from(pendingMap.values());
+          const updatedMaterialsList = Array.from(materialMap.values());
+          const updatedVariantsList = Array.from(variantMap.values());
+          const allTasks = (taskReq.result as ScheduledTask[]) ?? [];
+          const taskStore = tx.objectStore('planned_tasks');
+          for (const task of allTasks) {
+            if (task.status === 'completed' || task.status === 'rescheduled') continue;
+            const evalRes = evaluateTaskMaterialBlock({
+              projectId: task.projectId,
+              componentId: task.componentId,
+              dependsOnPendingMaterialId: task.dependsOnPendingMaterialId,
+              components: updatedComponentsList,
+              pendingMaterials: updatedPendingsList,
+              materials: updatedMaterialsList,
+              variants: updatedVariantsList,
+            });
+            const desiredStatus = evalRes.isBlocked
+              ? 'blocked_by_material'
+              : 'scheduled';
+            if (task.status !== desiredStatus) {
+              taskStore.put({
+                ...task,
+                status: desiredStatus,
+                version: task.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+          }
+
           tx.objectStore('purchase_receipts').put(receipt);
 
           const movStore = tx.objectStore('inventory_movements');
@@ -3392,7 +3711,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           done(receipt);
         };
 
-        for (const req of [matReq, varReq, sliReq, pendReq, compReq, recReq]) {
+        for (const req of [matReq, varReq, sliReq, pendReq, compReq, taskReq, recReq]) {
           req.onerror = () => {
             if (!aborted) {
               aborted = true;
@@ -3403,6 +3722,678 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         }
       },
     );
+  }
+
+  async createQuote(input: CreateQuoteInput): Promise<Quote> {
+    const nowIso = new Date().toISOString();
+    const quoteId = this.createLocalId('quote');
+
+    return runAtomicTransaction<Quote>(
+      ['quotes', 'projects', 'clients', 'material_variants'],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = input.projectId
+          ? tx.objectStore('projects').get(input.projectId)
+          : null;
+        const clientReq = input.clientId
+          ? tx.objectStore('clients').get(input.clientId)
+          : null;
+        const varReq = tx.objectStore('material_variants').getAll();
+
+        const neededReads = 1 + (projReq ? 1 : 0) + (clientReq ? 1 : 0);
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < neededReads || aborted) return;
+
+          const project = projReq
+            ? (projReq.result as Project | undefined)
+            : undefined;
+          const client = clientReq
+            ? (clientReq.result as Client | undefined)
+            : undefined;
+          const variantMap = new Map(
+            ((varReq.result as MaterialVariant[]) ?? []).map((v) => [v.id, v]),
+          );
+
+          if (input.projectId && !project) {
+            aborted = true;
+            fail(new Error('El proyecto seleccionado no existe en el taller.'));
+            return;
+          }
+          if (input.clientId && !client) {
+            aborted = true;
+            fail(new Error('El cliente seleccionado no existe en el taller.'));
+            return;
+          }
+
+          let anyDemoVariant = false;
+          for (const line of input.materialsSnapshot) {
+            if (!line.variantId) continue;
+            const variant = variantMap.get(line.variantId);
+            if (!variant) {
+              aborted = true;
+              fail(
+                new Error(
+                  `La variante de material "${line.label}" ya no existe en el inventario.`,
+                ),
+              );
+              return;
+            }
+            if (variant.isDemo) anyDemoVariant = true;
+          }
+
+          const derivedIsDemo =
+            input.isDemo ??
+            Boolean(project?.isDemo || client?.isDemo || anyDemoVariant);
+
+          if (
+            !derivedIsDemo &&
+            (project?.isDemo || client?.isDemo || anyDemoVariant)
+          ) {
+            aborted = true;
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: una cotización real no puede vincular proyectos, clientes o materiales de demostración.',
+              ),
+            );
+            return;
+          }
+          if (project && !project.isDemo && (client?.isDemo || anyDemoVariant)) {
+            aborted = true;
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: no puedes mezclar un proyecto real con clientes o materiales de ejemplo.',
+              ),
+            );
+            return;
+          }
+
+          try {
+            const quote = buildNewQuoteEntity(
+              { ...input, isDemo: derivedIsDemo },
+              nowIso,
+              quoteId,
+            );
+            tx.objectStore('quotes').put(quote);
+            done(quote);
+          } catch (err) {
+            aborted = true;
+            fail(err);
+          }
+        };
+
+        for (const req of [varReq, ...(projReq ? [projReq] : []), ...(clientReq ? [clientReq] : [])]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async updateQuote(quoteId: string, updates: UpdateQuoteInput): Promise<Quote> {
+    const nowIso = new Date().toISOString();
+
+    return runAtomicTransaction<Quote>(
+      ['quotes', 'projects', 'clients', 'material_variants'],
+      'readwrite',
+      (tx, done, fail) => {
+        const quoteStore = tx.objectStore('quotes');
+        const quoteReq = quoteStore.get(quoteId);
+        const varReq = tx.objectStore('material_variants').getAll();
+        const projReq = tx.objectStore('projects').getAll();
+        const clientReq = tx.objectStore('clients').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 4 || aborted) return;
+
+          const existing = quoteReq.result as Quote | undefined;
+          if (!existing) {
+            aborted = true;
+            fail(new Error('La cotización que intentas editar no existe.'));
+            return;
+          }
+
+          const projectMap = new Map(
+            ((projReq.result as Project[]) ?? []).map((p) => [p.id, p]),
+          );
+          const clientMap = new Map(
+            ((clientReq.result as Client[]) ?? []).map((c) => [c.id, c]),
+          );
+          const variantMap = new Map(
+            ((varReq.result as MaterialVariant[]) ?? []).map((v) => [v.id, v]),
+          );
+
+          const targetProjectId =
+            updates.projectId !== undefined ? updates.projectId : existing.projectId;
+          const targetClientId =
+            updates.clientId !== undefined ? updates.clientId : existing.clientId;
+          const targetLines = updates.materialsSnapshot ?? existing.materialsSnapshot;
+
+          if (targetProjectId) {
+            const p = projectMap.get(targetProjectId);
+            if (!p) {
+              aborted = true;
+              fail(new Error('El proyecto vinculado no existe.'));
+              return;
+            }
+            if (!existing.isDemo && p.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: una cotización real no puede vincularse con un proyecto de demostración.',
+                ),
+              );
+              return;
+            }
+          }
+
+          if (targetClientId) {
+            const c = clientMap.get(targetClientId);
+            if (!c) {
+              aborted = true;
+              fail(new Error('El cliente vinculado no existe.'));
+              return;
+            }
+            if (!existing.isDemo && c.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: una cotización real no puede vincularse con un cliente de demostración.',
+                ),
+              );
+              return;
+            }
+          }
+
+          for (const line of targetLines) {
+            if (!line.variantId) continue;
+            const v = variantMap.get(line.variantId);
+            if (!v) {
+              aborted = true;
+              fail(
+                new Error(
+                  `La variante de material "${line.label}" no existe en el inventario.`,
+                ),
+              );
+              return;
+            }
+            if (!existing.isDemo && v.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: una cotización real no puede usar un material de demostración.',
+                ),
+              );
+              return;
+            }
+          }
+
+          try {
+            const updated = applyQuoteUpdates(existing, updates, nowIso);
+            quoteStore.put(updated);
+            done(updated);
+          } catch (err) {
+            aborted = true;
+            fail(err);
+          }
+        };
+
+        for (const req of [quoteReq, varReq, projReq, clientReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  deleteQuote(quoteId: string): Promise<void> {
+    return this.quotes.remove(quoteId);
+  }
+
+  async applyQuotePriceToProject(quoteId: string): Promise<Project> {
+    const nowIso = new Date().toISOString();
+
+    return runAtomicTransaction<Project>(
+      ['quotes', 'projects'],
+      'readwrite',
+      (tx, done, fail) => {
+        const quoteReq = tx.objectStore('quotes').get(quoteId);
+        quoteReq.onerror = () => fail(quoteReq.error);
+        quoteReq.onsuccess = () => {
+          const quote = quoteReq.result as Quote | undefined;
+          if (!quote) {
+            fail(new Error('La cotización seleccionada no existe.'));
+            return;
+          }
+          if (!quote.projectId) {
+            fail(
+              new Error(
+                'Vincula esta cotización a un proyecto antes de aplicar su valor estimado.',
+              ),
+            );
+            return;
+          }
+
+          const projStore = tx.objectStore('projects');
+          const projReq = projStore.get(quote.projectId);
+          projReq.onerror = () => fail(projReq.error);
+          projReq.onsuccess = () => {
+            const project = projReq.result as Project | undefined;
+            if (!project) {
+              fail(new Error('El proyecto vinculado ya no existe.'));
+              return;
+            }
+            const nextBudget = Math.max(
+              0,
+              Math.round(quote.finalAgreedPriceCOP ?? quote.suggestedPriceCOP),
+            );
+            const updatedProject: Project = {
+              ...project,
+              estimatedBudgetCOP: nextBudget,
+              version: project.version + 1,
+              updatedAt: nowIso,
+            };
+            projStore.put(updatedProject);
+            done(updatedProject);
+          };
+        };
+      },
+    );
+  }
+
+  async createPlannedTask(input: CreateScheduledTaskInput): Promise<ScheduledTask> {
+    const cleanTitle = input.title.trim();
+    if (!cleanTitle) {
+      throw new Error('El título de la tarea planificada es obligatorio.');
+    }
+    const allocatedMinutes = Math.max(5, Math.round(input.allocatedMinutes || 30));
+    const nowIso = new Date().toISOString();
+    const taskId = this.createLocalId('task');
+
+    return runAtomicTransaction<ScheduledTask>(
+      [
+        'planned_tasks',
+        'projects',
+        'project_components',
+        'pending_materials',
+        'materials',
+        'material_variants',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').get(input.projectId);
+        const compReq = tx.objectStore('project_components').getAll();
+        const pendReq = tx.objectStore('pending_materials').getAll();
+        const matReq = tx.objectStore('materials').getAll();
+        const varReq = tx.objectStore('material_variants').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 5 || aborted) return;
+
+          const project = projReq.result as Project | undefined;
+          if (!project) {
+            aborted = true;
+            fail(new Error('El proyecto seleccionado no existe.'));
+            return;
+          }
+
+          const allComponents = (compReq.result as ProjectComponent[]) ?? [];
+          const allPendings = (pendReq.result as PendingMaterial[]) ?? [];
+          const allMaterials = (matReq.result as Material[]) ?? [];
+          const allVariants = (varReq.result as MaterialVariant[]) ?? [];
+
+          let targetComp: ProjectComponent | null = null;
+          if (input.componentId) {
+            targetComp = allComponents.find((c) => c.id === input.componentId) ?? null;
+            if (!targetComp || targetComp.projectId !== project.id) {
+              aborted = true;
+              fail(new Error('La pieza seleccionada no pertenece a este proyecto.'));
+              return;
+            }
+          }
+
+          let targetPending: PendingMaterial | null = null;
+          if (input.dependsOnPendingMaterialId) {
+            targetPending =
+              allPendings.find((p) => p.id === input.dependsOnPendingMaterialId) ??
+              null;
+            if (!targetPending) {
+              aborted = true;
+              fail(new Error('El material pendiente seleccionado no existe.'));
+              return;
+            }
+            if (!project.isDemo && targetPending.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: una tarea real no puede depender de un material de demostración.',
+                ),
+              );
+              return;
+            }
+          }
+
+          const evaluation = evaluateTaskMaterialBlock({
+            projectId: project.id,
+            componentId: targetComp?.id ?? null,
+            dependsOnPendingMaterialId: targetPending?.id ?? null,
+            components: allComponents,
+            pendingMaterials: allPendings,
+            materials: allMaterials,
+            variants: allVariants,
+          });
+
+          const task: ScheduledTask = {
+            id: taskId,
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo: project.isDemo,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            projectId: project.id,
+            componentId: targetComp?.id ?? null,
+            title: cleanTitle,
+            scheduledDate: dateKeyToMiddayIso(input.scheduledDate),
+            allocatedMinutes,
+            completedMinutes: 0,
+            dependsOnPendingMaterialId: targetPending?.id ?? null,
+            status: evaluation.isBlocked ? 'blocked_by_material' : 'scheduled',
+            notes: (input.notes ?? '').trim(),
+          };
+
+          tx.objectStore('planned_tasks').put(task);
+          done(task);
+        };
+
+        for (const req of [projReq, compReq, pendReq, matReq, varReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async updatePlannedTask(
+    taskId: string,
+    updates: UpdateScheduledTaskInput,
+  ): Promise<ScheduledTask> {
+    const nowIso = new Date().toISOString();
+
+    return runAtomicTransaction<ScheduledTask>(
+      [
+        'planned_tasks',
+        'projects',
+        'project_components',
+        'pending_materials',
+        'materials',
+        'material_variants',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const taskStore = tx.objectStore('planned_tasks');
+        const taskReq = taskStore.get(taskId);
+        const projReq = tx.objectStore('projects').getAll();
+        const compReq = tx.objectStore('project_components').getAll();
+        const pendReq = tx.objectStore('pending_materials').getAll();
+        const matReq = tx.objectStore('materials').getAll();
+        const varReq = tx.objectStore('material_variants').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 6 || aborted) return;
+
+          const existing = taskReq.result as ScheduledTask | undefined;
+          if (!existing) {
+            aborted = true;
+            fail(new Error('La tarea planificada no existe.'));
+            return;
+          }
+
+          const allProjects = (projReq.result as Project[]) ?? [];
+          const allComponents = (compReq.result as ProjectComponent[]) ?? [];
+          const allPendings = (pendReq.result as PendingMaterial[]) ?? [];
+          const allMaterials = (matReq.result as Material[]) ?? [];
+          const allVariants = (varReq.result as MaterialVariant[]) ?? [];
+
+          const nextProjectId = updates.projectId ?? existing.projectId;
+          const nextProject = allProjects.find((p) => p.id === nextProjectId);
+          if (!nextProject) {
+            aborted = true;
+            fail(new Error('El proyecto vinculado no existe.'));
+            return;
+          }
+          if (!existing.isDemo && nextProject.isDemo) {
+            aborted = true;
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: una tarea real no puede vincularse con un proyecto de demostración.',
+              ),
+            );
+            return;
+          }
+
+          const nextComponentId =
+            updates.componentId !== undefined
+              ? updates.componentId
+              : existing.componentId;
+          if (nextComponentId) {
+            const comp = allComponents.find((c) => c.id === nextComponentId);
+            if (!comp || comp.projectId !== nextProject.id) {
+              aborted = true;
+              fail(new Error('La pieza seleccionada no pertenece al proyecto elegido.'));
+              return;
+            }
+          }
+
+          const nextPendingId =
+            updates.dependsOnPendingMaterialId !== undefined
+              ? updates.dependsOnPendingMaterialId
+              : existing.dependsOnPendingMaterialId;
+          if (nextPendingId) {
+            const pend = allPendings.find((p) => p.id === nextPendingId);
+            if (!pend) {
+              aborted = true;
+              fail(new Error('El material pendiente vinculado no existe.'));
+              return;
+            }
+            if (!existing.isDemo && pend.isDemo) {
+              aborted = true;
+              fail(
+                new Error(
+                  'Aislamiento de ejemplos: una tarea real no puede depender de un material pendiente de ejemplo.',
+                ),
+              );
+              return;
+            }
+          }
+
+          const nextTitle =
+            updates.title !== undefined ? updates.title.trim() : existing.title;
+          if (!nextTitle) {
+            aborted = true;
+            fail(new Error('El título de la tarea es obligatorio.'));
+            return;
+          }
+
+          const evaluation = evaluateTaskMaterialBlock({
+            projectId: nextProject.id,
+            componentId: nextComponentId,
+            dependsOnPendingMaterialId: nextPendingId,
+            components: allComponents,
+            pendingMaterials: allPendings,
+            materials: allMaterials,
+            variants: allVariants,
+          });
+
+          if (updates.status === 'completed' && evaluation.isBlocked) {
+            aborted = true;
+            fail(
+              new Error(
+                `Bloqueo preventivo: esta tarea aún no puede completarse porque faltan insumos. ${evaluation.reasons.join(' ')}`,
+              ),
+            );
+            return;
+          }
+
+          const requestedStatus = updates.status ?? existing.status;
+          const resolvedStatus =
+            requestedStatus === 'completed'
+              ? 'completed'
+              : evaluation.isBlocked
+                ? 'blocked_by_material'
+                : requestedStatus === 'blocked_by_material'
+                  ? 'scheduled'
+                  : requestedStatus;
+
+          const allocatedMinutes = Math.max(
+            5,
+            Math.round(updates.allocatedMinutes ?? existing.allocatedMinutes),
+          );
+          const completedMinutes =
+            updates.completedMinutes !== undefined
+              ? Math.max(0, Math.round(updates.completedMinutes))
+              : resolvedStatus === 'completed' && existing.completedMinutes === 0
+                ? allocatedMinutes
+                : existing.completedMinutes;
+
+          const updated: ScheduledTask = {
+            ...existing,
+            projectId: nextProject.id,
+            componentId: nextComponentId,
+            title: nextTitle,
+            scheduledDate: updates.scheduledDate
+              ? dateKeyToMiddayIso(updates.scheduledDate)
+              : existing.scheduledDate,
+            allocatedMinutes,
+            completedMinutes,
+            dependsOnPendingMaterialId: nextPendingId,
+            status: resolvedStatus,
+            notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
+            version: existing.version + 1,
+            updatedAt: nowIso,
+          };
+
+          taskStore.put(updated);
+          done(updated);
+        };
+
+        for (const req of [taskReq, projReq, compReq, pendReq, matReq, varReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  deletePlannedTask(taskId: string): Promise<void> {
+    return this.plannedTasks.remove(taskId);
+  }
+
+  async createReminder(input: CreateReminderInput): Promise<Reminder> {
+    const cleanTitle = input.title.trim();
+    if (!cleanTitle) {
+      throw new Error('El título del recordatorio es obligatorio.');
+    }
+    const nowIso = new Date().toISOString();
+    const reminder: Reminder = {
+      id: this.createLocalId('rem'),
+      ownerId: 'local-workshop',
+      syncStatus: 'local_only',
+      version: 1,
+      isDemo: Boolean(input.isDemo),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      type: input.type,
+      title: cleanTitle,
+      message: input.message.trim(),
+      triggerAt: dateKeyToMiddayIso(input.triggerAt),
+      relatedEntityId: input.relatedEntityId ?? null,
+      relatedEntityType: input.relatedEntityType ?? null,
+      leadDays:
+        typeof input.leadDays === 'number' && Number.isFinite(input.leadDays)
+          ? Math.max(0, Math.round(input.leadDays))
+          : 0,
+      snoozedUntil: null,
+      isRead: false,
+      isCompleted: false,
+    };
+    return this.reminders.upsert(reminder);
+  }
+
+  async updateReminder(
+    reminderId: string,
+    updates: UpdateReminderInput,
+  ): Promise<Reminder> {
+    const existing = await this.reminders.getById(reminderId);
+    if (!existing) {
+      throw new Error('El recordatorio seleccionado no existe.');
+    }
+    const nextTitle =
+      updates.title !== undefined ? updates.title.trim() : existing.title;
+    if (!nextTitle) {
+      throw new Error('El título del recordatorio es obligatorio.');
+    }
+    return this.reminders.upsert({
+      ...existing,
+      type: updates.type ?? existing.type,
+      title: nextTitle,
+      message:
+        updates.message !== undefined ? updates.message.trim() : existing.message,
+      triggerAt: updates.triggerAt
+        ? dateKeyToMiddayIso(updates.triggerAt)
+        : existing.triggerAt,
+      leadDays:
+        updates.leadDays !== undefined
+          ? Math.max(0, Math.round(updates.leadDays))
+          : existing.leadDays,
+      snoozedUntil:
+        updates.snoozedUntil !== undefined
+          ? updates.snoozedUntil
+            ? dateKeyToMiddayIso(updates.snoozedUntil)
+            : null
+          : existing.snoozedUntil ?? null,
+      isRead: updates.isRead ?? existing.isRead,
+      isCompleted: updates.isCompleted ?? existing.isCompleted,
+    });
+  }
+
+  deleteReminder(reminderId: string): Promise<void> {
+    return this.reminders.remove(reminderId);
   }
 
   loadDemoData(): Promise<{ insertedCount: number }> {

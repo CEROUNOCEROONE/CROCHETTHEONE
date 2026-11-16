@@ -54,6 +54,48 @@ export const MIGRATION_STEPS: MigrationStep[] = [
       }
     },
   },
+  {
+    version: 3,
+    name: 'phase6_quoting_v3',
+    apply(db, tx) {
+      for (const def of STORE_DEFINITIONS) {
+        let store: IDBObjectStore;
+        if (!db.objectStoreNames.contains(def.name)) {
+          store = db.createObjectStore(def.name, { keyPath: def.keyPath });
+        } else {
+          store = tx.objectStore(def.name);
+        }
+        for (const indexDef of def.indexes) {
+          if (!store.indexNames.contains(indexDef.name)) {
+            store.createIndex(indexDef.name, indexDef.keyPath, {
+              unique: Boolean(indexDef.unique),
+            });
+          }
+        }
+      }
+    },
+  },
+  {
+    version: 4,
+    name: 'phase8_planner_v4',
+    apply(db, tx) {
+      for (const def of STORE_DEFINITIONS) {
+        let store: IDBObjectStore;
+        if (!db.objectStoreNames.contains(def.name)) {
+          store = db.createObjectStore(def.name, { keyPath: def.keyPath });
+        } else {
+          store = tx.objectStore(def.name);
+        }
+        for (const indexDef of def.indexes) {
+          if (!store.indexNames.contains(indexDef.name)) {
+            store.createIndex(indexDef.name, indexDef.keyPath, {
+              unique: Boolean(indexDef.unique),
+            });
+          }
+        }
+      }
+    },
+  },
 ];
 
 export function runIdbMigrations(

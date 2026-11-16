@@ -32,6 +32,11 @@ import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
+import {
+  SnapDeck,
+  SnapSlide,
+  type SnapDeckHandle,
+} from '@/src/shared/components/SnapDeck.tsx';
 
 type SettingsStepId = 'general' | 'costs' | 'backups' | 'system';
 
@@ -93,9 +98,12 @@ const STORE_LABELS: Record<string, string> = {
   shopping_list_items: 'Ítems de compra',
   purchase_receipts: 'Recepciones de compra',
   inventory_movements: 'Movimientos Kardex',
+  quotes: 'Cotizaciones',
   payment_plans: 'Planes de pago',
   payment_installments: 'Cuotas',
   financial_transactions: 'Pagos recibidos',
+  planned_tasks: 'Tareas planificadas',
+  reminders: 'Recordatorios',
 };
 
 export const WorkshopSettingsView: React.FC = () => {
@@ -112,6 +120,7 @@ export const WorkshopSettingsView: React.FC = () => {
   } = useWorkshopData();
   const isOnline = useOnlineStatus();
 
+  const snapDeckRef = useRef<SnapDeckHandle | null>(null);
   const [activeStep, setActiveStep] = useState<SettingsStepId>('general');
   const [showFixedCostGuide, setShowFixedCostGuide] = useState(false);
 
@@ -382,176 +391,115 @@ export const WorkshopSettingsView: React.FC = () => {
     }
   };
 
+  const goToStep = (stepId: SettingsStepId) => {
+    setActiveStep(stepId);
+    snapDeckRef.current?.goToSlide(`settings-${stepId}`);
+  };
+
+  const handleSlideChange = (slideId: string) => {
+    if (slideId === 'settings-general') setActiveStep('general');
+    else if (slideId === 'settings-costs') setActiveStep('costs');
+    else if (slideId === 'settings-backups') setActiveStep('backups');
+    else if (slideId === 'settings-system') setActiveStep('system');
+  };
+
   const currentStepIndex = SETTINGS_STEPS.findIndex((s) => s.id === activeStep);
   const currentStep = SETTINGS_STEPS[currentStepIndex] ?? SETTINGS_STEPS[0];
-  const prevStep = currentStepIndex > 0 ? SETTINGS_STEPS[currentStepIndex - 1] : null;
-  const nextStep =
-    currentStepIndex < SETTINGS_STEPS.length - 1
-      ? SETTINGS_STEPS[currentStepIndex + 1]
-      : null;
 
-  return (
-    <div className="space-y-4">
+  const topSlot = (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate font-display text-sm font-bold text-slate-900 sm:text-base">
+            Ajustes · {settings.workshopName}
+          </p>
+          {hasUnsavedSettings && (
+            <span className="inline-flex shrink-0 items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+              Sin guardar
+            </span>
+          )}
+        </div>
+
+        <nav
+          aria-label="Secciones de configuración del taller"
+          className="no-scrollbar flex items-center gap-1.5 overflow-x-auto py-0.5"
+        >
+          {SETTINGS_STEPS.map((step) => {
+            const isActive = step.id === activeStep;
+            const isCompleted = step.number < currentStep.number;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => goToStep(step.id)}
+                aria-current={isActive ? 'step' : undefined}
+                className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                  isActive
+                    ? 'border-teal-700 bg-teal-700 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span
+                  className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                    isActive
+                      ? 'bg-white text-teal-800'
+                      : isCompleted
+                        ? 'bg-teal-100 text-teal-800'
+                        : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {isCompleted ? <Check className="h-2.5 w-2.5" aria-hidden="true" /> : step.number}
+                </span>
+                <span>{step.mobileLabel}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
       {feedback && (
         <div
           role="status"
-          className={`flex items-start justify-between gap-3 rounded-xl border p-3.5 text-sm ${
+          className={`flex items-start justify-between gap-3 rounded-xl border p-2.5 text-xs sm:text-sm ${
             feedback.type === 'success'
               ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
               : 'border-rose-200 bg-rose-50 text-rose-900'
           }`}
         >
-          <div className="flex items-start gap-2.5">
+          <div className="flex items-start gap-2">
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
             ) : (
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
             )}
             <p>{feedback.message}</p>
           </div>
           <button
             type="button"
             onClick={() => setFeedback(null)}
-            className="text-xs font-medium underline shrink-0"
+            className="shrink-0 text-xs font-medium underline"
           >
             Cerrar
           </button>
         </div>
       )}
+    </div>
+  );
 
-      {/* Tarjeta unificada estilo stepper (lateral en escritorio, compacta 2x2 arriba en móvil) */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs md:flex md:min-h-[540px]">
-        {/* Navegación de secciones / pasos */}
-        <aside className="border-b border-slate-200 bg-teal-50/45 p-4 md:w-68 md:shrink-0 md:border-b-0 md:border-r md:p-6 lg:w-72">
-          <div className="flex items-center justify-between gap-2 md:block">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-800">
-                Ajustes del taller
-              </p>
-              <h2 className="mt-0.5 font-display text-base font-bold text-slate-900 md:text-lg">
-                {settings.workshopName}
-              </h2>
-            </div>
-            {hasUnsavedSettings && (
-              <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 md:mt-2">
-                Cambios sin guardar
-              </span>
-            )}
-          </div>
-
-          {/* Vista móvil (< md): cuadrícula compacta 2x2 para saltar a cualquier sección en 1 toque sin scroll */}
-          <nav
-            aria-label="Secciones de configuración del taller"
-            className="mt-3 grid grid-cols-2 gap-2 md:hidden"
-          >
-            {SETTINGS_STEPS.map((step) => {
-              const isActive = step.id === activeStep;
-              const isCompleted = step.number < currentStep.number;
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setActiveStep(step.id)}
-                  aria-current={isActive ? 'step' : undefined}
-                  className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors ${
-                    isActive
-                      ? 'border-teal-700 bg-white text-slate-900 shadow-xs'
-                      : 'border-slate-200/80 bg-white/70 text-slate-600 hover:bg-white'
-                  }`}
-                >
-                  <span
-                    className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                      isActive
-                        ? 'bg-teal-700 text-white'
-                        : isCompleted
-                          ? 'bg-teal-100 text-teal-800'
-                          : 'bg-slate-200/80 text-slate-600'
-                    }`}
-                  >
-                    {isCompleted ? (
-                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                    ) : (
-                      step.number
-                    )}
-                  </span>
-                  <span className="truncate text-xs font-semibold">
-                    {step.mobileLabel}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Vista escritorio (md+): stepper vertical con línea conectora estilo guía */}
-          <nav
-            aria-label="Pasos de configuración del taller"
-            className="mt-7 hidden md:block"
-          >
-            <ol>
-              {SETTINGS_STEPS.map((step, idx) => {
-                const isActive = step.id === activeStep;
-                const isCompleted = step.number < currentStep.number;
-                const isLast = idx === SETTINGS_STEPS.length - 1;
-                return (
-                  <li key={step.id} className={`relative ${isLast ? '' : 'pb-4'}`}>
-                    {!isLast && (
-                      <span
-                        aria-hidden="true"
-                        className={`pointer-events-none absolute left-6 top-[46px] -bottom-1.5 w-0.5 -translate-x-1/2 rounded-full ${
-                          isCompleted ? 'bg-teal-600' : 'bg-slate-200'
-                        }`}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setActiveStep(step.id)}
-                      aria-current={isActive ? 'step' : undefined}
-                      className={`group relative flex w-full items-start gap-3 rounded-xl p-2 text-left transition-colors ${
-                        isActive ? 'bg-white/90 shadow-xs' : 'hover:bg-white/60'
-                      }`}
-                    >
-                      <span
-                        className={`relative z-10 mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                          isActive
-                            ? 'bg-teal-700 text-white'
-                            : isCompleted
-                              ? 'bg-teal-700/15 text-teal-800'
-                              : 'border border-slate-300 bg-white text-slate-500 group-hover:border-slate-400'
-                        }`}
-                      >
-                        {isCompleted ? (
-                          <Check className="h-4 w-4" aria-hidden="true" />
-                        ) : (
-                          step.number
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <span
-                          className={`block text-sm font-semibold ${
-                            isActive ? 'text-slate-900' : 'text-slate-600'
-                          }`}
-                        >
-                          {step.label}
-                        </span>
-                        <span className="block truncate text-xs text-slate-500">
-                          {step.subtitle}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
-        </aside>
-
-        {/* Panel derecho de contenido activo */}
-        <div className="flex min-w-0 flex-1 flex-col justify-between p-4 sm:p-6 lg:p-8">
-          {/* PASO 1: IDENTIDAD, TARIFA Y METAS */}
-          {activeStep === 'general' && (
+  return (
+    <>
+      <SnapDeck
+        ref={snapDeckRef}
+        onSlideChange={handleSlideChange}
+        ariaLabel="Configuración del taller"
+        topSlot={topSlot}
+      >
+        {/* VISTA 1: IDENTIDAD, TARIFA Y METAS */}
+        <SnapSlide id="settings-general" label="Taller y metas">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
             <form
               onSubmit={(e) => void handleSaveSettings(e)}
-              className="flex flex-1 flex-col justify-between space-y-6"
+              className="flex flex-col justify-between space-y-5"
             >
               <div className="space-y-5">
                 <div>
@@ -692,25 +640,25 @@ export const WorkshopSettingsView: React.FC = () => {
                 >
                   {savingSettings ? 'Guardando...' : 'Guardar configuración'}
                 </button>
-                {nextStep && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(nextStep.id)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
-                  >
-                    <span>Siguiente: {nextStep.mobileLabel}</span>
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => goToStep('costs')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                >
+                  <span>Siguiente: Costos y merma</span>
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
             </form>
-          )}
+          </div>
+        </SnapSlide>
 
-          {/* PASO 2: COSTOS FIJOS (%), IMPREVISTOS Y FÓRMULA EN VIVO */}
-          {activeStep === 'costs' && (
+        {/* VISTA 2: COSTOS FIJOS (%), IMPREVISTOS Y FÓRMULA EN VIVO */}
+        <SnapSlide id="settings-costs" label="Costos y fórmula">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
             <form
               onSubmit={(e) => void handleSaveSettings(e)}
-              className="flex flex-1 flex-col justify-between space-y-5"
+              className="flex flex-col justify-between space-y-5"
             >
               <div className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -919,16 +867,14 @@ export const WorkshopSettingsView: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
-                {prevStep && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(prevStep.id)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                    <span>Anterior</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => goToStep('general')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  <span>Anterior</span>
+                </button>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -938,24 +884,24 @@ export const WorkshopSettingsView: React.FC = () => {
                   >
                     {savingSettings ? 'Guardando...' : 'Guardar configuración'}
                   </button>
-                  {nextStep && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveStep(nextStep.id)}
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
-                    >
-                      <span>{nextStep.mobileLabel}</span>
-                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => goToStep('backups')}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                  >
+                    <span>Respaldos JSON</span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             </form>
-          )}
+          </div>
+        </SnapSlide>
 
-          {/* PASO 3: RESPALDO Y RESTAURACIÓN LOCAL */}
-          {activeStep === 'backups' && (
-            <div className="flex flex-1 flex-col justify-between space-y-5">
+        {/* VISTA 3: RESPALDO Y RESTAURACIÓN LOCAL */}
+        <SnapSlide id="settings-backups" label="Respaldos JSON">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
+            <div className="flex flex-col justify-between space-y-5">
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
@@ -1195,33 +1141,31 @@ export const WorkshopSettingsView: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
-                {prevStep && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(prevStep.id)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                    <span>Anterior</span>
-                  </button>
-                )}
-                {nextStep && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(nextStep.id)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
-                  >
-                    <span>Siguiente: {nextStep.mobileLabel}</span>
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => goToStep('costs')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  <span>Anterior</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToStep('system')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                >
+                  <span>Siguiente: Ejemplos y PWA</span>
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
             </div>
-          )}
+          </div>
+        </SnapSlide>
 
-          {/* PASO 4: DATOS DE DEMOSTRACIÓN Y ESTADO PWA / BASE LOCAL */}
-          {activeStep === 'system' && (
-            <div className="flex flex-1 flex-col justify-between space-y-5">
+        {/* VISTA 4: DATOS DE DEMOSTRACIÓN Y ESTADO PWA / BASE LOCAL */}
+        <SnapSlide id="settings-system" label="Ejemplos y sistema">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
+            <div className="flex flex-col justify-between space-y-5">
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
@@ -1304,28 +1248,26 @@ export const WorkshopSettingsView: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
-                {prevStep && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep(prevStep.id)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                    <span>Anterior</span>
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => setActiveStep('general')}
+                  onClick={() => goToStep('backups')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  <span>Anterior</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToStep('general')}
                   className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Volver al inicio
                 </button>
               </div>
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        </SnapSlide>
+      </SnapDeck>
 
       {/* Modal de confirmación para eliminar ejemplos */}
       <ConfirmModal
@@ -1360,6 +1302,6 @@ export const WorkshopSettingsView: React.FC = () => {
         onConfirm={() => void handleExecuteImport()}
         onCancel={() => setConfirmImportOpen(false)}
       />
-    </div>
+    </>
   );
 };

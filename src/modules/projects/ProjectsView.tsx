@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Calculator,
   CheckCircle2,
   Clock,
   Edit3,
@@ -43,13 +44,20 @@ import {
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import {
+  chunkIntoPages,
+  pickPageSize,
+  useViewportProfile,
+} from '@/src/shared/hooks/useViewportPageSize.ts';
 
 interface ProjectsViewProps {
   readonly initialSelectedProjectId?: string | null;
   onClearInitialSelection?(): void;
   onStartTimerForComponent?(projectId: string, componentId: string): void;
   onNavigateToInventory?(): void;
+  onQuoteProject?(projectId: string): void;
 }
 
 type StatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'cancelled';
@@ -71,6 +79,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   onClearInitialSelection,
   onStartTimerForComponent,
   onNavigateToInventory,
+  onQuoteProject,
 }) => {
   const {
     settings,
@@ -95,6 +104,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const profile = useViewportProfile();
 
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error';
@@ -461,86 +471,227 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       .sort((a, b) => a.orderIndex - b.orderIndex);
   }, [components, selectedProject]);
 
-  return (
-    <div className="space-y-6">
-      {feedback && (
-        <div
-          role="status"
-          className={`flex items-start justify-between gap-3 rounded-xl border p-4 text-sm ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
-        >
-          <div className="flex items-start gap-2.5">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
-            )}
-            <p>{feedback.message}</p>
+  const firstPageProjectSize = pickPageSize(profile, {
+    mobileCompact: 1,
+    mobileRegular: 2,
+    tablet: 2,
+    desktopCompact: 2,
+    desktopRegular: 4,
+    desktopTall: 4,
+  });
+  const extraPageProjectSize = pickPageSize(profile, {
+    mobileCompact: 2,
+    mobileRegular: 2,
+    tablet: 4,
+    desktopCompact: 4,
+    desktopRegular: 4,
+    desktopTall: 6,
+  });
+  const componentPageSize = pickPageSize(profile, {
+    mobileCompact: 3,
+    mobileRegular: 4,
+    tablet: 5,
+    desktopCompact: 5,
+    desktopRegular: 6,
+    desktopTall: 8,
+  });
+
+  const firstProjects = filteredProjects.slice(0, firstPageProjectSize);
+  const extraProjectPages = chunkIntoPages(
+    filteredProjects.slice(firstPageProjectSize),
+    extraPageProjectSize,
+  );
+  const componentPages = chunkIntoPages(
+    selectedProjectComponents,
+    componentPageSize,
+  );
+
+  const feedbackBanner = feedback ? (
+    <div
+      role="status"
+      className={`flex items-start justify-between gap-3 rounded-xl border p-3 text-xs sm:text-sm ${
+        feedback.type === 'success'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+          : 'border-rose-200 bg-rose-50 text-rose-900'
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        {feedback.type === 'success' ? (
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        ) : (
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+        )}
+        <p>{feedback.message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setFeedback(null)}
+        className="text-xs font-medium underline shrink-0"
+      >
+        Cerrar
+      </button>
+    </div>
+  ) : null;
+
+  const renderProjectCard = (project: Project) => {
+    const metrics = calculateProjectProgress(project, components);
+    const statusMeta =
+      PROJECT_STATUS_OPTIONS.find((o) => o.value === project.status) ??
+      PROJECT_STATUS_OPTIONS[0];
+    const client = project.clientId ? clientById.get(project.clientId) : null;
+
+    return (
+      <article
+        key={project.id}
+        className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 sm:p-5 transition-colors hover:border-slate-300"
+      >
+        <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-slate-500">
+                {client ? `Cliente: ${client.name}` : 'Proyecto propio'}
+                {' · '}
+                Entrega: {formatDateCO(project.estimatedEndDate)}
+                {project.isDemo ? ' · Ejemplo' : ''}
+              </p>
+              <h3 className="mt-1 truncate font-display text-base font-semibold text-slate-900">
+                {project.name}
+              </h3>
+            </div>
+            <StatusBadge label={statusMeta.label} tone={statusMeta.tone} />
           </div>
+
+          {project.description && (
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">
+              {project.description}
+            </p>
+          )}
+
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-600 tabular-nums">
+            <span>
+              {metrics.completedComponents} de {metrics.totalComponents} piezas
+              completadas
+            </span>
+            <span className="font-mono font-semibold text-slate-900">
+              {metrics.completionPercent}%
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-teal-700 transition-all"
+              style={{ width: `${metrics.completionPercent}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs">
+          <div className="text-slate-500 tabular-nums">
+            <span>
+              Tiempo:{' '}
+              <strong className="font-mono text-slate-800">
+                {formatDurationMinutes(metrics.totalEffectiveMinutes)}
+              </strong>
+            </span>
+            <span className="mx-1.5" aria-hidden="true">
+              ·
+            </span>
+            <span>
+              Valor:{' '}
+              <strong className="font-mono text-slate-800">
+                {formatCOP(project.estimatedBudgetCOP)}
+              </strong>
+            </span>
+          </div>
+
           <button
             type="button"
-            onClick={() => setFeedback(null)}
-            className="text-xs font-medium underline"
+            onClick={() => setSelectedProjectId(project.id)}
+            className="inline-flex min-h-[38px] items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800 whitespace-nowrap shrink-0"
           >
-            Cerrar
+            Abrir proyecto
           </button>
         </div>
-      )}
+      </article>
+    );
+  };
 
+  return (
+    <>
       {/* VISTA DE DETALLE DE UN PROYECTO Y SUS COMPONENTES */}
       {selectedProject ? (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setSelectedProjectId(null)}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        (() => {
+          const metrics = calculateProjectProgress(
+            selectedProject,
+            selectedProjectComponents,
+          );
+          const statusOption =
+            PROJECT_STATUS_OPTIONS.find(
+              (o) => o.value === selectedProject.status,
+            ) ?? PROJECT_STATUS_OPTIONS[0];
+          const paymentOption = PAYMENT_SUMMARY_OPTIONS.find(
+            (o) => o.value === selectedProject.paymentStatus,
+          );
+          const client = selectedProject.clientId
+            ? clientById.get(selectedProject.clientId)
+            : null;
+          const projectReservations = reservations.filter(
+            (r) => r.projectId === selectedProject.id,
+          );
+
+          return (
+            <SnapDeck
+              key={`project-detail-${selectedProject.id}`}
+              ariaLabel={`Detalle de ${selectedProject.name}`}
+              topSlot={
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProjectId(null)}
+                      className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                      <span>Todos los proyectos</span>
+                    </button>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onQuoteProject && (
+                        <button
+                          type="button"
+                          onClick={() => onQuoteProject(selectedProject.id)}
+                          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs sm:text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap"
+                        >
+                          <Calculator className="h-4 w-4" aria-hidden="true" />
+                          <span>Cotizar</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openEditProjectModal(selectedProject)}
+                        className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        <Edit3
+                          className="h-4 w-4 text-teal-700"
+                          aria-hidden="true"
+                        />
+                        <span>Editar</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProjectToDelete(selectedProject)}
+                        className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs sm:text-sm font-medium text-rose-700 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        <span className="hidden sm:inline">Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
+                  {feedbackBanner}
+                </div>
+              }
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              <span>Volver a todos los proyectos</span>
-            </button>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openEditProjectModal(selectedProject)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-              >
-                <Edit3 className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                <span>Editar proyecto</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setProjectToDelete(selectedProject)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-                <span>Eliminar</span>
-              </button>
-            </div>
-          </div>
-
-          {(() => {
-            const metrics = calculateProjectProgress(
-              selectedProject,
-              selectedProjectComponents,
-            );
-            const statusOption =
-              PROJECT_STATUS_OPTIONS.find(
-                (o) => o.value === selectedProject.status,
-              ) ?? PROJECT_STATUS_OPTIONS[0];
-            const paymentOption = PAYMENT_SUMMARY_OPTIONS.find(
-              (o) => o.value === selectedProject.paymentStatus,
-            );
-            const client = selectedProject.clientId
-              ? clientById.get(selectedProject.clientId)
-              : null;
-
-            return (
-              <>
+              {/* Slide 1: Ficha y métricas del proyecto */}
+              <SnapSlide id="detail-summary" label="Ficha del proyecto">
                 <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
@@ -655,37 +806,39 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     </div>
                   )}
                 </section>
+              </SnapSlide>
 
-                {/* Gestión de Componentes / Piezas del Proyecto */}
-                <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-                  <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <Layers
-                        className="h-5 w-5 text-teal-700"
-                        aria-hidden="true"
-                      />
-                      <div>
-                        <h3 className="font-display text-base font-semibold text-slate-900">
-                          Componentes y piezas del proyecto
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          Divide tu creación en partes (ej. tronco, alas, antenas,
-                          ensamblaje) para controlar el avance y el tiempo de cada una.
-                        </p>
+              {/* Slide 2+: Gestión de Componentes / Piezas del Proyecto */}
+              {selectedProjectComponents.length === 0 ? (
+                <SnapSlide id="detail-components-empty" label="Piezas y componentes">
+                  <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                    <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <Layers
+                          className="h-5 w-5 text-teal-700"
+                          aria-hidden="true"
+                        />
+                        <div>
+                          <h3 className="font-display text-base font-semibold text-slate-900">
+                            Componentes y piezas del proyecto
+                          </h3>
+                          <p className="text-xs text-slate-500">
+                            Divide tu creación en partes (ej. tronco, alas, antenas,
+                            ensamblaje) para controlar el avance y el tiempo de cada una.
+                          </p>
+                        </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={openCreateComponentModal}
+                        className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
+                      >
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        <span>Agregar pieza</span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={openCreateComponentModal}
-                      className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
-                    >
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      <span>Agregar pieza</span>
-                    </button>
-                  </div>
-
-                  {selectedProjectComponents.length === 0 ? (
                     <div className="py-8 text-center">
                       <p className="text-sm text-slate-600">
                         Este proyecto aún no tiene piezas registradas.
@@ -699,23 +852,67 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         <span>Crear primera pieza</span>
                       </button>
                     </div>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {selectedProjectComponents.map((comp, index) => {
-                        const compStatusMeta =
-                          COMPONENT_STATUS_OPTIONS.find(
-                            (o) => o.value === comp.status,
-                          ) ?? COMPONENT_STATUS_OPTIONS[0];
+                  </section>
+                </SnapSlide>
+              ) : (
+                componentPages.map((compPage, pageIdx) => (
+                  <SnapSlide
+                    key={`detail-components-${pageIdx}`}
+                    id={`detail-components-${pageIdx}`}
+                    label={
+                      componentPages.length > 1
+                        ? `Piezas (${pageIdx + 1}/${componentPages.length})`
+                        : 'Piezas y componentes'
+                    }
+                  >
+                    <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <Layers
+                            className="h-5 w-5 text-teal-700"
+                            aria-hidden="true"
+                          />
+                          <div>
+                            <h3 className="font-display text-base font-semibold text-slate-900">
+                              Componentes y piezas del proyecto
+                              {componentPages.length > 1
+                                ? ` · ${pageIdx + 1}/${componentPages.length}`
+                                : ''}
+                            </h3>
+                            <p className="text-xs text-slate-500">
+                              Divide tu creación en partes (ej. tronco, alas, antenas,
+                              ensamblaje) para controlar el avance y el tiempo de cada una.
+                            </p>
+                          </div>
+                        </div>
 
-                        return (
-                          <div
-                            key={comp.id}
-                            className="flex flex-col gap-3 py-4 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
-                          >
-                            <div className="flex items-start gap-3 min-w-0">
-                              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 font-mono text-xs font-semibold text-slate-700 tabular-nums">
-                                {index + 1}
-                              </span>
+                        <button
+                          type="button"
+                          onClick={openCreateComponentModal}
+                          className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
+                        >
+                          <Plus className="h-4 w-4" aria-hidden="true" />
+                          <span>Agregar pieza</span>
+                        </button>
+                      </div>
+
+                      <div className="divide-y divide-slate-100">
+                        {compPage.map((comp, localIdx) => {
+                          const index = pageIdx * componentPageSize + localIdx;
+                          const compStatusMeta =
+                            COMPONENT_STATUS_OPTIONS.find(
+                              (o) => o.value === comp.status,
+                            ) ?? COMPONENT_STATUS_OPTIONS[0];
+
+                          return (
+                            <div
+                              key={comp.id}
+                              className="flex flex-col gap-3 py-3.5 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex items-start gap-3 min-w-0">
+                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 font-mono text-xs font-semibold text-slate-700 tabular-nums">
+                                  {index + 1}
+                                </span>
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <h4 className="font-display text-sm font-semibold text-slate-900">
@@ -828,14 +1025,17 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  </SnapSlide>
+                ))
+              )}
 
-                {/* Materiales reservados y consumidos para este proyecto */}
+              {/* Slide 3: Materiales reservados y consumidos */}
+              <SnapSlide id="detail-materials" label="Materiales asignados">
                 <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
                   <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2.5">
@@ -862,253 +1062,177 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     )}
                   </div>
 
-                  {(() => {
-                    const projectReservations = reservations.filter(
-                      (r) => r.projectId === selectedProject.id,
-                    );
-                    if (projectReservations.length === 0) {
-                      return (
-                        <p className="py-5 text-center text-xs text-slate-500">
-                          Este proyecto aún no tiene reservas de material asociadas. Puedes apartar hilos o lanas desde el módulo Inventario.
-                        </p>
-                      );
-                    }
-                    return (
-                      <div className="divide-y divide-slate-100">
-                        {projectReservations.map((res) => {
-                          const variant = variants.find((v) => v.id === res.variantId);
-                          const mat = variant
-                            ? materials.find((m) => m.id === variant.materialId)
-                            : undefined;
-                          const unit = mat?.unit ?? 'unit';
-                          const statusMeta = RESERVATION_STATUS_META[res.status];
-                          const remaining = getReservationRemaining(res);
+                  {projectReservations.length === 0 ? (
+                    <p className="py-5 text-center text-xs text-slate-500">
+                      Este proyecto aún no tiene reservas de material asociadas. Puedes apartar hilos o lanas desde el módulo Inventario.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {projectReservations.map((res) => {
+                        const variant = variants.find((v) => v.id === res.variantId);
+                        const mat = variant
+                          ? materials.find((m) => m.id === variant.materialId)
+                          : undefined;
+                        const unit = mat?.unit ?? 'unit';
+                        const statusMeta = RESERVATION_STATUS_META[res.status];
+                        const remaining = getReservationRemaining(res);
 
-                          return (
-                            <div
-                              key={res.id}
-                              className="flex flex-col gap-2 py-3.5 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <span
-                                  className="h-6 w-6 shrink-0 rounded-md border border-slate-300"
-                                  style={{
-                                    backgroundColor: variant?.colorHex ?? '#E2E8F0',
-                                  }}
-                                  aria-hidden="true"
-                                />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-slate-900">
-                                    {mat?.name ?? 'Material'} ·{' '}
-                                    {variant?.colorName ?? 'Color'}
-                                  </p>
-                                  <p className="text-xs text-slate-500 tabular-nums">
-                                    Reservado: {formatUnitQuantity(res.reservedQuantity, unit)} ·
-                                    Consumido: {formatUnitQuantity(res.consumedQuantity, unit)} ·
-                                    Pendiente: {formatUnitQuantity(remaining, unit)}
-                                  </p>
-                                </div>
-                              </div>
-                              <StatusBadge
-                                label={statusMeta.label}
-                                tone={statusMeta.tone}
+                        return (
+                          <div
+                            key={res.id}
+                            className="flex flex-col gap-2 py-3.5 first:pt-4 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span
+                                className="h-6 w-6 shrink-0 rounded-md border border-slate-300"
+                                style={{
+                                  backgroundColor: variant?.colorHex ?? '#E2E8F0',
+                                }}
+                                aria-hidden="true"
                               />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">
+                                  {mat?.name ?? 'Material'} ·{' '}
+                                  {variant?.colorName ?? 'Color'}
+                                </p>
+                                <p className="text-xs text-slate-500 tabular-nums">
+                                  Reservado: {formatUnitQuantity(res.reservedQuantity, unit)} ·
+                                  Consumido: {formatUnitQuantity(res.consumedQuantity, unit)} ·
+                                  Pendiente: {formatUnitQuantity(remaining, unit)}
+                                </p>
+                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                            <StatusBadge
+                              label={statusMeta.label}
+                              tone={statusMeta.tone}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </section>
-              </>
-            );
-          })()}
-        </div>
+              </SnapSlide>
+            </SnapDeck>
+          );
+        })()
       ) : (
         /* VISTA DE LISTADO GENERAL DE PROYECTOS */
-        <div className="space-y-6">
-          <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
-                  Proyectos del taller
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Administra tus creaciones de crochet, divídelas por componentes y
-                  controla su avance real.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={openCreateProjectModal}
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                <span>Nuevo proyecto</span>
-              </button>
-            </div>
-
-            {/* Barra de búsqueda y filtro por estado */}
-            <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 md:flex-row md:items-center md:justify-between">
-              <div className="relative flex-1">
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar por nombre de proyecto o cliente..."
-                  className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid w-full grid-cols-6 gap-1 rounded-lg bg-slate-100 p-1 sm:flex sm:w-fit sm:flex-nowrap sm:items-center">
-                {(
-                  [
-                    { id: 'all', label: 'Todos' },
-                    { id: 'active', label: 'Activos' },
-                    { id: 'pending', label: 'En espera' },
-                    { id: 'completed', label: 'Finalizados' },
-                    { id: 'cancelled', label: 'Cancelados' },
-                  ] as Array<{ id: StatusFilter; label: string }>
-                ).map((tab, index) => (
+        <SnapDeck
+          key="project-list-deck"
+          ariaLabel="Proyectos del taller"
+          topSlot={feedbackBanner ?? undefined}
+        >
+          <SnapSlide id="projects-page-1" label="Proyectos">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
+                      Proyectos del taller
+                    </h2>
+                    <p className="mt-0.5 text-xs sm:text-sm text-slate-600">
+                      Administra tus creaciones de crochet, divídelas por componentes y
+                      controla su avance real.
+                    </p>
+                  </div>
                   <button
-                    key={tab.id}
                     type="button"
-                    onClick={() => setStatusFilter(tab.id)}
-                    className={`inline-flex min-h-[36px] items-center justify-center rounded-md px-2 py-1.5 text-center text-xs font-medium transition-colors whitespace-nowrap sm:min-h-[34px] sm:px-3 sm:shrink-0 ${
-                      index === 3
-                        ? 'col-span-2 col-start-2'
-                        : index === 4
-                          ? 'col-span-2 col-start-4'
-                          : 'col-span-2'
-                    } ${
-                      statusFilter === tab.id
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    onClick={openCreateProjectModal}
+                    className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap shrink-0"
                   >
-                    {tab.label}
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <span>Nuevo proyecto</span>
                   </button>
-                ))}
-              </div>
-            </div>
-          </section>
+                </div>
 
-          {filteredProjects.length === 0 ? (
-            <EmptyState
-              icon={FolderKanban}
-              title={
-                projects.length === 0
-                  ? 'Aún no tienes proyectos registrados'
-                  : 'Ningún proyecto coincide con tu búsqueda'
-              }
-              description={
-                projects.length === 0
-                  ? 'Crea tu primer proyecto de crochet e indica las piezas que lo componen (por ejemplo: cuerpo, cabeza, brazos y ensamblaje).'
-                  : 'Prueba cambiando el filtro de estado o el término de búsqueda.'
-              }
-              primaryAction={{
-                label: 'Crear nuevo proyecto',
-                onClick: openCreateProjectModal,
-              }}
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {filteredProjects.map((project) => {
-                const metrics = calculateProjectProgress(project, components);
-                const statusMeta =
-                  PROJECT_STATUS_OPTIONS.find(
-                    (o) => o.value === project.status,
-                  ) ?? PROJECT_STATUS_OPTIONS[0];
-                const client = project.clientId
-                  ? clientById.get(project.clientId)
-                  : null;
+                {/* Barra de búsqueda y filtro por estado */}
+                <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-3 md:flex-row md:items-center md:justify-between">
+                  <div className="relative flex-1">
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Buscar por nombre de proyecto o cliente..."
+                      className="w-full min-h-[40px] rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    />
+                  </div>
 
-                return (
-                  <article
-                    key={project.id}
-                    className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:border-slate-300"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500">
-                            {client
-                              ? `Cliente: ${client.name}`
-                              : 'Proyecto propio'}
-                            {' · '}
-                            Entrega: {formatDateCO(project.estimatedEndDate)}
-                            {project.isDemo ? ' · Ejemplo' : ''}
-                          </p>
-                          <h3 className="mt-1 truncate font-display text-base font-semibold text-slate-900">
-                            {project.name}
-                          </h3>
-                        </div>
-                        <StatusBadge
-                          label={statusMeta.label}
-                          tone={statusMeta.tone}
-                        />
-                      </div>
-
-                      {project.description && (
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">
-                          {project.description}
-                        </p>
-                      )}
-
-                      <div className="mt-4 flex items-center justify-between text-xs text-slate-600 tabular-nums">
-                        <span>
-                          {metrics.completedComponents} de{' '}
-                          {metrics.totalComponents} piezas completadas
-                        </span>
-                        <span className="font-mono font-semibold text-slate-900">
-                          {metrics.completionPercent}%
-                        </span>
-                      </div>
-                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-teal-700 transition-all"
-                          style={{ width: `${metrics.completionPercent}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4 text-xs">
-                      <div className="text-slate-500 tabular-nums">
-                        <span>
-                          Tiempo:{' '}
-                          <strong className="font-mono text-slate-800">
-                            {formatDurationMinutes(metrics.totalEffectiveMinutes)}
-                          </strong>
-                        </span>
-                        <span className="mx-1.5" aria-hidden="true">
-                          ·
-                        </span>
-                        <span>
-                          Valor:{' '}
-                          <strong className="font-mono text-slate-800">
-                            {formatCOP(project.estimatedBudgetCOP)}
-                          </strong>
-                        </span>
-                      </div>
-
+                  <div className="grid w-full grid-cols-6 gap-1 rounded-lg bg-slate-100 p-1 sm:flex sm:w-fit sm:flex-nowrap sm:items-center">
+                    {(
+                      [
+                        { id: 'all', label: 'Todos' },
+                        { id: 'active', label: 'Activos' },
+                        { id: 'pending', label: 'En espera' },
+                        { id: 'completed', label: 'Finalizados' },
+                        { id: 'cancelled', label: 'Cancelados' },
+                      ] as Array<{ id: StatusFilter; label: string }>
+                    ).map((tab, index) => (
                       <button
+                        key={tab.id}
                         type="button"
-                        onClick={() => setSelectedProjectId(project.id)}
-                        className="inline-flex min-h-[38px] items-center rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800 whitespace-nowrap shrink-0"
+                        onClick={() => setStatusFilter(tab.id)}
+                        className={`inline-flex min-h-[34px] items-center justify-center rounded-md px-2 py-1 text-center text-xs font-medium transition-colors whitespace-nowrap sm:px-3 sm:shrink-0 ${
+                          index === 3
+                            ? 'col-span-2 col-start-2'
+                            : index === 4
+                              ? 'col-span-2 col-start-4'
+                              : 'col-span-2'
+                        } ${
+                          statusFilter === tab.id
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
                       >
-                        Abrir proyecto
+                        {tab.label}
                       </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {filteredProjects.length === 0 ? (
+                <EmptyState
+                  icon={FolderKanban}
+                  title={
+                    projects.length === 0
+                      ? 'Aún no tienes proyectos registrados'
+                      : 'Ningún proyecto coincide con tu búsqueda'
+                  }
+                  description={
+                    projects.length === 0
+                      ? 'Crea tu primer proyecto de crochet e indica las piezas que lo componen (por ejemplo: cuerpo, cabeza, brazos y ensamblaje).'
+                      : 'Prueba cambiando el filtro de estado o el término de búsqueda.'
+                  }
+                  primaryAction={{
+                    label: 'Crear nuevo proyecto',
+                    onClick: openCreateProjectModal,
+                  }}
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {firstProjects.map(renderProjectCard)}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </SnapSlide>
+
+          {extraProjectPages.map((pageProjects, idx) => (
+            <SnapSlide
+              key={`projects-page-${idx + 2}`}
+              id={`projects-page-${idx + 2}`}
+              label={`Proyectos (${idx + 2}/${extraProjectPages.length + 1})`}
+            >
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {pageProjects.map(renderProjectCard)}
+              </div>
+            </SnapSlide>
+          ))}
+        </SnapDeck>
       )}
 
       {/* MODAL CREAR / EDITAR PROYECTO */}
@@ -1643,6 +1767,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         onConfirm={() => void handleConfirmDeleteComponent()}
         onCancel={() => setComponentToDelete(null)}
       />
-    </div>
+    </>
   );
 };

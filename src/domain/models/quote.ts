@@ -6,6 +6,7 @@ export interface QuoteMaterialLine {
   readonly variantId: string | null;
   readonly label: string;
   readonly colorName: string;
+  readonly unit?: string;
   readonly quantity: number;
   readonly unitCostCOP: MoneyCOP;
   readonly subtotalCOP: MoneyCOP;
@@ -19,8 +20,16 @@ export interface Quote extends BaseEntity {
   readonly materialsSnapshot: QuoteMaterialLine[];
   readonly materialsTotalCOP: MoneyCOP;
   readonly effectiveHoursUsed: number;
+  readonly effectiveMinutesUsed?: number;
   readonly hourlyRateCOP: MoneyCOP;
   readonly laborTotalCOP: MoneyCOP;
+  readonly manualIndirectCostsCOP?: MoneyCOP;
+  readonly rentPercent?: number;
+  readonly electricityPercent?: number;
+  readonly internetPercent?: number;
+  readonly wasteContingencyPercent?: number;
+  readonly fixedServicesIndirectCOP?: MoneyCOP;
+  readonly wasteContingencyCOP?: MoneyCOP;
   readonly indirectCostsCOP: MoneyCOP;
   readonly packagingCostCOP: MoneyCOP;
   readonly shippingOrOtherCOP: MoneyCOP;

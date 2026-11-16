@@ -134,7 +134,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Cálculo transparente de costos, mano de obra, Markup y margen real en COP.',
     group: 'Comercial',
     phase: 6,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: Calculator,
     showInMobileBottomBar: false,
     plannedCapabilities: [
@@ -166,7 +166,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Metas diarias, calendario y dependencias con materiales pendientes.',
     group: 'Operación',
     phase: 8,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: CalendarDays,
     showInMobileBottomBar: false,
     plannedCapabilities: [

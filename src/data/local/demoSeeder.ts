@@ -12,6 +12,9 @@ import type {
   PendingMaterial,
   Project,
   ProjectComponent,
+  Quote,
+  Reminder,
+  ScheduledTask,
   ShoppingListItem,
   WorkSession,
   WorkshopSettings,
@@ -22,6 +25,7 @@ import {
   DATA_STORES_TOPOLOGICAL_ORDER,
   STORE_FOREIGN_KEYS,
 } from '@/src/domain/services/integrityRules.ts';
+import { buildNewQuoteEntity } from '@/src/domain/services/quoteService.ts';
 import { createDefaultWorkshopSettings, runAtomicTransaction } from './indexedDbClient.ts';
 
 interface DemoBundle {
@@ -36,9 +40,12 @@ interface DemoBundle {
   readonly notesAndLists: NoteOrList[];
   readonly shoppingItems: ShoppingListItem[];
   readonly movements: InventoryMovement[];
+  readonly quotes: Quote[];
   readonly paymentPlans: PaymentPlan[];
   readonly installments: PaymentInstallment[];
   readonly transactions: FinancialTransaction[];
+  readonly plannedTasks: ScheduledTask[];
+  readonly reminders: Reminder[];
 }
 
 function buildDemoMeta(id: string, createdAt: string) {
@@ -559,6 +566,190 @@ function createDemoBundle(): DemoBundle {
     },
   ];
 
+  // 10. Cotizaciones de ejemplo (Fase 6)
+  const quotes: Quote[] = [
+    buildNewQuoteEntity(
+      {
+        projectId: 'demo_proj_amigurumi',
+        clientId: 'demo_client_camila',
+        title: 'Cotización Amigurumi Personalizado',
+        materialsSnapshot: [
+          {
+            variantId: 'demo_var_algodon_blanco',
+            label: 'Hilo de Algodón Peinado',
+            colorName: 'Blanco',
+            unit: 'g',
+            quantity: 150,
+            unitCostCOP: 50,
+          },
+          {
+            variantId: 'demo_var_ojos_negro',
+            label: 'Ojos de Seguridad',
+            colorName: 'Negro Brillante',
+            unit: 'pair',
+            quantity: 1,
+            unitCostCOP: 1500,
+          },
+        ],
+        effectiveMinutesUsed: 420,
+        hourlyRateCOP: 12000,
+        manualIndirectCostsCOP: 0,
+        rentPercent: 5,
+        electricityPercent: 3,
+        internetPercent: 2,
+        wasteContingencyPercent: 5,
+        packagingCostCOP: 5000,
+        shippingOrOtherCOP: 8000,
+        markupPercent: 30,
+        finalAgreedPriceCOP: 180000,
+        status: 'approved',
+        notes: 'Cotización aprobada por la cliente con empaque de regalo y envío local.',
+        isDemo: true,
+      },
+      isoNow,
+      'demo_quote_amigurumi',
+    ),
+    buildNewQuoteEntity(
+      {
+        projectId: 'demo_proj_mariposa',
+        clientId: null,
+        title: 'Cotización Mariposa de Crochet',
+        materialsSnapshot: [
+          {
+            variantId: 'demo_var_algodon_blanco',
+            label: 'Hilo de Algodón Peinado',
+            colorName: 'Blanco',
+            unit: 'g',
+            quantity: 100,
+            unitCostCOP: 50,
+          },
+          {
+            variantId: 'demo_var_algodon_rosa',
+            label: 'Hilo de Algodón Peinado',
+            colorName: 'Rosa Pastel',
+            unit: 'g',
+            quantity: 60,
+            unitCostCOP: 52,
+          },
+        ],
+        effectiveMinutesUsed: 160,
+        hourlyRateCOP: 12000,
+        manualIndirectCostsCOP: 0,
+        rentPercent: 5,
+        electricityPercent: 3,
+        internetPercent: 2,
+        wasteContingencyPercent: 5,
+        packagingCostCOP: 2000,
+        shippingOrOtherCOP: 0,
+        markupPercent: 30,
+        finalAgreedPriceCOP: null,
+        status: 'draft',
+        notes: 'Simulación preliminar tomando las reservas y tiempo estimado de la pieza.',
+        isDemo: true,
+      },
+      isoNow,
+      'demo_quote_mariposa',
+    ),
+  ];
+
+  // 11. Tareas planificadas y recordatorios de demostración (Fase 8)
+  const in1Day = new Date(now.getTime() + 1 * 86400000).toISOString();
+  const in2Days = new Date(now.getTime() + 2 * 86400000).toISOString();
+  const in3Days = new Date(now.getTime() + 3 * 86400000).toISOString();
+
+  const plannedTasks: ScheduledTask[] = [
+    {
+      ...buildDemoMeta('demo_task_ami_cabeza', isoNow),
+      projectId: 'demo_proj_amigurumi',
+      componentId: 'demo_comp_ami_cabeza',
+      title: 'Completar bordado de rostro y cierre de cabeza',
+      scheduledDate: isoNow,
+      allocatedMinutes: 55,
+      completedMinutes: 0,
+      dependsOnPendingMaterialId: null,
+      status: 'scheduled',
+      notes: 'Hilo blanco y ojos 12mm disponibles en reserva.',
+    },
+    {
+      ...buildDemoMeta('demo_task_mar_ala_der', isoNow),
+      projectId: 'demo_proj_mariposa',
+      componentId: 'demo_comp_mar_ala_der',
+      title: 'Terminar borde final de Ala derecha (Rosa Pastel)',
+      scheduledDate: isoNow,
+      allocatedMinutes: 30,
+      completedMinutes: 0,
+      dependsOnPendingMaterialId: 'demo_pending_rosa',
+      status: 'blocked_by_material',
+      notes: 'Bloqueada preventivamente hasta recibir la reposición de Hilo Rosa Pastel (200 g).',
+    },
+    {
+      ...buildDemoMeta('demo_task_ami_cuerpo', isoNow),
+      projectId: 'demo_proj_amigurumi',
+      componentId: 'demo_comp_ami_cuerpo',
+      title: 'Iniciar tejido de torso y extremidades',
+      scheduledDate: in1Day,
+      allocatedMinutes: 90,
+      completedMinutes: 0,
+      dependsOnPendingMaterialId: null,
+      status: 'scheduled',
+      notes: 'Meta del día siguiente con 150 g de algodón blanco reservados.',
+    },
+    {
+      ...buildDemoMeta('demo_task_mar_tronco', isoNow),
+      projectId: 'demo_proj_mariposa',
+      componentId: 'demo_comp_mar_tronco',
+      title: 'Tejido base de Tronco',
+      scheduledDate: isoNow,
+      allocatedMinutes: 30,
+      completedMinutes: 28,
+      dependsOnPendingMaterialId: null,
+      status: 'completed',
+      notes: 'Completado con sesión registrada en cronómetro.',
+    },
+  ];
+
+  const reminders: Reminder[] = [
+    {
+      ...buildDemoMeta('demo_rem_delivery_mariposa', isoNow),
+      type: 'delivery_deadline',
+      title: 'Revisar avance antes de entrega — Mariposa de Crochet',
+      message: 'Confirmar recepción del hilo rosa para cerrar ala derecha y antenas antes de la fecha estimada.',
+      triggerAt: in2Days,
+      relatedEntityId: 'demo_proj_mariposa',
+      relatedEntityType: 'project',
+      leadDays: 3,
+      snoozedUntil: null,
+      isRead: false,
+      isCompleted: false,
+    },
+    {
+      ...buildDemoMeta('demo_rem_purchase_rosa', isoNow),
+      type: 'material_arrival',
+      title: 'Seguimiento pedido Lanas El Centro (Rosa Pastel)',
+      message: 'Confirmar llegada de 200 g de Hilo Rosa Pastel para desbloquear Ala derecha.',
+      triggerAt: in3Days,
+      relatedEntityId: 'demo_pending_rosa',
+      relatedEntityType: 'pending_material',
+      leadDays: 2,
+      snoozedUntil: null,
+      isRead: false,
+      isCompleted: false,
+    },
+    {
+      ...buildDemoMeta('demo_rem_installment_2', isoNow),
+      type: 'installment_due',
+      title: 'Recordar segunda cuota — Camila Restrepo',
+      message: 'Enviar resumen amable de avance antes del vencimiento de la cuota de $40.000 COP.',
+      triggerAt: in10Days,
+      relatedEntityId: 'demo_inst_2',
+      relatedEntityType: 'installment',
+      leadDays: 2,
+      snoozedUntil: null,
+      isRead: false,
+      isCompleted: false,
+    },
+  ];
+
   return {
     clients,
     materials,
@@ -571,9 +762,12 @@ function createDemoBundle(): DemoBundle {
     notesAndLists,
     shoppingItems,
     movements,
+    quotes,
     paymentPlans,
     installments,
     transactions,
+    plannedTasks,
+    reminders,
   };
 }
 
@@ -589,12 +783,15 @@ export async function loadDemoDataTransaction(): Promise<{ insertedCount: number
     ['work_sessions', bundle.workSessions],
     ['inventory_reservations', bundle.reservations],
     ['pending_materials', bundle.pendingMaterials],
+    ['planned_tasks', bundle.plannedTasks],
     ['notes_and_lists', bundle.notesAndLists],
     ['shopping_list_items', bundle.shoppingItems],
     ['inventory_movements', bundle.movements],
+    ['quotes', bundle.quotes],
     ['payment_plans', bundle.paymentPlans],
     ['payment_installments', bundle.installments],
     ['financial_transactions', bundle.transactions],
+    ['reminders', bundle.reminders],
   ];
 
   return runAtomicTransaction<{ insertedCount: number }>(

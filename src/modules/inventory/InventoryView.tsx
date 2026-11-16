@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -39,7 +39,17 @@ import {
 } from '@/src/domain/services/inventoryService.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import {
+  SnapDeck,
+  SnapSlide,
+  type SnapDeckHandle,
+} from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import {
+  chunkIntoPages,
+  pickPageSize,
+  useViewportProfile,
+} from '@/src/shared/hooks/useViewportPageSize.ts';
 
 type InventoryTab = 'catalog' | 'reservations' | 'kardex';
 
@@ -79,6 +89,9 @@ export const InventoryView: React.FC = () => {
     releaseReservation,
     recordDirectProjectConsumption,
   } = useWorkshopData();
+
+  const snapDeckRef = useRef<SnapDeckHandle | null>(null);
+  const viewportProfile = useViewportProfile();
 
   const [activeTab, setActiveTab] = useState<InventoryTab>('catalog');
   const [searchQuery, setSearchQuery] = useState('');
@@ -264,6 +277,102 @@ export const InventoryView: React.FC = () => {
       )
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }, [movements, kardexVariantFilter]);
+
+  // Paginación adaptativa por tamaño de pantalla para evitar recortes en catálogo, reservas y Kardex
+  const catalogPageSize = pickPageSize(viewportProfile, {
+    mobileCompact: 1,
+    mobileRegular: 2,
+    tablet: 3,
+    desktopCompact: 3,
+    desktopRegular: 4,
+    desktopTall: 5,
+  });
+  const reservationsPageSize = pickPageSize(viewportProfile, {
+    mobileCompact: 1,
+    mobileRegular: 2,
+    tablet: 3,
+    desktopCompact: 3,
+    desktopRegular: 4,
+    desktopTall: 5,
+  });
+  const kardexPageSize = pickPageSize(viewportProfile, {
+    mobileCompact: 2,
+    mobileRegular: 3,
+    tablet: 4,
+    desktopCompact: 4,
+    desktopRegular: 5,
+    desktopTall: 6,
+  });
+
+  type CatalogUnit = {
+    material: Material;
+    variant: MaterialVariant | null;
+  };
+
+  const catalogPages = useMemo(() => {
+    const units: CatalogUnit[] = [];
+    for (const entry of filteredCatalog) {
+      if (entry.variants.length === 0) {
+        units.push({ material: entry.material, variant: null });
+      } else {
+        for (const variant of entry.variants) {
+          units.push({ material: entry.material, variant });
+        }
+      }
+    }
+    const rawPages = chunkIntoPages(units, catalogPageSize);
+    return rawPages.map((pageUnits) => {
+      const groups: Array<{
+        material: Material;
+        variants: MaterialVariant[];
+        isEmptyMaterial: boolean;
+      }> = [];
+      for (const item of pageUnits) {
+        const last = groups[groups.length - 1];
+        if (last && last.material.id === item.material.id) {
+          if (item.variant) last.variants.push(item.variant);
+        } else {
+          groups.push({
+            material: item.material,
+            variants: item.variant ? [item.variant] : [],
+            isEmptyMaterial: item.variant === null,
+          });
+        }
+      }
+      return groups;
+    });
+  }, [filteredCatalog, catalogPageSize]);
+
+  const reservationPages = useMemo(
+    () => chunkIntoPages(filteredReservations, reservationsPageSize),
+    [filteredReservations, reservationsPageSize],
+  );
+
+  const movementPages = useMemo(
+    () => chunkIntoPages(filteredMovements, kardexPageSize),
+    [filteredMovements, kardexPageSize],
+  );
+
+  const handleTabJump = (tab: InventoryTab) => {
+    setActiveTab(tab);
+    if (tab === 'catalog') {
+      snapDeckRef.current?.goToSlide('inv-overview');
+    } else if (tab === 'reservations') {
+      snapDeckRef.current?.goToSlide('inv-res-0');
+    } else {
+      snapDeckRef.current?.goToSlide('inv-kardex-0');
+    }
+  };
+
+  const handleSlideChange = (slideId: string) => {
+    if (slideId.startsWith('inv-res')) {
+      setActiveTab('reservations');
+    } else if (slideId.startsWith('inv-kardex')) {
+      setActiveTab('kardex');
+    } else {
+      setActiveTab('catalog');
+    }
+  };
 
   // Handlers de Material
   const openNewMaterialModal = () => {
@@ -715,202 +824,306 @@ export const InventoryView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {feedback && (
-        <div
-          role="status"
-          className={`flex items-start justify-between gap-3 rounded-xl border p-4 text-sm ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
-        >
-          <div className="flex items-start gap-2.5">
-            {feedback.type === 'success' ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-            ) : (
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-700" />
-            )}
-            <p>{feedback.message}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFeedback(null)}
-            className="text-xs font-medium underline"
-          >
-            Cerrar
-          </button>
-        </div>
-      )}
-
-      {/* Cabecera e indicadores clave */}
-      <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
-              Inventario por color y Kardex
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Controla stock físico, reservas compartidas entre proyectos y
-              disponibilidad real de cada color.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {variants.length > 0 && projects.length > 0 && (
-              <button
-                type="button"
-                onClick={() => openReserveModal()}
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap"
+    <>
+      <SnapDeck
+        ref={snapDeckRef}
+        ariaLabel="Inventario por color, reservas y Kardex"
+        onSlideChange={handleSlideChange}
+        topSlot={
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div
+                className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+                role="tablist"
+                aria-label="Secciones de inventario"
               >
-                <BookmarkCheck className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                <span>Reservar material</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={openNewMaterialModal}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span>Nuevo material</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 lg:grid-cols-4">
-          <div>
-            <p className="text-xs font-medium text-slate-500">Colores registrados</p>
-            <p className="mt-1 font-mono text-xl font-semibold text-slate-900 tabular-nums">
-              {variants.length}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">Valor en stock físico</p>
-            <p className="mt-1 font-mono text-xl font-semibold text-slate-900 tabular-nums">
-              {formatCOP(totalValueCOP)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">Stock bajo mínimo</p>
-            <p
-              className={`mt-1 font-mono text-xl font-semibold tabular-nums ${
-                lowStockCount > 0 ? 'text-amber-700' : 'text-slate-900'
-              }`}
-            >
-              {lowStockCount}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500">Reservas activas</p>
-            <p className="mt-1 font-mono text-xl font-semibold text-teal-800 tabular-nums">
-              {activeReservationsCount}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Navegación interna de tabs */}
-      <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5 w-fit">
-        {(
-          [
-            { id: 'catalog', label: `Catálogo por color (${variants.length})`, icon: Package },
-            { id: 'reservations', label: `Reservas (${activeReservationsCount})`, icon: BookmarkCheck },
-            { id: 'kardex', label: `Kardex (${movements.length})`, icon: History },
-          ] as Array<{ id: InventoryTab; label: string; icon: typeof Package }>
-        ).map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex min-h-[40px] items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap ${
-                active
-                  ? 'bg-teal-700 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* TAB 1: CATÁLOGO POR COLOR */}
-      {activeTab === 'catalog' && (
-        <div className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <div className="relative flex-1">
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar por material, color, marca, SKU o proveedor..."
-                  className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-                />
+                {(
+                  [
+                    {
+                      id: 'catalog',
+                      label: `Catálogo (${variants.length})`,
+                      icon: Package,
+                    },
+                    {
+                      id: 'reservations',
+                      label: `Reservas (${activeReservationsCount})`,
+                      icon: BookmarkCheck,
+                    },
+                    {
+                      id: 'kardex',
+                      label: `Kardex (${movements.length})`,
+                      icon: History,
+                    },
+                  ] as Array<{
+                    id: InventoryTab;
+                    label: string;
+                    icon: typeof Package;
+                  }>
+                ).map((tab) => {
+                  const Icon = tab.icon;
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => handleTabJump(tab.id)}
+                      className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                        active
+                          ? 'bg-teal-700 text-white'
+                          : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
               </div>
 
-              <select
-                aria-label="Filtrar por categoría"
-                value={categoryFilter}
-                onChange={(e) =>
-                  setCategoryFilter(e.target.value as MaterialCategory | 'all')
-                }
-                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-              >
-                <option value="all">Todas las categorías</option>
-                {MATERIAL_CATEGORY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-
-              <label className="inline-flex min-h-[42px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={lowStockOnly}
-                  onChange={(e) => setLowStockOnly(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
-                />
-                <span>Solo stock bajo</span>
-              </label>
-            </div>
-          </section>
-
-          {filteredCatalog.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title={
-                materials.length === 0
-                  ? 'Aún no tienes materiales registrados'
-                  : 'Ningún material o color coincide con tu filtro'
-              }
-              description={
-                materials.length === 0
-                  ? 'Registra tu primer hilo, lana o insumo indicando su color y costo por unidad en COP.'
-                  : 'Prueba limpiando el buscador o cambiando el filtro de categoría.'
-              }
-              primaryAction={{
-                label: 'Registrar material y color',
-                onClick: openNewMaterialModal,
-              }}
-            />
-          ) : (
-            <div className="space-y-4">
-              {filteredCatalog.map(({ material, variants: matVariants }) => (
-                <section
-                  key={material.id}
-                  className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6"
+              <div className="hidden sm:flex items-center gap-2 shrink-0">
+                {variants.length > 0 && projects.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openReserveModal()}
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+                  >
+                    <BookmarkCheck className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    <span>Reservar</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={openNewMaterialModal}
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
                 >
-                  <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Nuevo material</span>
+                </button>
+              </div>
+            </div>
+
+            {feedback && (
+              <div
+                role="status"
+                className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm ${
+                  feedback.type === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-rose-200 bg-rose-50 text-rose-900'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  {feedback.type === 'success' ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+                  )}
+                  <p>{feedback.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFeedback(null)}
+                  className="text-xs font-medium underline shrink-0"
+                >
+                  Cerrar
+                </button>
+              </div>
+            )}
+          </div>
+        }
+      >
+        {/* PANTALLA 1: RESUMEN DE INVENTARIO Y FILTROS DEL CATÁLOGO */}
+        <SnapSlide id="inv-overview" label="Resumen y filtros">
+          <div className="space-y-4">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-slate-900 sm:text-xl">
+                    Inventario por color y Kardex
+                  </h2>
+                  <p className="mt-1 text-xs sm:text-sm text-slate-600">
+                    Controla stock físico, reservas compartidas entre proyectos y
+                    disponibilidad real de cada color.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0 sm:hidden">
+                  {variants.length > 0 && projects.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openReserveModal()}
+                      className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+                    >
+                      <BookmarkCheck className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                      <span>Reservar</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={openNewMaterialModal}
+                    className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <span>Nuevo material</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 lg:grid-cols-4">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Colores registrados</p>
+                  <p className="mt-0.5 font-mono text-lg font-semibold text-slate-900 tabular-nums sm:text-xl">
+                    {variants.length}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Valor en stock físico</p>
+                  <p className="mt-0.5 font-mono text-lg font-semibold text-slate-900 tabular-nums sm:text-xl">
+                    {formatCOP(totalValueCOP)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Stock bajo mínimo</p>
+                  <p
+                    className={`mt-0.5 font-mono text-lg font-semibold tabular-nums sm:text-xl ${
+                      lowStockCount > 0 ? 'text-amber-700' : 'text-slate-900'
+                    }`}
+                  >
+                    {lowStockCount}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">Reservas activas</p>
+                  <p className="mt-0.5 font-mono text-lg font-semibold text-teal-800 tabular-nums sm:text-xl">
+                    {activeReservationsCount}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="relative flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar por material, color, marca, SKU o proveedor..."
+                    className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  />
+                </div>
+
+                <select
+                  aria-label="Filtrar por categoría"
+                  value={categoryFilter}
+                  onChange={(e) =>
+                    setCategoryFilter(e.target.value as MaterialCategory | 'all')
+                  }
+                  className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                >
+                  <option value="all">Todas las categorías</option>
+                  {MATERIAL_CATEGORY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="inline-flex min-h-[42px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={lowStockOnly}
+                    onChange={(e) => setLowStockOnly(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                  />
+                  <span>Solo stock bajo</span>
+                </label>
+              </div>
+
+              {filteredCatalog.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                  <span className="tabular-nums">
+                    {filteredCatalog.length} material
+                    {filteredCatalog.length === 1 ? '' : 'es'} ·{' '}
+                    {filteredCatalog.reduce((acc, g) => acc + g.variants.length, 0)} color
+                    {filteredCatalog.reduce((acc, g) => acc + g.variants.length, 0) === 1
+                      ? ''
+                      : 'es'}{' '}
+                    en {catalogPages.length} vista{catalogPages.length === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => snapDeckRef.current?.goToSlide('inv-catalog-0')}
+                    className="font-semibold text-teal-800 hover:underline"
+                  >
+                    Ver catálogo por color →
+                  </button>
+                </div>
+              )}
+            </section>
+
+            {filteredCatalog.length === 0 && (
+              <EmptyState
+                icon={Package}
+                title={
+                  materials.length === 0
+                    ? 'Aún no tienes materiales registrados'
+                    : 'Ningún material o color coincide con tu filtro'
+                }
+                description={
+                  materials.length === 0
+                    ? 'Registra tu primer hilo, lana o insumo indicando su color y costo por unidad en COP.'
+                    : 'Prueba limpiando el buscador o cambiando el filtro de categoría.'
+                }
+                primaryAction={{
+                  label: 'Registrar material y color',
+                  onClick: openNewMaterialModal,
+                }}
+              />
+            )}
+          </div>
+        </SnapSlide>
+
+        {/* PANTALLAS DEL CATÁLOGO POR COLOR (PAGINADO SIN RECORTES) */}
+        {catalogPages.map((pageGroups, pageIdx) => (
+          <SnapSlide
+            key={`inv-catalog-${pageIdx}`}
+            id={`inv-catalog-${pageIdx}`}
+            label={
+              catalogPages.length > 1
+                ? `Catálogo ${pageIdx + 1}/${catalogPages.length}`
+                : 'Catálogo por color'
+            }
+          >
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Catálogo por color
+                  {catalogPages.length > 1
+                    ? ` · Página ${pageIdx + 1} de ${catalogPages.length}`
+                    : ''}
+                </p>
+                {(searchQuery || categoryFilter !== 'all' || lowStockOnly) && (
+                  <button
+                    type="button"
+                    onClick={() => snapDeckRef.current?.goToSlide('inv-overview')}
+                    className="text-xs font-medium text-teal-800 hover:underline"
+                  >
+                    Ajustar filtros activos
+                  </button>
+                )}
+              </div>
+
+              {pageGroups.map(({ material, variants: matVariants, isEmptyMaterial }) => (
+                <section
+                  key={`${material.id}-${pageIdx}`}
+                  className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+                >
+                  <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-xs font-medium text-slate-500">
                         {getCategoryLabel(material.category)}
@@ -919,11 +1132,11 @@ export const InventoryView: React.FC = () => {
                         {getUnitShortLabel(material.unit)}
                         {material.isDemo ? ' · Ejemplo' : ''}
                       </p>
-                      <h3 className="mt-1 font-display text-base font-semibold text-slate-900 sm:text-lg">
+                      <h3 className="mt-0.5 font-display text-base font-semibold text-slate-900">
                         {material.name}
                       </h3>
                       {material.description && (
-                        <p className="mt-1 text-xs text-slate-600">
+                        <p className="mt-0.5 text-xs text-slate-600 line-clamp-2">
                           {material.description}
                         </p>
                       )}
@@ -946,7 +1159,7 @@ export const InventoryView: React.FC = () => {
                       >
                         <Edit3 className="h-4 w-4" />
                       </button>
-                      {matVariants.length === 0 && (
+                      {isEmptyMaterial && (
                         <button
                           type="button"
                           onClick={() => setMaterialToDelete(material)}
@@ -959,8 +1172,8 @@ export const InventoryView: React.FC = () => {
                     </div>
                   </div>
 
-                  {matVariants.length === 0 ? (
-                    <div className="py-5 text-center text-xs text-slate-500">
+                  {isEmptyMaterial ? (
+                    <div className="py-4 text-center text-xs text-slate-500">
                       Este material aún no tiene colores registrados.
                     </div>
                   ) : (
@@ -972,7 +1185,7 @@ export const InventoryView: React.FC = () => {
                         return (
                           <div
                             key={variant.id}
-                            className="flex flex-col gap-4 py-4 first:pt-4 last:pb-0 lg:flex-row lg:items-center lg:justify-between"
+                            className="flex flex-col gap-3 py-3.5 first:pt-3.5 last:pb-0 lg:flex-row lg:items-center lg:justify-between"
                           >
                             <div className="flex items-start gap-3 min-w-0">
                               <span
@@ -988,10 +1201,7 @@ export const InventoryView: React.FC = () => {
                                     {variant.colorName}
                                   </h4>
                                   {lowStock && (
-                                    <StatusBadge
-                                      label="Stock bajo"
-                                      tone="warning"
-                                    />
+                                    <StatusBadge label="Stock bajo" tone="warning" />
                                   )}
                                   {variant.sku && (
                                     <span className="font-mono text-[11px] text-slate-500">
@@ -1005,42 +1215,31 @@ export const InventoryView: React.FC = () => {
                                   {variant.sizeOrGauge
                                     ? ` · Calibre ${variant.sizeOrGauge}`
                                     : ''}
-                                  {variant.provider
-                                    ? ` · ${variant.provider}`
-                                    : ''}
+                                  {variant.provider ? ` · ${variant.provider}` : ''}
                                   {` · Mínimo: ${formatUnitQuantity(variant.minStock, material.unit)}`}
                                 </p>
                               </div>
                             </div>
 
-                            {/* Desglose de cantidades + acciones */}
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:justify-end">
+                            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between lg:justify-end">
                               <div className="grid grid-cols-4 gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs tabular-nums">
                                 <div>
                                   <p className="text-[11px] text-slate-500">Físico</p>
                                   <p className="font-mono font-semibold text-slate-900">
-                                    {formatUnitQuantity(
-                                      variant.physicalStock,
-                                      material.unit,
-                                    )}
+                                    {formatUnitQuantity(variant.physicalStock, material.unit)}
                                   </p>
                                 </div>
                                 <div>
                                   <p className="text-[11px] text-slate-500">Reservado</p>
                                   <p className="font-mono font-semibold text-slate-700">
-                                    {formatUnitQuantity(
-                                      variant.reservedStock,
-                                      material.unit,
-                                    )}
+                                    {formatUnitQuantity(variant.reservedStock, material.unit)}
                                   </p>
                                 </div>
                                 <div>
                                   <p className="text-[11px] text-slate-500">Disponible</p>
                                   <p
                                     className={`font-mono font-bold ${
-                                      lowStock
-                                        ? 'text-amber-700'
-                                        : 'text-teal-800'
+                                      lowStock ? 'text-amber-700' : 'text-teal-800'
                                     }`}
                                   >
                                     {formatUnitQuantity(available, material.unit)}
@@ -1049,10 +1248,7 @@ export const InventoryView: React.FC = () => {
                                 <div>
                                   <p className="text-[11px] text-slate-500">Consumido</p>
                                   <p className="font-mono font-medium text-slate-600">
-                                    {formatUnitQuantity(
-                                      variant.totalConsumed,
-                                      material.unit,
-                                    )}
+                                    {formatUnitQuantity(variant.totalConsumed, material.unit)}
                                   </p>
                                 </div>
                               </div>
@@ -1086,9 +1282,7 @@ export const InventoryView: React.FC = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    openEditVariantModal(material, variant)
-                                  }
+                                  onClick={() => openEditVariantModal(material, variant)}
                                   className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
                                   aria-label={`Editar color ${variant.colorName}`}
                                 >
@@ -1112,286 +1306,410 @@ export const InventoryView: React.FC = () => {
                 </section>
               ))}
             </div>
-          )}
-        </div>
-      )}
+          </SnapSlide>
+        ))}
 
-      {/* TAB 2: RESERVAS COMPARTIDAS ENTRE PROYECTOS */}
-      {activeTab === 'reservations' && (
-        <div className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setReservationStatusFilter('active')}
-                    className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
-                      reservationStatusFilter === 'active'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    Activas
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReservationStatusFilter('all')}
-                    className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
-                      reservationStatusFilter === 'all'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    Todas
-                  </button>
-                </div>
-
-                <select
-                  aria-label="Filtrar reservas por proyecto"
-                  value={reservationProjectFilter}
-                  onChange={(e) => setReservationProjectFilter(e.target.value)}
-                  className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
-                >
-                  <option value="all">Todos los proyectos</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {variants.length > 0 && projects.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => openReserveModal()}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 text-xs font-medium text-white hover:bg-teal-800 self-start sm:self-auto"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Nueva reserva</span>
-                </button>
-              )}
-            </div>
-          </section>
-
-          {filteredReservations.length === 0 ? (
-            <EmptyState
-              icon={BookmarkCheck}
-              title="No hay reservas para mostrar"
-              description="Cuando reservas un color para un proyecto, esa cantidad se descuenta del stock disponible para que otros proyectos no usen el mismo material por error."
-              primaryAction={
-                variants.length > 0 && projects.length > 0
-                  ? {
-                      label: 'Crear reserva',
-                      onClick: () => openReserveModal(),
-                    }
-                  : undefined
-              }
-            />
-          ) : (
-            <section className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-              {filteredReservations.map((res) => {
-                const variant = variantMap.get(res.variantId);
-                const material = variant
-                  ? materialMap.get(variant.materialId)
-                  : undefined;
-                const project = projectMap.get(res.projectId);
-                const component = res.componentId
-                  ? componentMap.get(res.componentId)
-                  : undefined;
-                const unit = material?.unit ?? 'unit';
-                const remaining = getReservationRemaining(res);
-                const statusMeta = RESERVATION_STATUS_META[res.status];
-
-                return (
-                  <div
-                    key={res.id}
-                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span
-                        className="mt-0.5 h-7 w-7 shrink-0 rounded-md border border-slate-300"
-                        style={{
-                          backgroundColor: variant?.colorHex ?? '#E2E8F0',
-                        }}
-                        aria-hidden="true"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-display text-sm font-semibold text-slate-900">
-                            {material?.name ?? 'Material'} ·{' '}
-                            {variant?.colorName ?? 'Color'}
-                          </h4>
-                          <StatusBadge
-                            label={statusMeta.label}
-                            tone={statusMeta.tone}
-                          />
-                        </div>
-                        <p className="mt-1 text-xs text-slate-600">
-                          Proyecto: <strong>{project?.name ?? 'Proyecto'}</strong>
-                          {component ? ` · Pieza: ${component.name}` : ''}
-                          {res.isDemo ? ' · Ejemplo' : ''}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 tabular-nums">
-                          Reservado: {formatUnitQuantity(res.reservedQuantity, unit)} ·
-                          Consumido: {formatUnitQuantity(res.consumedQuantity, unit)} ·
-                          Pendiente:{' '}
-                          <strong className="text-slate-900">
-                            {formatUnitQuantity(remaining, unit)}
-                          </strong>
-                          {res.notes ? ` · ${res.notes}` : ''}
-                        </p>
-                      </div>
-                    </div>
-
-                    {res.status === 'active' && (
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setConsumeResModal(res);
-                            setConsumeResQty(String(remaining));
-                            setConsumeResNotes('');
-                          }}
-                          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800"
-                        >
-                          <MinusCircle className="h-3.5 w-3.5" />
-                          <span>Registrar consumo</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModifyResModal(res);
-                            setModifyResQty(String(res.reservedQuantity));
-                            setModifyResNotes(res.notes);
-                          }}
-                          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          <Edit3 className="h-3.5 w-3.5" />
-                          <span>Ajustar</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setReservationToRelease(res)}
-                          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          <Unlock className="h-3.5 w-3.5" />
-                          <span>Liberar</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: KARDEX INMUTABLE */}
-      {activeTab === 'kardex' && (
-        <div className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="font-display text-sm font-semibold text-slate-900">
-                Historial inmutable de movimientos (Kardex)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Los registros históricos nunca se editan ni eliminan; cualquier
-                cambio genera un nuevo movimiento auditable.
-              </p>
-            </div>
-            <select
-              aria-label="Filtrar Kardex por color"
-              value={kardexVariantFilter}
-              onChange={(e) => setKardexVariantFilter(e.target.value)}
-              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
-            >
-              <option value="all">Todos los materiales y colores</option>
-              {variants.map((v) => {
-                const mat = materialMap.get(v.materialId);
-                return (
-                  <option key={v.id} value={v.id}>
-                    {mat?.name ?? 'Material'} · {v.colorName}
-                  </option>
-                );
-              })}
-            </select>
-          </section>
-
-          {filteredMovements.length === 0 ? (
-            <EmptyState
-              icon={History}
-              title="No hay movimientos en el Kardex"
-              description="Cuando registres stock inicial, ajustes, reservas o consumos de proyectos aparecerán aquí de forma cronológica."
-            />
-          ) : (
-            <section className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-              {filteredMovements.map((mov) => {
-                const variant = variantMap.get(mov.variantId);
-                const material = variant
-                  ? materialMap.get(variant.materialId)
-                  : undefined;
-                const unit = material?.unit ?? 'unit';
-                const project = mov.projectId
-                  ? projectMap.get(mov.projectId)
-                  : undefined;
-                const meta = MOVEMENT_TYPE_META[mov.type];
-                const sign = mov.quantityDelta > 0 ? '+' : '';
-
-                return (
-                  <div
-                    key={mov.id}
-                    className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge label={meta.label} tone={meta.tone} />
-                        <p className="text-sm font-semibold text-slate-900">
-                          {material?.name ?? 'Material'} ·{' '}
-                          {variant?.colorName ?? 'Color'}
-                        </p>
-                        {project && (
-                          <span className="text-xs text-slate-600">
-                            · {project.name}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 tabular-nums">
-                        {formatDateTimeCO(mov.timestamp)} · Físico:{' '}
-                        {mov.previousPhysicalStock} → {mov.newPhysicalStock}{' '}
-                        {getUnitShortLabel(unit)} · Reservado:{' '}
-                        {mov.previousReservedStock} → {mov.newReservedStock}{' '}
-                        {getUnitShortLabel(unit)} · Costo ref:{' '}
-                        {formatCOP(mov.unitCostAtMovementCOP)}
-                      </p>
-                      {mov.notes && (
-                        <p className="text-xs text-slate-600">{mov.notes}</p>
-                      )}
-                    </div>
-
-                    <div className="text-left sm:text-right shrink-0">
-                      <span
-                        className={`font-mono text-sm font-bold tabular-nums ${
-                          mov.quantityDelta > 0
-                            ? 'text-emerald-700'
-                            : mov.quantityDelta < 0
-                              ? 'text-rose-700'
-                              : 'text-slate-700'
+        {/* PANTALLAS DE RESERVAS COMPARTIDAS ENTRE PROYECTOS */}
+        {reservationPages.length === 0 ? (
+          <SnapSlide id="inv-res-0" label="Reservas">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setReservationStatusFilter('active')}
+                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                          reservationStatusFilter === 'active'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600'
                         }`}
                       >
-                        {sign}
-                        {formatUnitQuantity(mov.quantityDelta, unit)}
-                      </span>
+                        Activas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReservationStatusFilter('all')}
+                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                          reservationStatusFilter === 'all'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        Todas
+                      </button>
                     </div>
+
+                    <select
+                      aria-label="Filtrar reservas por proyecto"
+                      value={reservationProjectFilter}
+                      onChange={(e) => setReservationProjectFilter(e.target.value)}
+                      className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
+                    >
+                      <option value="all">Todos los proyectos</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                );
-              })}
-            </section>
-          )}
-        </div>
-      )}
+
+                  {variants.length > 0 && projects.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openReserveModal()}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 text-xs font-medium text-white hover:bg-teal-800 self-start sm:self-auto"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Nueva reserva</span>
+                    </button>
+                  )}
+                </div>
+              </section>
+
+              <EmptyState
+                icon={BookmarkCheck}
+                title="No hay reservas para mostrar"
+                description="Cuando reservas un color para un proyecto, esa cantidad se descuenta del stock disponible para que otros proyectos no usen el mismo material por error."
+                primaryAction={
+                  variants.length > 0 && projects.length > 0
+                    ? {
+                        label: 'Crear reserva',
+                        onClick: () => openReserveModal(),
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          </SnapSlide>
+        ) : (
+          reservationPages.map((pageReservations, pageIdx) => (
+            <SnapSlide
+              key={`inv-res-${pageIdx}`}
+              id={`inv-res-${pageIdx}`}
+              label={
+                reservationPages.length > 1
+                  ? `Reservas ${pageIdx + 1}/${reservationPages.length}`
+                  : 'Reservas'
+              }
+            >
+              <div className="space-y-4">
+                {pageIdx === 0 ? (
+                  <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setReservationStatusFilter('active')}
+                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                              reservationStatusFilter === 'active'
+                                ? 'bg-white text-slate-900 shadow-xs'
+                                : 'text-slate-600'
+                            }`}
+                          >
+                            Activas
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReservationStatusFilter('all')}
+                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                              reservationStatusFilter === 'all'
+                                ? 'bg-white text-slate-900 shadow-xs'
+                                : 'text-slate-600'
+                            }`}
+                          >
+                            Todas
+                          </button>
+                        </div>
+
+                        <select
+                          aria-label="Filtrar reservas por proyecto"
+                          value={reservationProjectFilter}
+                          onChange={(e) => setReservationProjectFilter(e.target.value)}
+                          className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
+                        >
+                          <option value="all">Todos los proyectos</option>
+                          {projects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {variants.length > 0 && projects.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => openReserveModal()}
+                          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 text-xs font-medium text-white hover:bg-teal-800 self-start sm:self-auto"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Nueva reserva</span>
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                ) : (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Reservas · Página {pageIdx + 1} de {reservationPages.length}
+                  </p>
+                )}
+
+                <section className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+                  {pageReservations.map((res) => {
+                    const variant = variantMap.get(res.variantId);
+                    const material = variant
+                      ? materialMap.get(variant.materialId)
+                      : undefined;
+                    const project = projectMap.get(res.projectId);
+                    const component = res.componentId
+                      ? componentMap.get(res.componentId)
+                      : undefined;
+                    const unit = material?.unit ?? 'unit';
+                    const remaining = getReservationRemaining(res);
+                    const statusMeta = RESERVATION_STATUS_META[res.status];
+
+                    return (
+                      <div
+                        key={res.id}
+                        className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span
+                            className="mt-0.5 h-7 w-7 shrink-0 rounded-md border border-slate-300"
+                            style={{
+                              backgroundColor: variant?.colorHex ?? '#E2E8F0',
+                            }}
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="font-display text-sm font-semibold text-slate-900">
+                                {material?.name ?? 'Material'} ·{' '}
+                                {variant?.colorName ?? 'Color'}
+                              </h4>
+                              <StatusBadge
+                                label={statusMeta.label}
+                                tone={statusMeta.tone}
+                              />
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">
+                              Proyecto: <strong>{project?.name ?? 'Proyecto'}</strong>
+                              {component ? ` · Pieza: ${component.name}` : ''}
+                              {res.isDemo ? ' · Ejemplo' : ''}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500 tabular-nums">
+                              Reservado: {formatUnitQuantity(res.reservedQuantity, unit)} ·
+                              Consumido: {formatUnitQuantity(res.consumedQuantity, unit)} ·
+                              Pendiente:{' '}
+                              <strong className="text-slate-900">
+                                {formatUnitQuantity(remaining, unit)}
+                              </strong>
+                              {res.notes ? ` · ${res.notes}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {res.status === 'active' && (
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConsumeResModal(res);
+                                setConsumeResQty(String(remaining));
+                                setConsumeResNotes('');
+                              }}
+                              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800"
+                            >
+                              <MinusCircle className="h-3.5 w-3.5" />
+                              <span>Registrar consumo</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setModifyResModal(res);
+                                setModifyResQty(String(res.reservedQuantity));
+                                setModifyResNotes(res.notes);
+                              }}
+                              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              <span>Ajustar</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setReservationToRelease(res)}
+                              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <Unlock className="h-3.5 w-3.5" />
+                              <span>Liberar</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </section>
+              </div>
+            </SnapSlide>
+          ))
+        )}
+
+        {/* PANTALLAS DE KARDEX INMUTABLE */}
+        {movementPages.length === 0 ? (
+          <SnapSlide id="inv-kardex-0" label="Kardex">
+            <div className="space-y-4">
+              <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-display text-sm font-semibold text-slate-900">
+                    Historial inmutable de movimientos (Kardex)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Los registros históricos nunca se editan ni eliminan; cualquier
+                    cambio genera un nuevo movimiento auditable.
+                  </p>
+                </div>
+                <select
+                  aria-label="Filtrar Kardex por color"
+                  value={kardexVariantFilter}
+                  onChange={(e) => setKardexVariantFilter(e.target.value)}
+                  className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
+                >
+                  <option value="all">Todos los materiales y colores</option>
+                  {variants.map((v) => {
+                    const mat = materialMap.get(v.materialId);
+                    return (
+                      <option key={v.id} value={v.id}>
+                        {mat?.name ?? 'Material'} · {v.colorName}
+                      </option>
+                    );
+                  })}
+                </select>
+              </section>
+
+              <EmptyState
+                icon={History}
+                title="No hay movimientos en el Kardex"
+                description="Cuando registres stock inicial, ajustes, reservas o consumos de proyectos aparecerán aquí de forma cronológica."
+              />
+            </div>
+          </SnapSlide>
+        ) : (
+          movementPages.map((pageMovements, pageIdx) => (
+            <SnapSlide
+              key={`inv-kardex-${pageIdx}`}
+              id={`inv-kardex-${pageIdx}`}
+              label={
+                movementPages.length > 1
+                  ? `Kardex ${pageIdx + 1}/${movementPages.length}`
+                  : 'Kardex'
+              }
+            >
+              <div className="space-y-4">
+                {pageIdx === 0 ? (
+                  <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="font-display text-sm font-semibold text-slate-900">
+                        Historial inmutable de movimientos (Kardex)
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Los registros históricos nunca se editan ni eliminan; cualquier
+                        cambio genera un nuevo movimiento auditable.
+                      </p>
+                    </div>
+                    <select
+                      aria-label="Filtrar Kardex por color"
+                      value={kardexVariantFilter}
+                      onChange={(e) => setKardexVariantFilter(e.target.value)}
+                      className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 focus:border-teal-700 focus:outline-none"
+                    >
+                      <option value="all">Todos los materiales y colores</option>
+                      {variants.map((v) => {
+                        const mat = materialMap.get(v.materialId);
+                        return (
+                          <option key={v.id} value={v.id}>
+                            {mat?.name ?? 'Material'} · {v.colorName}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </section>
+                ) : (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Kardex · Página {pageIdx + 1} de {movementPages.length}
+                  </p>
+                )}
+
+                <section className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+                  {pageMovements.map((mov) => {
+                    const variant = variantMap.get(mov.variantId);
+                    const material = variant
+                      ? materialMap.get(variant.materialId)
+                      : undefined;
+                    const unit = material?.unit ?? 'unit';
+                    const project = mov.projectId
+                      ? projectMap.get(mov.projectId)
+                      : undefined;
+                    const meta = MOVEMENT_TYPE_META[mov.type];
+                    const sign = mov.quantityDelta > 0 ? '+' : '';
+
+                    return (
+                      <div
+                        key={mov.id}
+                        className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge label={meta.label} tone={meta.tone} />
+                            <p className="text-sm font-semibold text-slate-900">
+                              {material?.name ?? 'Material'} ·{' '}
+                              {variant?.colorName ?? 'Color'}
+                            </p>
+                            {project && (
+                              <span className="text-xs text-slate-600">
+                                · {project.name}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 tabular-nums">
+                            {formatDateTimeCO(mov.timestamp)} · Físico:{' '}
+                            {mov.previousPhysicalStock} → {mov.newPhysicalStock}{' '}
+                            {getUnitShortLabel(unit)} · Reservado:{' '}
+                            {mov.previousReservedStock} → {mov.newReservedStock}{' '}
+                            {getUnitShortLabel(unit)} · Costo ref:{' '}
+                            {formatCOP(mov.unitCostAtMovementCOP)}
+                          </p>
+                          {mov.notes && (
+                            <p className="text-xs text-slate-600">{mov.notes}</p>
+                          )}
+                        </div>
+
+                        <div className="text-left sm:text-right shrink-0">
+                          <span
+                            className={`font-mono text-sm font-bold tabular-nums ${
+                              mov.quantityDelta > 0
+                                ? 'text-emerald-700'
+                                : mov.quantityDelta < 0
+                                  ? 'text-rose-700'
+                                  : 'text-slate-700'
+                            }`}
+                          >
+                            {sign}
+                            {formatUnitQuantity(mov.quantityDelta, unit)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </section>
+              </div>
+            </SnapSlide>
+          ))
+        )}
+      </SnapDeck>
 
       {/* MODAL CREAR / EDITAR MATERIAL (+ PRIMER COLOR) */}
       {materialModalOpen && (
@@ -2556,6 +2874,6 @@ export const InventoryView: React.FC = () => {
         onCancel={() => setMaterialToDelete(null)}
         onConfirm={() => void handleConfirmDeleteMaterial()}
       />
-    </div>
+    </>
   );
 };
