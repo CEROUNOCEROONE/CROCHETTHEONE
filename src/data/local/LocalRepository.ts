@@ -84,11 +84,23 @@ import {
 import {
   dateKeyToMiddayIso,
   evaluateTaskMaterialBlock,
+  toLocalDateKey,
   type CreateReminderInput,
   type CreateScheduledTaskInput,
   type UpdateReminderInput,
   type UpdateScheduledTaskInput,
 } from '@/src/domain/services/planningService.ts';
+import {
+  allocatePaymentAcrossInstallments,
+  recomputePlanAndInstallments,
+  resolveInstallmentStatus,
+  validateInstallmentsAgainstTotal,
+  type CreateClientInput,
+  type CreatePaymentPlanInput,
+  type RecordPaymentTransactionInput,
+  type UpdateClientInput,
+  type UpdatePaymentPlanInput,
+} from '@/src/domain/services/clientPaymentService.ts';
 import {
   createDefaultWorkshopSettings,
   getIndexedDb,
@@ -417,6 +429,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 quotes: (result.quotes as Quote[]) ?? [],
                 paymentPlans: (result.payment_plans as PaymentPlan[]) ?? [],
                 installments: (result.payment_installments as PaymentInstallment[]) ?? [],
+                transactions: (result.financial_transactions as FinancialTransaction[]) ?? [],
                 reminders: (result.reminders as Reminder[]) ?? [],
               });
             }
@@ -4014,6 +4027,785 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             done(updatedProject);
           };
         };
+      },
+    );
+  }
+
+  async createClient(input: CreateClientInput): Promise<Client> {
+    const cleanName = input.name.trim();
+    if (!cleanName) {
+      throw new Error('El nombre del cliente es obligatorio.');
+    }
+    const cleanPhone = input.phone.trim();
+    const nowIso = new Date().toISOString();
+    const client: Client = {
+      id: this.createLocalId('client'),
+      ownerId: 'local-workshop',
+      syncStatus: 'local_only',
+      version: 1,
+      isDemo: false,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      name: cleanName,
+      phone: cleanPhone,
+      email: input.email?.trim() ? input.email.trim() : null,
+      address: input.address?.trim() ? input.address.trim() : null,
+      notes: (input.notes ?? '').trim(),
+    };
+    return this.clients.upsert(client);
+  }
+
+  async updateClient(
+    clientId: string,
+    updates: UpdateClientInput,
+  ): Promise<Client> {
+    const existing = await this.clients.getById(clientId);
+    if (!existing) {
+      throw new Error('El cliente seleccionado no existe.');
+    }
+    const nextName =
+      updates.name !== undefined ? updates.name.trim() : existing.name;
+    if (!nextName) {
+      throw new Error('El nombre del cliente no puede quedar vacío.');
+    }
+    return this.clients.upsert({
+      ...existing,
+      name: nextName,
+      phone: updates.phone !== undefined ? updates.phone.trim() : existing.phone,
+      email:
+        updates.email !== undefined
+          ? updates.email?.trim()
+            ? updates.email.trim()
+            : null
+          : existing.email,
+      address:
+        updates.address !== undefined
+          ? updates.address?.trim()
+            ? updates.address.trim()
+            : null
+          : existing.address,
+      notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
+    });
+  }
+
+  async deleteClient(clientId: string): Promise<void> {
+    return runAtomicTransaction<void>(
+      [
+        'clients',
+        'projects',
+        'quotes',
+        'payment_plans',
+        'financial_transactions',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').getAll();
+        const quoteReq = tx.objectStore('quotes').getAll();
+        const planReq = tx.objectStore('payment_plans').getAll();
+        const txReq = tx.objectStore('financial_transactions').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const check = () => {
+          reads += 1;
+          if (reads < 4 || aborted) return;
+
+          const hasProject = ((projReq.result as Project[]) ?? []).some(
+            (p) => p.clientId === clientId,
+          );
+          const hasQuote = ((quoteReq.result as Quote[]) ?? []).some(
+            (q) => q.clientId === clientId,
+          );
+          const hasPlan = ((planReq.result as PaymentPlan[]) ?? []).some(
+            (pl) => pl.clientId === clientId,
+          );
+          const hasTransaction = (
+            (txReq.result as FinancialTransaction[]) ?? []
+          ).some((t) => t.clientId === clientId);
+
+          if (hasProject || hasQuote || hasPlan || hasTransaction) {
+            aborted = true;
+            fail(
+              new Error(
+                'No puedes eliminar este cliente porque tiene proyectos, cotizaciones, planes de pago o abonos asociados.',
+              ),
+            );
+            return;
+          }
+
+          const delReq = tx.objectStore('clients').delete(clientId);
+          delReq.onerror = () => fail(delReq.error);
+          delReq.onsuccess = () => done(undefined);
+        };
+
+        for (const req of [projReq, quoteReq, planReq, txReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = check;
+        }
+      },
+    );
+  }
+
+  async createPaymentPlan(input: CreatePaymentPlanInput): Promise<PaymentPlan> {
+    const totalAgreedCOP = Math.round(input.totalAgreedCOP);
+    validateInstallmentsAgainstTotal(totalAgreedCOP, input.installments);
+
+    if (input.initialPayment) {
+      const initAmt = Math.round(input.initialPayment.amountCOP);
+      if (!Number.isFinite(initAmt) || initAmt <= 0) {
+        throw new Error('El abono inicial debe ser mayor a $0 COP.');
+      }
+      if (initAmt > totalAgreedCOP) {
+        throw new Error(
+          'El abono inicial no puede superar el valor total acordado.',
+        );
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const todayKey = toLocalDateKey(new Date());
+    const planId = this.createLocalId('plan');
+    const agreementDateIso = dateKeyToMiddayIso(
+      input.agreementDateKey || todayKey,
+    );
+
+    return runAtomicTransaction<PaymentPlan>(
+      [
+        'payment_plans',
+        'payment_installments',
+        'financial_transactions',
+        'projects',
+        'clients',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const projReq = tx.objectStore('projects').get(input.projectId);
+        const clientReq = tx.objectStore('clients').get(input.clientId);
+        const allPlansReq = tx.objectStore('payment_plans').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 3 || aborted) return;
+
+          const project = projReq.result as Project | undefined;
+          const client = clientReq.result as Client | undefined;
+          const existingPlans = (allPlansReq.result as PaymentPlan[]) ?? [];
+
+          if (!project) {
+            aborted = true;
+            fail(new Error('El proyecto seleccionado no existe.'));
+            return;
+          }
+          if (!client) {
+            aborted = true;
+            fail(new Error('El cliente seleccionado no existe.'));
+            return;
+          }
+          if (!project.isDemo && client.isDemo) {
+            aborted = true;
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: un proyecto real no puede vincularse con un cliente de demostración.',
+              ),
+            );
+            return;
+          }
+          if (project.isDemo && !client.isDemo) {
+            aborted = true;
+            fail(
+              new Error(
+                'Aislamiento de ejemplos: usa un cliente de ejemplo para proyectos de demostración.',
+              ),
+            );
+            return;
+          }
+
+          if (existingPlans.some((p) => p.projectId === project.id)) {
+            aborted = true;
+            fail(
+              new Error(
+                'Este proyecto ya tiene un plan de pagos registrado. Edítalo o registra abonos sobre el plan existente.',
+              ),
+            );
+            return;
+          }
+
+          const isDemo = project.isDemo;
+          const basePlan: PaymentPlan = {
+            id: planId,
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            projectId: project.id,
+            clientId: client.id,
+            totalAgreedCOP,
+            agreementDate: agreementDateIso,
+            modality: input.modality,
+            totalPaidCOP: 0,
+            balancePendingCOP: totalAgreedCOP,
+            status: 'unpaid',
+            notes: (input.notes ?? '').trim(),
+          };
+
+          let createdInstallments: PaymentInstallment[] = input.installments.map(
+            (draft, idx) => {
+              const dueIso = dateKeyToMiddayIso(draft.dueDateKey);
+              const amt = Math.round(draft.scheduledAmountCOP);
+              return {
+                id: this.createLocalId('inst'),
+                ownerId: 'local-workshop',
+                syncStatus: 'local_only',
+                version: 1,
+                isDemo,
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                planId,
+                installmentNumber: idx + 1,
+                concept: draft.concept.trim(),
+                scheduledAmountCOP: amt,
+                paidAmountCOP: 0,
+                dueDate: dueIso,
+                status: resolveInstallmentStatus(amt, 0, dueIso, todayKey),
+              };
+            },
+          );
+
+          if (input.initialPayment && input.initialPayment.amountCOP > 0) {
+            const initAmt = Math.round(input.initialPayment.amountCOP);
+            const firstInst = createdInstallments[0];
+            try {
+              createdInstallments = allocatePaymentAcrossInstallments(
+                createdInstallments,
+                firstInst?.id ?? null,
+                initAmt,
+                todayKey,
+              );
+            } catch (err) {
+              aborted = true;
+              fail(err);
+              return;
+            }
+
+            const paymentTx: FinancialTransaction = {
+              id: this.createLocalId('tx'),
+              ownerId: 'local-workshop',
+              syncStatus: 'local_only',
+              version: 1,
+              isDemo,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              planId,
+              projectId: project.id,
+              clientId: client.id,
+              installmentId: firstInst?.id ?? null,
+              amountCOP: initAmt,
+              paymentDate: dateKeyToMiddayIso(
+                input.initialPayment.paymentDateKey || todayKey,
+              ),
+              paymentMethod: input.initialPayment.paymentMethod,
+              referenceNumber: input.initialPayment.referenceNumber?.trim()
+                ? input.initialPayment.referenceNumber.trim()
+                : null,
+              notes: (
+                input.initialPayment.notes ??
+                `Pago inicial del plan (${firstInst?.concept ?? 'Cuota 1'})`
+              ).trim(),
+            };
+            tx.objectStore('financial_transactions').put(paymentTx);
+          }
+
+          const recomputed = recomputePlanAndInstallments(
+            basePlan,
+            createdInstallments,
+            todayKey,
+          );
+
+          const finalPlan: PaymentPlan = {
+            ...basePlan,
+            totalPaidCOP: recomputed.totalPaidCOP,
+            balancePendingCOP: recomputed.balancePendingCOP,
+            status: recomputed.status,
+          };
+
+          tx.objectStore('payment_plans').put(finalPlan);
+          const instStore = tx.objectStore('payment_installments');
+          for (const inst of recomputed.effectiveInstallments) {
+            instStore.put(inst);
+          }
+
+          tx.objectStore('projects').put({
+            ...project,
+            clientId: project.clientId ?? client.id,
+            paymentStatus: recomputed.projectPaymentStatus,
+            version: project.version + 1,
+            updatedAt: nowIso,
+          });
+
+          done(finalPlan);
+        };
+
+        for (const req of [projReq, clientReq, allPlansReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async updatePaymentPlan(
+    planId: string,
+    updates: UpdatePaymentPlanInput,
+  ): Promise<PaymentPlan> {
+    const totalAgreedCOP = Math.round(updates.totalAgreedCOP);
+    validateInstallmentsAgainstTotal(totalAgreedCOP, updates.installments);
+
+    const nowIso = new Date().toISOString();
+    const todayKey = toLocalDateKey(new Date());
+
+    return runAtomicTransaction<PaymentPlan>(
+      [
+        'payment_plans',
+        'payment_installments',
+        'financial_transactions',
+        'projects',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const planReq = tx.objectStore('payment_plans').get(planId);
+        const instReq = tx
+          .objectStore('payment_installments')
+          .index('planId')
+          .getAll(planId);
+        const txReq = tx
+          .objectStore('financial_transactions')
+          .index('planId')
+          .getAll(planId);
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 3 || aborted) return;
+
+          const existingPlan = planReq.result as PaymentPlan | undefined;
+          if (!existingPlan) {
+            aborted = true;
+            fail(new Error('El plan de pagos seleccionado no existe.'));
+            return;
+          }
+
+          const existingInstallments =
+            (instReq.result as PaymentInstallment[]) ?? [];
+          const existingTransactions =
+            (txReq.result as FinancialTransaction[]) ?? [];
+
+          const ledgerPaidTotal = existingTransactions.reduce(
+            (sum, t) => sum + Math.max(0, Math.round(t.amountCOP)),
+            0,
+          );
+
+          if (totalAgreedCOP < ledgerPaidTotal) {
+            aborted = true;
+            fail(
+              new Error(
+                `El valor total acordado no puede ser menor al monto ya pagado (${ledgerPaidTotal.toLocaleString('es-CO')} COP).`,
+              ),
+            );
+            return;
+          }
+
+          const existingInstById = new Map(
+            existingInstallments.map((i) => [i.id, i]),
+          );
+          const keptIds = new Set(
+            updates.installments
+              .map((d) => d.id)
+              .filter((id): id is string => Boolean(id)),
+          );
+
+          for (const oldInst of existingInstallments) {
+            if (!keptIds.has(oldInst.id) && oldInst.paidAmountCOP > 0) {
+              aborted = true;
+              fail(
+                new Error(
+                  `La cuota "${oldInst.concept}" ya tiene abonos registrados y no puede eliminarse.`,
+                ),
+              );
+              return;
+            }
+          }
+
+          const nextInstallments: PaymentInstallment[] = [];
+          for (let idx = 0; idx < updates.installments.length; idx += 1) {
+            const draft = updates.installments[idx];
+            const prev = draft.id ? existingInstById.get(draft.id) : undefined;
+            const scheduledAmt = Math.round(draft.scheduledAmountCOP);
+            const paidAmt = prev ? prev.paidAmountCOP : 0;
+
+            if (scheduledAmt < paidAmt) {
+              aborted = true;
+              fail(
+                new Error(
+                  `La cuota "${draft.concept}" ya recibió ${paidAmt.toLocaleString('es-CO')} COP y no puede reducirse por debajo de lo pagado.`,
+                ),
+              );
+              return;
+            }
+
+            const dueIso = dateKeyToMiddayIso(draft.dueDateKey);
+            nextInstallments.push({
+              id: prev?.id ?? this.createLocalId('inst'),
+              ownerId: prev?.ownerId ?? 'local-workshop',
+              syncStatus: prev?.syncStatus ?? 'local_only',
+              version: prev ? prev.version + 1 : 1,
+              isDemo: existingPlan.isDemo,
+              createdAt: prev?.createdAt ?? nowIso,
+              updatedAt: nowIso,
+              planId: existingPlan.id,
+              installmentNumber: idx + 1,
+              concept: draft.concept.trim(),
+              scheduledAmountCOP: scheduledAmt,
+              paidAmountCOP: paidAmt,
+              dueDate: dueIso,
+              status: resolveInstallmentStatus(
+                scheduledAmt,
+                paidAmt,
+                dueIso,
+                todayKey,
+              ),
+            });
+          }
+
+          const instStore = tx.objectStore('payment_installments');
+          for (const oldInst of existingInstallments) {
+            if (!keptIds.has(oldInst.id)) {
+              instStore.delete(oldInst.id);
+            }
+          }
+
+          const candidatePlan: PaymentPlan = {
+            ...existingPlan,
+            totalAgreedCOP,
+            agreementDate: updates.agreementDateKey
+              ? dateKeyToMiddayIso(updates.agreementDateKey)
+              : existingPlan.agreementDate,
+            modality: updates.modality,
+            notes:
+              updates.notes !== undefined
+                ? updates.notes.trim()
+                : existingPlan.notes,
+            version: existingPlan.version + 1,
+            updatedAt: nowIso,
+          };
+
+          const recomputed = recomputePlanAndInstallments(
+            candidatePlan,
+            nextInstallments,
+            todayKey,
+          );
+          const finalPlan: PaymentPlan = {
+            ...candidatePlan,
+            totalPaidCOP: recomputed.totalPaidCOP,
+            balancePendingCOP: recomputed.balancePendingCOP,
+            status: recomputed.status,
+          };
+
+          for (const inst of recomputed.effectiveInstallments) {
+            instStore.put(inst);
+          }
+          tx.objectStore('payment_plans').put(finalPlan);
+
+          const projReq = tx.objectStore('projects').get(existingPlan.projectId);
+          projReq.onerror = () => fail(projReq.error);
+          projReq.onsuccess = () => {
+            const project = projReq.result as Project | undefined;
+            if (project) {
+              tx.objectStore('projects').put({
+                ...project,
+                paymentStatus: recomputed.projectPaymentStatus,
+                version: project.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+            done(finalPlan);
+          };
+        };
+
+        for (const req of [planReq, instReq, txReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async deletePaymentPlan(planId: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+
+    return runAtomicTransaction<void>(
+      [
+        'payment_plans',
+        'payment_installments',
+        'financial_transactions',
+        'projects',
+        'reminders',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const planReq = tx.objectStore('payment_plans').get(planId);
+        const instReq = tx
+          .objectStore('payment_installments')
+          .index('planId')
+          .getAll(planId);
+        const txReq = tx
+          .objectStore('financial_transactions')
+          .index('planId')
+          .getAll(planId);
+        const remReq = tx.objectStore('reminders').getAll();
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 4 || aborted) return;
+
+          const plan = planReq.result as PaymentPlan | undefined;
+          if (!plan) {
+            done(undefined);
+            return;
+          }
+
+          const planTxs = (txReq.result as FinancialTransaction[]) ?? [];
+          if (planTxs.length > 0) {
+            aborted = true;
+            fail(
+              new Error(
+                'No puedes eliminar este plan de pagos porque ya tiene abonos registrados en caja. El historial financiero es inmutable.',
+              ),
+            );
+            return;
+          }
+
+          const planInsts = (instReq.result as PaymentInstallment[]) ?? [];
+          const instIds = new Set(planInsts.map((i) => i.id));
+          const reminders = (remReq.result as Reminder[]) ?? [];
+
+          const remStore = tx.objectStore('reminders');
+          for (const rem of reminders) {
+            if (
+              rem.relatedEntityType === 'installment' &&
+              rem.relatedEntityId &&
+              instIds.has(rem.relatedEntityId)
+            ) {
+              remStore.delete(rem.id);
+            }
+          }
+
+          const instStore = tx.objectStore('payment_installments');
+          for (const inst of planInsts) {
+            instStore.delete(inst.id);
+          }
+
+          tx.objectStore('payment_plans').delete(planId);
+
+          const projReq = tx.objectStore('projects').get(plan.projectId);
+          projReq.onerror = () => fail(projReq.error);
+          projReq.onsuccess = () => {
+            const project = projReq.result as Project | undefined;
+            if (project) {
+              tx.objectStore('projects').put({
+                ...project,
+                paymentStatus: project.clientId ? 'unpaid' : 'not_applicable',
+                version: project.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+            done(undefined);
+          };
+        };
+
+        for (const req of [planReq, instReq, txReq, remReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
+  }
+
+  async recordPaymentTransaction(
+    input: RecordPaymentTransactionInput,
+  ): Promise<FinancialTransaction> {
+    const amountCOP = Math.round(input.amountCOP);
+    if (!Number.isFinite(amountCOP) || amountCOP <= 0) {
+      throw new Error('El monto del abono debe ser mayor a $0 COP.');
+    }
+
+    const nowIso = new Date().toISOString();
+    const todayKey = toLocalDateKey(new Date());
+    const txId = this.createLocalId('tx');
+
+    return runAtomicTransaction<FinancialTransaction>(
+      [
+        'payment_plans',
+        'payment_installments',
+        'financial_transactions',
+        'projects',
+      ],
+      'readwrite',
+      (tx, done, fail) => {
+        const planReq = tx.objectStore('payment_plans').get(input.planId);
+        const instReq = tx
+          .objectStore('payment_installments')
+          .index('planId')
+          .getAll(input.planId);
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 2 || aborted) return;
+
+          const plan = planReq.result as PaymentPlan | undefined;
+          if (!plan) {
+            aborted = true;
+            fail(new Error('El plan de pagos seleccionado no existe.'));
+            return;
+          }
+
+          const installments = (instReq.result as PaymentInstallment[]) ?? [];
+          if (installments.length === 0) {
+            aborted = true;
+            fail(new Error('El plan de pagos no tiene cuotas configuradas.'));
+            return;
+          }
+
+          if (input.installmentId) {
+            const target = installments.find((i) => i.id === input.installmentId);
+            if (!target) {
+              aborted = true;
+              fail(new Error('La cuota seleccionada no pertenece a este plan.'));
+              return;
+            }
+          }
+
+          let allocatedInstallments: PaymentInstallment[];
+          try {
+            allocatedInstallments = allocatePaymentAcrossInstallments(
+              installments,
+              input.installmentId,
+              amountCOP,
+              todayKey,
+            );
+          } catch (err) {
+            aborted = true;
+            fail(err);
+            return;
+          }
+
+          const stampedInstallments = allocatedInstallments.map((inst) => ({
+            ...inst,
+            version: inst.version + 1,
+            updatedAt: nowIso,
+          }));
+
+          const recomputed = recomputePlanAndInstallments(
+            plan,
+            stampedInstallments,
+            todayKey,
+          );
+
+          const updatedPlan: PaymentPlan = {
+            ...plan,
+            totalPaidCOP: recomputed.totalPaidCOP,
+            balancePendingCOP: recomputed.balancePendingCOP,
+            status: recomputed.status,
+            version: plan.version + 1,
+            updatedAt: nowIso,
+          };
+
+          const createdTx: FinancialTransaction = {
+            id: txId,
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo: plan.isDemo,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            planId: plan.id,
+            projectId: plan.projectId,
+            clientId: plan.clientId,
+            installmentId: input.installmentId,
+            amountCOP,
+            paymentDate: dateKeyToMiddayIso(input.paymentDateKey || todayKey),
+            paymentMethod: input.paymentMethod,
+            referenceNumber: input.referenceNumber?.trim()
+              ? input.referenceNumber.trim()
+              : null,
+            notes: (input.notes ?? '').trim(),
+          };
+
+          tx.objectStore('financial_transactions').put(createdTx);
+          const instStore = tx.objectStore('payment_installments');
+          for (const inst of recomputed.effectiveInstallments) {
+            instStore.put(inst);
+          }
+          tx.objectStore('payment_plans').put(updatedPlan);
+
+          const projReq = tx.objectStore('projects').get(plan.projectId);
+          projReq.onerror = () => fail(projReq.error);
+          projReq.onsuccess = () => {
+            const project = projReq.result as Project | undefined;
+            if (project) {
+              tx.objectStore('projects').put({
+                ...project,
+                paymentStatus: recomputed.projectPaymentStatus,
+                version: project.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+            done(createdTx);
+          };
+        };
+
+        for (const req of [planReq, instReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
       },
     );
   }

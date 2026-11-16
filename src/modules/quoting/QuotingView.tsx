@@ -14,6 +14,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
@@ -56,6 +57,7 @@ interface QuotingViewProps {
   onClearInitialProject?(): void;
   onNavigateToSettings?(): void;
   onOpenProject?(projectId: string): void;
+  onOpenProjectPayments?(projectId: string): void;
 }
 
 type QuotingTab = 'simulator' | 'history';
@@ -99,6 +101,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   onClearInitialProject,
   onNavigateToSettings,
   onOpenProject,
+  onOpenProjectPayments,
 }) => {
   const {
     settings,
@@ -893,9 +896,9 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
           onSlideChange={handleSlideChange}
           topSlot={
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div
-                  className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+                  className="grid w-full grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
                   role="tablist"
                   aria-label="Secciones del cotizador"
                 >
@@ -904,20 +907,27 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     role="tab"
                     aria-selected={activeTab === 'simulator'}
                     onClick={() => handleTabJump('simulator')}
-                    className={`inline-flex min-h-[36px] items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                    className={`inline-flex min-h-[36px] items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
                       activeTab === 'simulator'
                         ? 'bg-teal-700 text-white'
                         : 'text-slate-600 hover:bg-white hover:text-slate-900'
                     }`}
                   >
-                    {editingQuoteId ? 'Editor de cotización' : 'Simulador'}
+                    {editingQuoteId ? (
+                      <>
+                        <span className="sm:hidden">Editor</span>
+                        <span className="hidden sm:inline">Editor de cotización</span>
+                      </>
+                    ) : (
+                      'Simulador'
+                    )}
                   </button>
                   <button
                     type="button"
                     role="tab"
                     aria-selected={activeTab === 'history'}
                     onClick={() => handleTabJump('history')}
-                    className={`inline-flex min-h-[36px] items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                    className={`inline-flex min-h-[36px] items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
                       activeTab === 'history'
                         ? 'bg-teal-700 text-white'
                         : 'text-slate-600 hover:bg-white hover:text-slate-900'
@@ -927,7 +937,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex w-full items-center gap-2 sm:w-auto shrink-0">
                   <button
                     type="button"
                     onClick={() => snapDeckRef.current?.goToSlide('quote-summary')}
@@ -943,11 +953,10 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       resetSimulatorToNew();
                       handleTabJump('simulator');
                     }}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
+                    className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 whitespace-nowrap sm:w-auto"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline">Nueva cotización</span>
-                    <span className="sm:hidden">Nueva</span>
+                    <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Nueva cotización</span>
                   </button>
                 </div>
               </div>
@@ -2377,6 +2386,17 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                               >
                                 <FolderKanban className="h-3.5 w-3.5" aria-hidden="true" />
                                 <span>Aplicar precio al proyecto</span>
+                              </button>
+                            )}
+
+                            {quote.projectId && quote.status === 'approved' && onOpenProjectPayments && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenProjectPayments(quote.projectId!)}
+                                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+                              >
+                                <Wallet className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                                <span>Ir a cobros</span>
                               </button>
                             )}
 

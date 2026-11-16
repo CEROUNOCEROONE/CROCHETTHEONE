@@ -1,5 +1,6 @@
 import type {
   Client,
+  FinancialTransaction,
   InventoryMovement,
   InventoryReservation,
   Material,
@@ -19,6 +20,10 @@ import type {
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
+import {
+  recomputePlanAndInstallments,
+  resolveInstallmentStatus,
+} from './clientPaymentService.ts';
 import {
   evaluateTaskMaterialBlock,
   resolveEffectiveTaskStatus,
@@ -101,6 +106,7 @@ export interface WorkshopSnapshotInput {
   readonly quotes?: Quote[];
   readonly paymentPlans: PaymentPlan[];
   readonly installments: PaymentInstallment[];
+  readonly transactions?: FinancialTransaction[];
   readonly reminders?: Reminder[];
 }
 
@@ -176,14 +182,41 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
 
   const lowStockVariants = inventoryHighlights.filter((v) => v.isLowStock);
 
-  const totalAgreedCOP = snapshot.paymentPlans.reduce((sum, p) => sum + p.totalAgreedCOP, 0);
-  const totalPaidCOP = snapshot.paymentPlans.reduce((sum, p) => sum + p.totalPaidCOP, 0);
-  const totalPendingBalanceCOP = snapshot.paymentPlans.reduce(
-    (sum, p) => sum + p.balancePendingCOP,
-    0,
-  );
+  const todayLocalKey = toPlanningLocalDateKey(new Date());
+  const installmentsByPlan = new Map<string, PaymentInstallment[]>();
+  for (const inst of snapshot.installments) {
+    const arr = installmentsByPlan.get(inst.planId) ?? [];
+    arr.push(inst);
+    installmentsByPlan.set(inst.planId, arr);
+  }
+
+  let totalAgreedCOP = 0;
+  let totalPaidCOP = 0;
+  let totalPendingBalanceCOP = 0;
+  for (const plan of snapshot.paymentPlans) {
+    const planInsts = installmentsByPlan.get(plan.id) ?? [];
+    if (planInsts.length > 0) {
+      const summary = recomputePlanAndInstallments(plan, planInsts, todayLocalKey);
+      totalAgreedCOP += plan.totalAgreedCOP;
+      totalPaidCOP += summary.totalPaidCOP;
+      totalPendingBalanceCOP += summary.balancePendingCOP;
+    } else {
+      totalAgreedCOP += plan.totalAgreedCOP;
+      totalPaidCOP += plan.totalPaidCOP;
+      totalPendingBalanceCOP += plan.balancePendingCOP;
+    }
+  }
 
   const upcomingInstallments = snapshot.installments
+    .map((inst) => ({
+      ...inst,
+      status: resolveInstallmentStatus(
+        inst.scheduledAmountCOP,
+        inst.paidAmountCOP,
+        inst.dueDate,
+        todayLocalKey,
+      ),
+    }))
     .filter((inst) => inst.status !== 'paid')
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 4)

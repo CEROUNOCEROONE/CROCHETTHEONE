@@ -277,6 +277,10 @@ export const HeaderStatusBar: React.FC<HeaderStatusBarProps> = ({
       onOpenProject(alert.relatedEntityId);
       return;
     }
+    if (alert.relatedEntityType === 'installment') {
+      onNavigate('clients');
+      return;
+    }
     if (alert.relatedEntityType === 'pending_material') {
       onNavigate('shopping');
       return;

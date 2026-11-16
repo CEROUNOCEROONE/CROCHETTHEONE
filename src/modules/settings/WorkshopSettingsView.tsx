@@ -400,25 +400,33 @@ export const WorkshopSettingsView: React.FC = () => {
 
         <nav
           aria-label="Secciones de configuración del taller"
-          className="no-scrollbar flex items-center gap-1.5 overflow-x-auto py-0.5"
+          className="grid w-full grid-cols-4 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
         >
           {SETTINGS_STEPS.map((step) => {
             const isActive = step.id === activeStep;
             const isCompleted = step.number < currentStep.number;
+            const shortMobileWord =
+              step.id === 'general'
+                ? 'Taller'
+                : step.id === 'costs'
+                  ? 'Costos'
+                  : step.id === 'backups'
+                    ? 'Copias'
+                    : 'Sistema';
             return (
               <button
                 key={step.id}
                 type="button"
                 onClick={() => goToStep(step.id)}
                 aria-current={isActive ? 'step' : undefined}
-                className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                className={`inline-flex min-h-[36px] items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:gap-1.5 sm:px-2.5 ${
                   isActive
-                    ? 'border-teal-700 bg-teal-700 text-white'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    ? 'bg-teal-700 text-white'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 <span
-                  className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                  className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
                     isActive
                       ? 'bg-white text-teal-800'
                       : isCompleted
@@ -428,7 +436,8 @@ export const WorkshopSettingsView: React.FC = () => {
                 >
                   {isCompleted ? <Check className="h-2.5 w-2.5" aria-hidden="true" /> : step.number}
                 </span>
-                <span>{step.mobileLabel}</span>
+                <span className="sm:hidden">{shortMobileWord}</span>
+                <span className="hidden sm:inline">{step.mobileLabel}</span>
               </button>
             );
           })}

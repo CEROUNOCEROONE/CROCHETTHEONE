@@ -1007,18 +1007,18 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
         onSlideChange={handleSlideChange}
         topSlot={
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div
-                className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+                className="grid w-full grid-cols-4 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
                 role="tablist"
                 aria-label="Vistas de compras y notas"
               >
                 {(
                   [
-                    { id: 'pending', label: 'Pendientes', icon: ShoppingBag },
-                    { id: 'lists', label: 'Listas', icon: ClipboardList },
-                    { id: 'notes', label: 'Notas', icon: FileText },
-                    { id: 'receipts', label: 'Recepciones', icon: Receipt },
+                    { id: 'pending', label: 'Pendientes', mobileLabel: 'Compras', icon: ShoppingBag },
+                    { id: 'lists', label: 'Listas', mobileLabel: 'Listas', icon: ClipboardList },
+                    { id: 'notes', label: 'Notas', mobileLabel: 'Notas', icon: FileText },
+                    { id: 'receipts', label: 'Recepciones', mobileLabel: 'Recibos', icon: Receipt },
                   ] as const
                 ).map((tab) => {
                   const Icon = tab.icon;
@@ -1030,38 +1030,38 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                       role="tab"
                       aria-selected={isActive}
                       onClick={() => handleTabJump(tab.id)}
-                      className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
+                      className={`inline-flex min-h-[36px] items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:gap-1.5 sm:px-3 ${
                         isActive
                           ? 'bg-teal-700 text-white'
                           : 'text-slate-600 hover:bg-white hover:text-slate-900'
                       }`}
                     >
                       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      <span>{tab.label}</span>
+                      <span className="sm:hidden">{tab.mobileLabel}</span>
+                      <span className="hidden sm:inline">{tab.label}</span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex w-full items-center sm:w-auto shrink-0">
                 {activeTab === 'pending' && (
                   <button
                     type="button"
                     onClick={openNewPendingModal}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
+                    className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 whitespace-nowrap sm:w-auto"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline">Registrar pendiente</span>
-                    <span className="sm:hidden">Pendiente</span>
+                    <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Registrar pendiente</span>
                   </button>
                 )}
                 {activeTab === 'lists' && (
                   <button
                     type="button"
                     onClick={() => openNewNoteModal('shopping_list')}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
+                    className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 whitespace-nowrap sm:w-auto"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>Nueva lista</span>
                   </button>
                 )}
@@ -1069,9 +1069,9 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                   <button
                     type="button"
                     onClick={() => openNewNoteModal('free_note')}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
+                    className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 whitespace-nowrap sm:w-auto"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     <span>Nueva nota</span>
                   </button>
                 )}
@@ -1080,11 +1080,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                     type="button"
                     onClick={openDirectReceiptModal}
                     disabled={variants.length === 0}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50 whitespace-nowrap"
+                    className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50 whitespace-nowrap sm:w-auto"
                   >
-                    <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline">Registrar recepción</span>
-                    <span className="sm:hidden">Recepción</span>
+                    <PackageCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Registrar recepción</span>
                   </button>
                 )}
               </div>

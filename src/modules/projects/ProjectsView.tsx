@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
@@ -57,6 +58,7 @@ interface ProjectsViewProps {
   onStartTimerForComponent?(projectId: string, componentId: string): void;
   onNavigateToInventory?(): void;
   onQuoteProject?(projectId: string): void;
+  onOpenProjectPayments?(projectId: string): void;
 }
 
 type StatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'cancelled';
@@ -79,6 +81,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   onStartTimerForComponent,
   onNavigateToInventory,
   onQuoteProject,
+  onOpenProjectPayments,
 }) => {
   const {
     settings,
@@ -620,6 +623,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     </button>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {onOpenProjectPayments && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenProjectPayments(selectedProject.id)}
+                          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap"
+                        >
+                          <Wallet className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                          <span>Cobros</span>
+                        </button>
+                      )}
                       {onQuoteProject && (
                         <button
                           type="button"

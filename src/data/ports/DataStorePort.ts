@@ -111,6 +111,13 @@ import type {
   UpdateReminderInput,
   UpdateScheduledTaskInput,
 } from '@/src/domain/services/planningService.ts';
+import type {
+  CreateClientInput,
+  CreatePaymentPlanInput,
+  RecordPaymentTransactionInput,
+  UpdateClientInput,
+  UpdatePaymentPlanInput,
+} from '@/src/domain/services/clientPaymentService.ts';
 
 export interface FinishTimerSessionOptions {
   readonly overrideEffectiveMinutes?: number;
@@ -263,6 +270,18 @@ export interface WorkshopDataEngine {
   updateQuote(quoteId: string, updates: UpdateQuoteInput): Promise<Quote>;
   deleteQuote(quoteId: string): Promise<void>;
   applyQuotePriceToProject(quoteId: string): Promise<Project>;
+  createClient(input: CreateClientInput): Promise<Client>;
+  updateClient(clientId: string, updates: UpdateClientInput): Promise<Client>;
+  deleteClient(clientId: string): Promise<void>;
+  createPaymentPlan(input: CreatePaymentPlanInput): Promise<PaymentPlan>;
+  updatePaymentPlan(
+    planId: string,
+    updates: UpdatePaymentPlanInput,
+  ): Promise<PaymentPlan>;
+  deletePaymentPlan(planId: string): Promise<void>;
+  recordPaymentTransaction(
+    input: RecordPaymentTransactionInput,
+  ): Promise<FinancialTransaction>;
   createPlannedTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   updatePlannedTask(
     taskId: string,

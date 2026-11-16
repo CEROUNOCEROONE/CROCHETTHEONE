@@ -779,9 +779,9 @@ export const InventoryView: React.FC = () => {
         onSlideChange={handleSlideChange}
         topSlot={
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div
-                className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1"
+                className="grid w-full grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
                 role="tablist"
                 aria-label="Secciones de inventario"
               >
@@ -817,13 +817,13 @@ export const InventoryView: React.FC = () => {
                       role="tab"
                       aria-selected={active}
                       onClick={() => handleTabJump(tab.id)}
-                      className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                      className={`inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
                         active
                           ? 'bg-teal-700 text-white'
                           : 'text-slate-600 hover:bg-white hover:text-slate-900'
                       }`}
                     >
-                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       <span>{tab.label}</span>
                     </button>
                   );
@@ -887,14 +887,20 @@ export const InventoryView: React.FC = () => {
                     disponibilidad real de cada color.
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 shrink-0 sm:hidden">
+                <div
+                  className={`grid w-full gap-2 sm:hidden ${
+                    variants.length > 0 && projects.length > 0
+                      ? 'grid-cols-2'
+                      : 'grid-cols-1'
+                  }`}
+                >
                   {variants.length > 0 && projects.length > 0 && (
                     <button
                       type="button"
                       onClick={() => openReserveModal()}
                       className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 whitespace-nowrap"
                     >
-                      <BookmarkCheck className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                      <BookmarkCheck className="h-4 w-4 shrink-0 text-teal-700" aria-hidden="true" />
                       <span>Reservar</span>
                     </button>
                   )}
@@ -903,7 +909,7 @@ export const InventoryView: React.FC = () => {
                     onClick={openNewMaterialModal}
                     className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-800 whitespace-nowrap"
                   >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span>Nuevo material</span>
                   </button>
                 </div>

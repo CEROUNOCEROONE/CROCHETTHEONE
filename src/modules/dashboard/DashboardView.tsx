@@ -305,7 +305,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onClick={() => onNavigate('clients')}
           className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-800 whitespace-nowrap"
         >
-          <span>Ver módulo Fase 7</span>
+          <span>Clientes y cobros</span>
           <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>

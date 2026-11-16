@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import type {
   Client,
+  FinancialTransaction,
   InventoryMovement,
   InventoryReservation,
   Material,
@@ -62,6 +63,13 @@ import type {
   UpdateReminderInput,
   UpdateScheduledTaskInput,
 } from '@/src/domain/services/planningService.ts';
+import type {
+  CreateClientInput,
+  CreatePaymentPlanInput,
+  RecordPaymentTransactionInput,
+  UpdateClientInput,
+  UpdatePaymentPlanInput,
+} from '@/src/domain/services/clientPaymentService.ts';
 import {
   computeWorkshopStats,
   type WorkshopDashboardStats,
@@ -107,6 +115,7 @@ interface DataContextValue {
   readonly quotes: Quote[];
   readonly paymentPlans: PaymentPlan[];
   readonly installments: PaymentInstallment[];
+  readonly transactions: FinancialTransaction[];
   readonly plannedTasks: ScheduledTask[];
   readonly reminders: Reminder[];
   readonly stats: WorkshopDashboardStats;
@@ -226,6 +235,18 @@ interface DataContextValue {
   updateQuote(quoteId: string, updates: UpdateQuoteInput): Promise<Quote>;
   deleteQuote(quoteId: string): Promise<void>;
   applyQuotePriceToProject(quoteId: string): Promise<Project>;
+  createClient(input: CreateClientInput): Promise<Client>;
+  updateClient(clientId: string, updates: UpdateClientInput): Promise<Client>;
+  deleteClient(clientId: string): Promise<void>;
+  createPaymentPlan(input: CreatePaymentPlanInput): Promise<PaymentPlan>;
+  updatePaymentPlan(
+    planId: string,
+    updates: UpdatePaymentPlanInput,
+  ): Promise<PaymentPlan>;
+  deletePaymentPlan(planId: string): Promise<void>;
+  recordPaymentTransaction(
+    input: RecordPaymentTransactionInput,
+  ): Promise<FinancialTransaction>;
   createPlannedTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   updatePlannedTask(
     taskId: string,
@@ -283,6 +304,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [paymentPlans, setPaymentPlans] = useState<PaymentPlan[]>([]);
   const [installments, setInstallments] = useState<PaymentInstallment[]>([]);
+  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [plannedTasks, setPlannedTasks] = useState<ScheduledTask[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [stats, setStats] = useState<WorkshopDashboardStats>(EMPTY_STATS);
@@ -319,6 +341,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setQuotes(snapshot.quotes ?? []);
       setPaymentPlans(snapshot.paymentPlans ?? []);
       setInstallments(snapshot.installments ?? []);
+      setTransactions(snapshot.transactions ?? []);
       setPlannedTasks(snapshot.plannedTasks ?? []);
       setReminders(snapshot.reminders ?? []);
       setStats(computeWorkshopStats(snapshot));
@@ -819,6 +842,74 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [refresh, markSaved],
   );
 
+  const createClient = useCallback(
+    async (input: CreateClientInput) => {
+      const created = await localWorkshopEngine.createClient(input);
+      await refresh();
+      markSaved(`Cliente "${created.name}" registrado`);
+      return created;
+    },
+    [refresh, markSaved],
+  );
+
+  const updateClient = useCallback(
+    async (clientId: string, updates: UpdateClientInput) => {
+      const updated = await localWorkshopEngine.updateClient(clientId, updates);
+      await refresh();
+      markSaved(`Cliente "${updated.name}" actualizado`);
+      return updated;
+    },
+    [refresh, markSaved],
+  );
+
+  const deleteClient = useCallback(
+    async (clientId: string) => {
+      await localWorkshopEngine.deleteClient(clientId);
+      await refresh();
+      markSaved('Cliente eliminado');
+    },
+    [refresh, markSaved],
+  );
+
+  const createPaymentPlan = useCallback(
+    async (input: CreatePaymentPlanInput) => {
+      const created = await localWorkshopEngine.createPaymentPlan(input);
+      await refresh();
+      markSaved('Plan de pagos guardado');
+      return created;
+    },
+    [refresh, markSaved],
+  );
+
+  const updatePaymentPlan = useCallback(
+    async (planId: string, updates: UpdatePaymentPlanInput) => {
+      const updated = await localWorkshopEngine.updatePaymentPlan(planId, updates);
+      await refresh();
+      markSaved('Plan de pagos actualizado');
+      return updated;
+    },
+    [refresh, markSaved],
+  );
+
+  const deletePaymentPlan = useCallback(
+    async (planId: string) => {
+      await localWorkshopEngine.deletePaymentPlan(planId);
+      await refresh();
+      markSaved('Plan de pagos eliminado');
+    },
+    [refresh, markSaved],
+  );
+
+  const recordPaymentTransaction = useCallback(
+    async (input: RecordPaymentTransactionInput) => {
+      const tx = await localWorkshopEngine.recordPaymentTransaction(input);
+      await refresh();
+      markSaved('Abono registrado en caja de clientes');
+      return tx;
+    },
+    [refresh, markSaved],
+  );
+
   const createPlannedTask = useCallback(
     async (input: CreateScheduledTaskInput) => {
       const created = await localWorkshopEngine.createPlannedTask(input);
@@ -938,6 +1029,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       quotes,
       paymentPlans,
       installments,
+      transactions,
       plannedTasks,
       reminders,
       stats,
@@ -984,6 +1076,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateQuote,
       deleteQuote,
       applyQuotePriceToProject,
+      createClient,
+      updateClient,
+      deleteClient,
+      createPaymentPlan,
+      updatePaymentPlan,
+      deletePaymentPlan,
+      recordPaymentTransaction,
       createPlannedTask,
       updatePlannedTask,
       deletePlannedTask,
@@ -1017,6 +1116,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       quotes,
       paymentPlans,
       installments,
+      transactions,
       plannedTasks,
       reminders,
       stats,
@@ -1063,6 +1163,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateQuote,
       deleteQuote,
       applyQuotePriceToProject,
+      createClient,
+      updateClient,
+      deleteClient,
+      createPaymentPlan,
+      updatePaymentPlan,
+      deletePaymentPlan,
+      recordPaymentTransaction,
       createPlannedTask,
       updatePlannedTask,
       deletePlannedTask,

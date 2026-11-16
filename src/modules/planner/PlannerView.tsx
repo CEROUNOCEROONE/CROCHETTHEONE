@@ -64,6 +64,7 @@ interface PlannerViewProps {
   onStartTimerForComponent?(projectId: string, componentId: string): void;
   onNavigateToShopping?(): void;
   onNavigateToInventory?(): void;
+  onNavigateToClients?(): void;
 }
 
 type PlannerTab = 'overview' | 'tasks' | 'reminders';
@@ -120,6 +121,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
   onStartTimerForComponent,
   onNavigateToShopping,
   onNavigateToInventory,
+  onNavigateToClients,
 }) => {
   const {
     settings,
@@ -787,6 +789,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     if (!entityId) return;
     if (entityType === 'project' && onOpenProject) {
       onOpenProject(entityId);
+    } else if (entityType === 'installment' && onNavigateToClients) {
+      onNavigateToClients();
     } else if (entityType === 'pending_material' && onNavigateToShopping) {
       onNavigateToShopping();
     } else if (entityType === 'variant' && onNavigateToInventory) {
@@ -796,9 +800,9 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
 
   const topSlot = (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div
-          className="no-scrollbar flex items-center gap-1.5 overflow-x-auto py-0.5"
+          className="grid w-full grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
           role="tablist"
           aria-label="Vistas de planificación"
         >
@@ -807,13 +811,13 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             role="tab"
             aria-selected={activeTab === 'overview'}
             onClick={() => handleTabJump('overview')}
-            className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
               activeTab === 'overview'
-                ? 'bg-slate-900 text-white'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                ? 'bg-teal-700 text-white'
+                : 'text-slate-600 hover:bg-white hover:text-slate-900'
             }`}
           >
-            <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+            <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>Agenda</span>
           </button>
 
@@ -822,13 +826,13 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             role="tab"
             aria-selected={activeTab === 'tasks'}
             onClick={() => handleTabJump('tasks')}
-            className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
               activeTab === 'tasks'
-                ? 'bg-slate-900 text-white'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                ? 'bg-teal-700 text-white'
+                : 'text-slate-600 hover:bg-white hover:text-slate-900'
             }`}
           >
-            <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+            <Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>Tareas ({filteredTasks.length})</span>
           </button>
 
@@ -837,35 +841,35 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             role="tab"
             aria-selected={activeTab === 'reminders'}
             onClick={() => handleTabJump('reminders')}
-            className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
               activeTab === 'reminders'
-                ? 'bg-slate-900 text-white'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                ? 'bg-teal-700 text-white'
+                : 'text-slate-600 hover:bg-white hover:text-slate-900'
             }`}
           >
-            <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+            <Bell className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>Alertas ({stats.activeRemindersCount})</span>
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center shrink-0">
           <button
             type="button"
             onClick={openNewTaskForm}
             disabled={projects.length === 0}
-            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-50"
+            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-50 whitespace-nowrap"
           >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>Agendar tarea</span>
           </button>
           <button
             type="button"
             onClick={openNewReminderForm}
-            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
           >
-            <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+            <Bell className="h-3.5 w-3.5 shrink-0 text-teal-700" aria-hidden="true" />
+            <span className="sm:hidden">Nueva alerta</span>
             <span className="hidden sm:inline">Nuevo recordatorio</span>
-            <span className="sm:hidden">+ Alerta</span>
           </button>
         </div>
       </div>

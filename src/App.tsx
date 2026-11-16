@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DataProvider, useWorkshopData } from '@/src/data/DataContext.tsx';
+import { ClientsAndPaymentsView } from '@/src/modules/clients/ClientsAndPaymentsView.tsx';
 import { DashboardView } from '@/src/modules/dashboard/DashboardView.tsx';
 import { InventoryView } from '@/src/modules/inventory/InventoryView.tsx';
 import { PlannerView } from '@/src/modules/planner/PlannerView.tsx';
@@ -23,6 +24,10 @@ function AppWorkspace() {
   const [quotingProjectTargetId, setQuotingProjectTargetId] = useState<string | null>(
     null,
   );
+  const [clientsTarget, setClientsTarget] = useState<{
+    projectId?: string;
+    clientId?: string;
+  } | null>(null);
   const [timerTarget, setTimerTarget] = useState<{
     projectId: string;
     componentId: string;
@@ -47,6 +52,11 @@ function AppWorkspace() {
     setActiveRoute('quoting');
   };
 
+  const handleOpenProjectPayments = (projectId: string) => {
+    setClientsTarget({ projectId });
+    setActiveRoute('clients');
+  };
+
   const renderContent = () => {
     if (activeRoute === 'dashboard') {
       return (
@@ -64,6 +74,7 @@ function AppWorkspace() {
           onStartTimerForComponent={handleStartTimerForComponent}
           onNavigateToInventory={() => setActiveRoute('inventory')}
           onQuoteProject={handleQuoteProject}
+          onOpenProjectPayments={handleOpenProjectPayments}
         />
       );
     }
@@ -95,6 +106,17 @@ function AppWorkspace() {
           onClearInitialProject={() => setQuotingProjectTargetId(null)}
           onNavigateToSettings={() => setActiveRoute('settings')}
           onOpenProject={handleOpenProjectFromDashboard}
+          onOpenProjectPayments={handleOpenProjectPayments}
+        />
+      );
+    }
+    if (activeRoute === 'clients') {
+      return (
+        <ClientsAndPaymentsView
+          initialProjectId={clientsTarget?.projectId ?? null}
+          initialClientId={clientsTarget?.clientId ?? null}
+          onClearInitialTarget={() => setClientsTarget(null)}
+          onOpenProject={handleOpenProjectFromDashboard}
         />
       );
     }
@@ -105,6 +127,7 @@ function AppWorkspace() {
           onStartTimerForComponent={handleStartTimerForComponent}
           onNavigateToShopping={() => setActiveRoute('shopping')}
           onNavigateToInventory={() => setActiveRoute('inventory')}
+          onNavigateToClients={() => setActiveRoute('clients')}
         />
       );
     }

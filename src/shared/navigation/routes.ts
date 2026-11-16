@@ -150,7 +150,7 @@ export const MODULE_ROUTES: ModuleRouteDefinition[] = [
     description: 'Directorio de clientes, anticipos, cuotas, pagos parciales y saldos.',
     group: 'Comercial',
     phase: 7,
-    isActiveInCurrentPhase: false,
+    isActiveInCurrentPhase: true,
     icon: Users,
     showInMobileBottomBar: false,
     plannedCapabilities: [
