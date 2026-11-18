@@ -1419,8 +1419,9 @@ export const WorkshopSettingsView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Simulador efímero exclusivo de desarrollo */}
-                {import.meta.env.DEV && (
+                {/* Simulador efímero de desarrollo o vista previa privada */}
+                {(import.meta.env.DEV ||
+                  import.meta.env.VITE_ENABLE_PLAN_SIMULATOR === 'true') && (
                   <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 sm:p-5 space-y-3">
                     <div className="flex items-start gap-2.5">
                       <FlaskConical
@@ -1429,10 +1430,10 @@ export const WorkshopSettingsView: React.FC = () => {
                       />
                       <div>
                         <h4 className="text-sm font-semibold text-amber-950">
-                          Simulador de desarrollo (solo en memoria, sin persistencia)
+                          Simulador de planes (solo en memoria, sin persistencia)
                         </h4>
                         <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
-                          Disponible únicamente en modo desarrollo (VITE DEV). Permite probar límites FREE y capacidades PRO en memoria sin modificar IndexedDB ni incluir este panel en producción.
+                          Disponible en desarrollo o en despliegues de prueba habilitados. Permite alternar en vivo entre FREE y PRO en memoria sin modificar IndexedDB ni respaldos.
                         </p>
                       </div>
                     </div>

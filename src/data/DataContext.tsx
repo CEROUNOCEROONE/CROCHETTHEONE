@@ -100,6 +100,7 @@ import {
 } from '@/src/domain/services/exchangeRateService.ts';
 import {
   getPlanCapabilities,
+  isPlanSimulatorEnabled,
   resolveEffectiveTier,
   type PlanCapabilities,
 } from '@/src/domain/services/planCapabilities.ts';
@@ -347,15 +348,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return isUsdRatesFreshToday(cached) ? 'ready' : 'offline_cached';
   });
   const [installationId] = useState<string>(() => getOrCreateInstallationId());
+  const simulatorEnabled = isPlanSimulatorEnabled();
   const [devTierOverrideState, setDevTierOverrideState] =
     useState<SubscriptionTier | null>(null);
 
-  const setDevTierOverride = useCallback((nextTier: SubscriptionTier | null) => {
-    if (!import.meta.env.DEV) return;
-    setDevTierOverrideState(nextTier);
-  }, []);
+  const setDevTierOverride = useCallback(
+    (nextTier: SubscriptionTier | null) => {
+      if (!simulatorEnabled) return;
+      setDevTierOverrideState(nextTier);
+    },
+    [simulatorEnabled],
+  );
 
-  const devTierOverride = import.meta.env.DEV ? devTierOverrideState : null;
+  const devTierOverride = simulatorEnabled ? devTierOverrideState : null;
   const effectiveTier = useMemo(
     () => resolveEffectiveTier(settings, devTierOverride),
     [settings, devTierOverride],

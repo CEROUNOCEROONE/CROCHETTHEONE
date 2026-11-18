@@ -2,6 +2,11 @@
   command = "bun run build"
   publish = "dist"
 
+[build.environment]
+  # Habilita el simulador en memoria FREE/PRO para pruebas privadas en Netlify.
+  # Cámbialo a "false" o elimina esta sección antes de abrir el sitio al público.
+  VITE_ENABLE_PLAN_SIMULATOR = "true"
+
 [[headers]]
   for = "/*"
   [headers.values]

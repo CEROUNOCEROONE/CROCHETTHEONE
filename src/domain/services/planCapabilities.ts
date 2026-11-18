@@ -70,17 +70,31 @@ export function isProTier(tier: SubscriptionTier): boolean {
 }
 
 /**
+ * Indica si el simulador efímero de planes está habilitado en este entorno.
+ * - Siempre activo en desarrollo (import.meta.env.DEV).
+ * - En compilaciones de producción/preview, solo se habilita de forma explícita
+ *   cuando VITE_ENABLE_PLAN_SIMULATOR === 'true'.
+ */
+export function isPlanSimulatorEnabled(): boolean {
+  return (
+    Boolean(import.meta.env.DEV) ||
+    import.meta.env.VITE_ENABLE_PLAN_SIMULATOR === 'true'
+  );
+}
+
+/**
  * Resuelve el plan efectivo para la sesión actual.
- * En Fase A, la autoridad comercial en producción es exclusivamente FREE:
- * - En compilaciones de producción (import.meta.env.PROD), siempre retorna 'free'.
+ * En Fase A, la autoridad comercial por defecto en producción es FREE:
+ * - Si el simulador no está habilitado explícitamente, siempre retorna 'free'.
  * - Modificar manualmente IndexedDB o importar respaldos JSON nunca activa PRO.
- * - El simulador efímero solo funciona cuando import.meta.env.DEV === true.
+ * - Cuando está habilitado (DEV o VITE_ENABLE_PLAN_SIMULATOR === 'true'),
+ *   permite alternar en memoria sin persistencia.
  */
 export function resolveEffectiveTier(
   _settings: Pick<WorkshopSettings, 'plan'>,
   devTierOverride: SubscriptionTier | null = null,
 ): SubscriptionTier {
-  if (import.meta.env?.DEV && devTierOverride !== null) {
+  if (isPlanSimulatorEnabled() && devTierOverride !== null) {
     return devTierOverride;
   }
   return 'free';
