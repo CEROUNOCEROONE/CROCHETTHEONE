@@ -1747,6 +1747,11 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                       {' · '}
                                       Est.: {formatCOP(item.estimatedUnitPriceCOP)}/
                                       {getUnitShortLabel(item.unit)}
+                                      <UsdEquiv
+                                        amount={item.estimatedUnitPriceCOP}
+                                        prefix=" ("
+                                        suffix=")"
+                                      />
                                       {item.provider ? ` · ${item.provider}` : ''}
                                     </p>
                                     {item.notes && (
@@ -2129,6 +2134,14 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                     ),
                                   )}
                                 </strong>
+                                <UsdEquiv
+                                  amount={roundCurrencyAmount(
+                                    line.quantityReceived * line.unitCostCOP,
+                                    settings.currency,
+                                  )}
+                                  prefix=" ("
+                                  suffix=")"
+                                />
                               </span>
                             </div>
                           );
@@ -2363,6 +2376,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                 className="w-full min-h-[40px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm"
                               />
                             </div>
+                            <UsdEquiv
+                              amount={Number(quickVarCostCOP)}
+                              hideWhenZero
+                              block
+                              className="mt-1"
+                            />
                           </div>
                         </div>
                       </div>
@@ -2827,6 +2846,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                     onChange={(e) => setItemEstimatedPrice(e.target.value)}
                     className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm"
                   />
+                  <UsdEquiv
+                    amount={Number(itemEstimatedPrice)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
+                  />
                 </div>
               </div>
 
@@ -3105,6 +3130,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                             }}
                             className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm"
                           />
+                          <UsdEquiv
+                            amount={Number(line.unitCostCOP)}
+                            hideWhenZero
+                            block
+                            className="mt-1"
+                          />
                         </div>
 
                         <div className="flex items-end pb-1">
@@ -3150,9 +3181,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 <span className="text-xs font-medium text-slate-600">
                   Total de esta recepción
                 </span>
-                <span className="font-mono text-lg font-bold text-slate-900 tabular-nums">
-                  {formatCOP(selectedReceiptTotalCOP)}
-                </span>
+                <div className="text-right">
+                  <span className="font-mono text-lg font-bold text-slate-900 tabular-nums">
+                    {formatCOP(selectedReceiptTotalCOP)}
+                  </span>
+                  <UsdEquiv amount={selectedReceiptTotalCOP} block />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-1">

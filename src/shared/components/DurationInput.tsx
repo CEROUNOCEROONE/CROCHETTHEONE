@@ -107,6 +107,9 @@ export const DurationInput: React.FC<DurationInputProps> = ({
     if (e.key === 'Enter') {
       e.preventDefault();
       e.stopPropagation();
+      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+        return;
+      }
       handleConfirm();
     } else if (e.key === 'Escape') {
       e.preventDefault();

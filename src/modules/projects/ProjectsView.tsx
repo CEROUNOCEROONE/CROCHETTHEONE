@@ -1449,6 +1449,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     onChange={(e) => setFormBudgetCOP(e.target.value)}
                     className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                   />
+                  <UsdEquiv
+                    amount={Number(formBudgetCOP)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>

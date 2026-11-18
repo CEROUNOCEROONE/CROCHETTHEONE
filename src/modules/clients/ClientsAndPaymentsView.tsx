@@ -249,9 +249,9 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
           planInstallments,
           todayKey,
         );
-        const planTxs = (transactionsByPlan.get(plan.id) ?? [])
-          .slice()
-          .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+        const planTxs = (transactionsByPlan.get(plan.id) ?? []).toSorted((a, b) =>
+          b.paymentDate.localeCompare(a.paymentDate),
+        );
         const project = projectById.get(plan.projectId) ?? null;
         const client = clientById.get(plan.clientId) ?? null;
         return {
@@ -425,8 +425,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const filteredTransactions = useMemo(() => {
     return transactions
-      .slice()
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const d = b.paymentDate.localeCompare(a.paymentDate);
         return d !== 0 ? d : b.createdAt.localeCompare(a.createdAt);
       })
@@ -636,9 +635,9 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   };
 
   const openEditPlanModal = (plan: PaymentPlan) => {
-    const existingInsts = (installmentsByPlan.get(plan.id) ?? [])
-      .slice()
-      .sort((a, b) => a.installmentNumber - b.installmentNumber);
+    const existingInsts = (installmentsByPlan.get(plan.id) ?? []).toSorted(
+      (a, b) => a.installmentNumber - b.installmentNumber,
+    );
 
     setEditingPlan(plan);
     setPlanProjectId(plan.projectId);
@@ -854,9 +853,9 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   ) => {
     const plan = planById.get(planId);
     if (!plan) return;
-    const planInsts = (installmentsByPlan.get(planId) ?? [])
-      .slice()
-      .sort((a, b) => a.installmentNumber - b.installmentNumber);
+    const planInsts = (installmentsByPlan.get(planId) ?? []).toSorted(
+      (a, b) => a.installmentNumber - b.installmentNumber,
+    );
     const openInst =
       (installmentId ? planInsts.find((i) => i.id === installmentId) : undefined) ??
       planInsts.find((i) => i.paidAmountCOP < i.scheduledAmountCOP);
@@ -1358,8 +1357,21 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
                       Vence: {formatDateCO(inst.dueDate)} · Programado:{' '}
                       {formatCOP(inst.scheduledAmountCOP)}
-                      {inst.paidAmountCOP > 0 &&
-                        ` · Pagado: ${formatCOP(inst.paidAmountCOP)}`}
+                      <UsdEquiv
+                        amount={inst.scheduledAmountCOP}
+                        prefix=" ("
+                        suffix=")"
+                      />
+                      {inst.paidAmountCOP > 0 && (
+                        <>
+                          {` · Pagado: ${formatCOP(inst.paidAmountCOP)}`}
+                          <UsdEquiv
+                            amount={inst.paidAmountCOP}
+                            prefix=" ("
+                            suffix=")"
+                          />
+                        </>
+                      )}
                     </p>
                   </div>
 
@@ -2378,6 +2390,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     }}
                     className="mt-1 min-h-[42px] w-full rounded-lg border border-slate-300 px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                   />
+                  <UsdEquiv
+                    amount={parseNonNegativeMoney(planTotalRaw, settings.currency)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>
@@ -2477,6 +2495,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                       {planDraftDiffMinor !== 0 &&
                         ` (Diferencia: ${formatCOP(planDraftDiffCOP)})`}
                     </p>
+                    <UsdEquiv
+                      amount={planDraftSumCOP}
+                      prefix="Suma cuotas: "
+                      block
+                      className="mt-0.5 text-[10px]"
+                    />
                   </div>
 
                   <button
@@ -2535,6 +2559,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                             });
                           }}
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                        />
+                        <UsdEquiv
+                          amount={row.scheduledAmountCOP}
+                          hideWhenZero
+                          block
+                          className="mt-1 text-[10px]"
                         />
                         {row.lockedPaidCOP > 0 && (
                           <span className="text-[10px] text-emerald-700 tabular-nums">
@@ -2608,6 +2638,15 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                             )
                           }
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                        />
+                        <UsdEquiv
+                          amount={parseNonNegativeMoney(
+                            initPayAmountRaw,
+                            settings.currency,
+                          )}
+                          hideWhenZero
+                          block
+                          className="mt-1 text-[10px]"
                         />
                       </div>
                       <div>
@@ -2736,9 +2775,15 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="mt-4 space-y-3.5">
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3.5 py-2.5 text-xs">
                 <span className="text-slate-600">Saldo pendiente del plan:</span>
-                <span className="font-mono font-bold text-slate-900 tabular-nums">
-                  {formatCOP(selectedPlanForPay.recomputed.balancePendingCOP)}
-                </span>
+                <div className="text-right">
+                  <span className="font-mono font-bold text-slate-900 tabular-nums">
+                    {formatCOP(selectedPlanForPay.recomputed.balancePendingCOP)}
+                  </span>
+                  <UsdEquiv
+                    amount={selectedPlanForPay.recomputed.balancePendingCOP}
+                    block
+                  />
+                </div>
               </div>
 
               <div>
@@ -2816,6 +2861,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     )
                   }
                   className="mt-1 min-h-[42px] w-full rounded-lg border border-slate-300 px-3 font-mono text-sm font-semibold text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                />
+                <UsdEquiv
+                  amount={parseNonNegativeMoney(payAmountRaw, settings.currency)}
+                  hideWhenZero
+                  block
+                  className="mt-1"
                 />
               </div>
 

@@ -1646,6 +1646,11 @@ export const InventoryView: React.FC = () => {
                             {mov.previousReservedStock} → {mov.newReservedStock}{' '}
                             {getUnitShortLabel(unit)} · Costo ref:{' '}
                             {formatCOP(mov.unitCostAtMovementCOP)}
+                            <UsdEquiv
+                              amount={mov.unitCostAtMovementCOP}
+                              prefix=" ("
+                              suffix=")"
+                            />
                           </p>
                           {mov.notes && (
                             <p className="text-xs text-slate-600">{mov.notes}</p>
@@ -1906,6 +1911,12 @@ export const InventoryView: React.FC = () => {
                         onChange={(e) => setFirstCostCOP(e.target.value)}
                         className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
+                      <UsdEquiv
+                        amount={Number(firstCostCOP)}
+                        hideWhenZero
+                        block
+                        className="mt-1"
+                      />
                     </div>
 
                     <div>
@@ -2130,6 +2141,12 @@ export const InventoryView: React.FC = () => {
                     value={varCostCOP}
                     onChange={(e) => setVarCostCOP(e.target.value)}
                     className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  />
+                  <UsdEquiv
+                    amount={Number(varCostCOP)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
                   />
                 </div>
 

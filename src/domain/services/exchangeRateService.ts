@@ -118,21 +118,15 @@ export function isUsdRatesFreshToday(snapshot: UsdRatesSnapshot | null): boolean
 }
 
 async function fetchJsonWithTimeout(url: string): Promise<unknown> {
-  const controller = new AbortController();
-  const timer = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return (await response.json()) as unknown;
-  } finally {
-    globalThis.clearTimeout(timer);
+  const response = await fetch(url, {
+    method: 'GET',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
   }
+  return (await response.json()) as unknown;
 }
 
 async function fetchPrimaryRates(): Promise<UsdRatesSnapshot | null> {

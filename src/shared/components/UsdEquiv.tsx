@@ -9,6 +9,7 @@ interface UsdEquivProps {
   readonly prefix?: string;
   readonly suffix?: string;
   readonly block?: boolean;
+  readonly hideWhenZero?: boolean;
   readonly className?: string;
 }
 
@@ -18,9 +19,14 @@ export const UsdEquiv: React.FC<UsdEquivProps> = ({
   prefix = '',
   suffix = '',
   block = false,
+  hideWhenZero = false,
   className = '',
 }) => {
   const { settings, usdRates } = useWorkshopData();
+  if (hideWhenZero && (!Number.isFinite(amount) || amount <= 0)) {
+    return null;
+  }
+
   const activeCurrency = currency ?? settings.currency;
   const formatted = formatUsdApprox(amount, activeCurrency, usdRates);
 

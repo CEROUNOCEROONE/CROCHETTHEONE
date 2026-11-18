@@ -48,6 +48,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           <img
             src="/icon.svg"
             alt={BRAND_CONFIG.appName}
+            width={32}
+            height={32}
             className="h-8 w-8 rounded-lg"
           />
           <div className="min-w-0">
@@ -213,6 +215,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                 <img
                   src="/icon.svg"
                   alt={BRAND_CONFIG.appName}
+                  width={28}
+                  height={28}
                   className="h-7 w-7 rounded-md"
                 />
                 <span className="truncate font-display text-sm font-bold text-slate-900">

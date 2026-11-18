@@ -108,3 +108,13 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Modal <dialog> top-layer scroll containment */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

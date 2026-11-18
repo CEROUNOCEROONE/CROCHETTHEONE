@@ -298,9 +298,9 @@ export function recomputePlanAndInstallments(
   todayKey = toLocalDateKey(new Date()),
   currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): RecomputedPlanSummary {
-  const sorted = rawInstallments
-    .slice()
-    .sort((a, b) => a.installmentNumber - b.installmentNumber);
+  const sorted = rawInstallments.toSorted(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
 
   const effectiveInstallments = sorted.map((inst) => ({
     ...inst,
@@ -369,9 +369,9 @@ export function allocatePaymentAcrossInstallments(
   todayKey = toLocalDateKey(new Date()),
   currency: WorkshopCurrencyCode = getActiveCurrency(),
 ): PaymentInstallment[] {
-  const sorted = installments
-    .slice()
-    .sort((a, b) => a.installmentNumber - b.installmentNumber);
+  const sorted = installments.toSorted(
+    (a, b) => a.installmentNumber - b.installmentNumber,
+  );
 
   let remainingMinor = Math.max(0, toMinorUnits(amountCOP, currency));
   if (remainingMinor <= 0) {
@@ -473,8 +473,7 @@ export function computeClientAccountSummaries(params: {
   }
 
   return clients
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+    .toSorted((a, b) => a.name.localeCompare(b.name, 'es'))
     .map((client) => {
       const linkedProjects = projects.filter((p) => p.clientId === client.id);
       const clientPlans = paymentPlans.filter((pl) => pl.clientId === client.id);

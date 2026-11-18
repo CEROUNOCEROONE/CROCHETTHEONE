@@ -262,7 +262,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     const filtered = hasLinkedProjectOrClient
       ? variants.filter((v) => v.isDemo === targetEnvironmentIsDemo)
       : variants;
-    return filtered.slice().sort((a, b) => {
+    return filtered.toSorted((a, b) => {
       const matA = materialById.get(a.materialId)?.name ?? '';
       const matB = materialById.get(b.materialId)?.name ?? '';
       return `${matA} ${a.colorName}`.localeCompare(`${matB} ${b.colorName}`, 'es');
@@ -1366,6 +1366,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       </h3>
                       <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
                         Total materiales: {formatCOP(livePricing.summary.materialsTotalCOP)}
+                        <UsdEquiv
+                          amount={livePricing.summary.materialsTotalCOP}
+                          prefix=" ("
+                          suffix=")"
+                        />
                       </p>
                     </div>
                     <button
@@ -1564,6 +1569,15 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                                 }
                                 className="mt-1 min-h-[36px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                               />
+                              <UsdEquiv
+                                amount={parseNonNegativeMoney(
+                                  line.unitCostCOP,
+                                  settings.currency,
+                                )}
+                                hideWhenZero
+                                block
+                                className="mt-1"
+                              />
                             </div>
 
                             <div className="sm:col-span-4 text-right sm:pb-1.5">
@@ -1571,6 +1585,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                               <p className="font-mono text-xs font-semibold text-slate-900 tabular-nums sm:text-sm">
                                 {formatCOP(subtotal)}
                               </p>
+                              <UsdEquiv amount={subtotal} block />
                             </div>
                           </div>
                         </div>
@@ -1641,6 +1656,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     onChange={(e) => setHourlyRateRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                   />
+                  <UsdEquiv
+                    amount={parseNonNegativeMoney(hourlyRateRaw, settings.currency)}
+                    hideWhenZero
+                    prefix="Equivalente por hora: "
+                    block
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>
@@ -1659,6 +1681,12 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     onChange={(e) => setPackagingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                   />
+                  <UsdEquiv
+                    amount={parseNonNegativeMoney(packagingRaw, settings.currency)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>
@@ -1676,6 +1704,12 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                     value={shippingRaw}
                     onChange={(e) => setShippingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                  />
+                  <UsdEquiv
+                    amount={parseNonNegativeMoney(shippingRaw, settings.currency)}
+                    hideWhenZero
+                    block
+                    className="mt-1"
                   />
                 </div>
               </div>
@@ -1805,6 +1839,15 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           value={manualIndirectRaw}
                           onChange={(e) => setManualIndirectRaw(e.target.value)}
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                        />
+                        <UsdEquiv
+                          amount={parseNonNegativeMoney(
+                            manualIndirectRaw,
+                            settings.currency,
+                          )}
+                          hideWhenZero
+                          block
+                          className="mt-1"
                         />
                       </div>
                     </div>
@@ -2066,6 +2109,16 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       onChange={(e) => setFinalAgreedPriceRaw(e.target.value)}
                       placeholder={`Por defecto: ${formatCOP(livePricing.summary.suggestedPriceCOP)}`}
                       className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
+                    />
+                    <UsdEquiv
+                      amount={parseNonNegativeMoney(
+                        finalAgreedPriceRaw,
+                        settings.currency,
+                      )}
+                      hideWhenZero
+                      prefix="Precio acordado: "
+                      block
+                      className="mt-1"
                     />
 
                     {livePricing.agreedMetrics && (

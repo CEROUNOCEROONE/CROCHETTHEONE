@@ -461,7 +461,7 @@ export async function applyBackupImport(
         );
 
         if (strategy === 'replace_all') {
-          for (const storeName of [...DATA_STORES_TOPOLOGICAL_ORDER].reverse()) {
+          for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER.toReversed()) {
             tx.objectStore(storeName).clear();
           }
         }

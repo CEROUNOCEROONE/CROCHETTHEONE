@@ -135,8 +135,7 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
   const nextDeliveryProject = projectsWithDeadline[0] ?? null;
 
   const projectSummaries: ProjectSummaryCardData[] = snapshot.projects
-    .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((project) => {
       const comps = snapshot.components.filter((c) => c.projectId === project.id);
       const completedComponents = comps.filter((c) => c.status === 'completed').length;

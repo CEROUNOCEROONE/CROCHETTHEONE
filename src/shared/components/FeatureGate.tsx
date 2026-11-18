@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { Sparkles, X } from 'lucide-react';
 
 export interface FeatureGateProps {
@@ -18,9 +18,59 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
   isOpen = true,
   onClose,
 }) => {
-  if (mode === 'modal' && !isOpen) {
-    return null;
-  }
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    if (mode !== 'modal') return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (isOpen) {
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [mode, isOpen]);
+
+  // Fallback de light-dismiss para navegadores sin HTMLDialogElement.closedBy (ej. Safari)
+  useEffect(() => {
+    if (mode !== 'modal' || !isOpen) return;
+    const dialog = dialogRef.current;
+    if (!dialog || 'closedBy' in HTMLDialogElement.prototype) return;
+
+    const isOutside = (e: PointerEvent) => {
+      const r = dialog.getBoundingClientRect();
+      return (
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      );
+    };
+
+    let pressedOutside = false;
+    const handlePointerDown = (e: PointerEvent) => {
+      pressedOutside = isOutside(e);
+    };
+    const handlePointerUp = (e: PointerEvent) => {
+      if (pressedOutside && isOutside(e)) {
+        onClose?.();
+      }
+      pressedOutside = false;
+    };
+
+    dialog.addEventListener('pointerdown', handlePointerDown);
+    dialog.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      dialog.removeEventListener('pointerdown', handlePointerDown);
+      dialog.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [mode, isOpen, onClose]);
+
+  const TitleTag = mode === 'modal' ? 'h2' : 'h4';
 
   const content = (
     <div className="space-y-2.5">
@@ -34,15 +84,18 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
               <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
                 Capacidad PRO
               </span>
-              <h4 className="text-xs font-bold text-slate-900 sm:text-sm">
+              <TitleTag
+                id={mode === 'modal' ? titleId : undefined}
+                className="text-xs font-bold text-slate-900 sm:text-sm"
+              >
                 {featureTitle}
-              </h4>
+              </TitleTag>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-700">
               {description}
             </p>
             {freeIncludedNote && (
-              <p className="mt-1.5 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-600 border border-amber-200/70">
+              <p className="mt-1.5 rounded-lg border border-amber-200/70 bg-white/80 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-600">
                 <strong className="font-semibold text-slate-800">En tu plan FREE:</strong>{' '}
                 {freeIncludedNote}
               </p>
@@ -50,14 +103,14 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
           </div>
         </div>
 
-        {onClose && mode !== 'modal' && (
+        {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar aviso informativo"
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-amber-100/70 hover:text-slate-800"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
       </div>
@@ -66,6 +119,7 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
         <div className="flex justify-end gap-2 border-t border-amber-200/70 pt-3">
           <button
             type="button"
+            autoFocus
             onClick={onClose}
             className="inline-flex min-h-[40px] items-center rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
           >
@@ -78,16 +132,23 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
 
   if (mode === 'modal') {
     return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-label={featureTitle}
+      <dialog
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        {...({ closedby: 'any' } as Record<string, unknown>)}
+        onCancel={(e) => {
+          e.preventDefault();
+          onClose?.();
+        }}
+        onClose={() => {
+          if (isOpen) {
+            onClose?.();
+          }
+        }}
+        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/50"
       >
-        <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-xl">
-          {content}
-        </div>
-      </div>
+        {isOpen && content}
+      </dialog>
     );
   }
 
