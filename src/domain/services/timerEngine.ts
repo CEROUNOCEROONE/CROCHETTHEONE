@@ -23,18 +23,44 @@ export function calculateSessionDurations(
     return { elapsedSeconds: 0, pausedSeconds: 0, effectiveSeconds: 0, effectiveMinutes: 0 };
   }
 
-  const endMsRaw = session.endTime ? Date.parse(session.endTime) : referenceNowMs;
-  const endMs = Number.isNaN(endMsRaw) ? referenceNowMs : Math.max(startMs, endMsRaw);
+  const safeRefMs = Number.isFinite(referenceNowMs) ? referenceNowMs : Date.now();
+  const endMsRaw = session.endTime ? Date.parse(session.endTime) : safeRefMs;
+  const endMs = Number.isNaN(endMsRaw) ? Math.max(startMs, safeRefMs) : Math.max(startMs, endMsRaw);
   const elapsedSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000));
 
-  let pausedMs = 0;
+  // Normalizar y fusionar intervalos de pausa para resistir cambios de hora del reloj del dispositivo
+  const clampedIntervals: Array<{ start: number; end: number }> = [];
   for (const interval of session.pauseIntervals) {
     const pStart = Date.parse(interval.pausedAt);
     if (Number.isNaN(pStart)) continue;
     const clampedStart = Math.max(startMs, Math.min(endMs, pStart));
     const pEndRaw = interval.resumedAt ? Date.parse(interval.resumedAt) : endMs;
-    const pEnd = Number.isNaN(pEndRaw) ? endMs : Math.max(clampedStart, Math.min(endMs, pEndRaw));
-    pausedMs += Math.max(0, pEnd - clampedStart);
+    const pEnd = Number.isNaN(pEndRaw)
+      ? endMs
+      : Math.max(clampedStart, Math.min(endMs, pEndRaw));
+    if (pEnd > clampedStart) {
+      clampedIntervals.push({ start: clampedStart, end: pEnd });
+    }
+  }
+
+  clampedIntervals.sort((a, b) => a.start - b.start);
+
+  let pausedMs = 0;
+  let currentWindow: { start: number; end: number } | null = null;
+  for (const item of clampedIntervals) {
+    if (!currentWindow) {
+      currentWindow = { ...item };
+      continue;
+    }
+    if (item.start <= currentWindow.end) {
+      currentWindow.end = Math.max(currentWindow.end, item.end);
+    } else {
+      pausedMs += currentWindow.end - currentWindow.start;
+      currentWindow = { ...item };
+    }
+  }
+  if (currentWindow) {
+    pausedMs += currentWindow.end - currentWindow.start;
   }
 
   const pausedSeconds = Math.min(elapsedSeconds, Math.floor(pausedMs / 1000));
@@ -77,6 +103,40 @@ export function isUnusuallyLongActiveSession(
   if (session.status !== 'running') return false;
   const { effectiveSeconds } = calculateSessionDurations(session, referenceNowMs);
   return effectiveSeconds >= LONG_SESSION_THRESHOLD_SECONDS;
+}
+
+export function isTimerPastMinutes(
+  session: WorkSession,
+  thresholdMinutes: number,
+  referenceNowMs: number = Date.now(),
+): boolean {
+  if (session.status !== 'running' || thresholdMinutes <= 0) return false;
+  const { effectiveSeconds } = calculateSessionDurations(session, referenceNowMs);
+  return effectiveSeconds >= thresholdMinutes * 60;
+}
+
+/**
+ * Selecciona la sesión global prioritaria: primero la que está corriendo,
+ * y si no hay ninguna corriendo, la sesión pausada más reciente.
+ */
+export function resolveActiveTimerCandidate(
+  allSessions: ReadonlyArray<WorkSession>,
+): WorkSession | null {
+  const running = allSessions.find((s) => s.status === 'running');
+  if (running) return running;
+  const paused = allSessions
+    .filter((s) => s.status === 'paused')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return paused[0] ?? null;
+}
+
+export function getOtherPausedTimerSessions(
+  allSessions: ReadonlyArray<WorkSession>,
+  primarySessionId: string | null,
+): WorkSession[] {
+  return allSessions
+    .filter((s) => s.status === 'paused' && s.id !== primarySessionId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /**

@@ -178,6 +178,16 @@ export interface WorkshopDataEngine {
         | 'enableInstallmentReminders'
         | 'enablePurchaseReminders'
         | 'enableLowStockReminders'
+        | 'enableClientReminders'
+        | 'enableBrowserNotifications'
+        | 'enableTimerNotifications'
+        | 'timerReminderIntervalMinutes'
+        | 'forgottenTimerThresholdMinutes'
+        | 'enableSoundAlerts'
+        | 'enableVibrationAlerts'
+        | 'quietHoursEnabled'
+        | 'quietHoursStart'
+        | 'quietHoursEnd'
         | 'customMaterialCategories'
       >
     >,

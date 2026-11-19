@@ -360,6 +360,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         settings: effectiveReminderSettings,
         reminders,
         projects,
+        components,
+        workSessions,
         pendingMaterials,
         materials,
         variants,
@@ -371,6 +373,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
       effectiveReminderSettings,
       reminders,
       projects,
+      components,
+      workSessions,
       pendingMaterials,
       materials,
       variants,
@@ -849,7 +853,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
     if (!entityId) return;
     if (entityType === 'project' && onOpenProject) {
       onOpenProject(entityId);
-    } else if (entityType === 'installment' && onNavigateToClients) {
+    } else if (
+      (entityType === 'installment' || entityType === 'client') &&
+      onNavigateToClients
+    ) {
       onNavigateToClients();
     } else if (entityType === 'pending_material' && onNavigateToShopping) {
       onNavigateToShopping();

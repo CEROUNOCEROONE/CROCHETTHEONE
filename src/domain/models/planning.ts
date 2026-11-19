@@ -4,11 +4,14 @@ export type TaskStatus = 'scheduled' | 'blocked_by_material' | 'completed' | 're
 
 export type ReminderType =
   | 'work_session'
+  | 'timer_reminder'
   | 'component_goal'
   | 'pending_purchase'
   | 'material_arrival'
   | 'low_stock'
+  | 'material_shortage'
   | 'installment_due'
+  | 'client_followup'
   | 'social_recording'
   | 'delivery_deadline';
 
@@ -28,7 +31,9 @@ export type ReminderRelatedEntityType =
   | 'project'
   | 'installment'
   | 'pending_material'
-  | 'variant';
+  | 'variant'
+  | 'work_session'
+  | 'client';
 
 export interface Reminder extends BaseEntity {
   readonly type: ReminderType;

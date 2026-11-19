@@ -16,7 +16,11 @@ import type {
   WorkSession,
   WorkshopSettings,
 } from '@/src/domain/models/index.ts';
-import { formatCOP, formatDateCO } from './formatters.ts';
+import { formatCOP, formatDateCO, formatDurationMinutes } from './formatters.ts';
+import {
+  calculateSessionDurations,
+  formatClockHHMMSS,
+} from './timerEngine.ts';
 
 export interface CreateScheduledTaskInput {
   readonly projectId: string;
@@ -131,11 +135,14 @@ export const REMINDER_TYPE_META: Record<
 > = {
   delivery_deadline: { label: 'Entrega', tone: 'warning' },
   installment_due: { label: 'Cuota / cobro', tone: 'active' },
+  client_followup: { label: 'Seguimiento cliente', tone: 'active' },
   pending_purchase: { label: 'Compra pendiente', tone: 'warning' },
   material_arrival: { label: 'Llegada de insumo', tone: 'active' },
   low_stock: { label: 'Stock bajo', tone: 'warning' },
+  material_shortage: { label: 'Insumo insuficiente', tone: 'warning' },
   component_goal: { label: 'Meta de pieza', tone: 'neutral' },
   work_session: { label: 'Sesión de tejido', tone: 'active' },
+  timer_reminder: { label: 'Cronómetro', tone: 'warning' },
   social_recording: { label: 'Contenido / redes', tone: 'neutral' },
 };
 
@@ -367,6 +374,8 @@ export function resolveSmartRemindersAndAlerts(params: {
   readonly settings: WorkshopSettings;
   readonly reminders: Reminder[];
   readonly projects: Project[];
+  readonly components?: ProjectComponent[];
+  readonly workSessions?: WorkSession[];
   readonly pendingMaterials: PendingMaterial[];
   readonly materials: Material[];
   readonly variants: MaterialVariant[];
@@ -379,6 +388,8 @@ export function resolveSmartRemindersAndAlerts(params: {
     settings,
     reminders,
     projects,
+    components = [],
+    workSessions = [],
     pendingMaterials,
     materials,
     variants,
@@ -392,13 +403,20 @@ export function resolveSmartRemindersAndAlerts(params: {
   const leadDelivery = Math.max(0, settings.reminderLeadDaysDelivery ?? 3);
   const leadInstallment = Math.max(0, settings.reminderLeadDaysInstallment ?? 2);
   const leadPurchase = Math.max(0, settings.reminderLeadDaysPurchase ?? 1);
+  const forgottenTimerMins = Math.max(
+    15,
+    settings.forgottenTimerThresholdMinutes ?? 180,
+  );
 
   const enableDelivery = settings.enableDeliveryReminders !== false;
   const enableInstallment = settings.enableInstallmentReminders !== false;
   const enablePurchase = settings.enablePurchaseReminders !== false;
   const enableLowStock = settings.enableLowStockReminders !== false;
+  const enableClient = settings.enableClientReminders !== false;
+  const enableTimerAlerts = settings.enableTimerNotifications !== false;
 
   const projectMap = new Map(projects.map((p) => [p.id, p]));
+  const componentMap = new Map(components.map((c) => [c.id, c]));
   const clientMap = new Map(clients.map((c) => [c.id, c]));
   const planMap = new Map(paymentPlans.map((pl) => [pl.id, pl]));
   const materialMap = new Map(materials.map((m) => [m.id, m]));
@@ -571,6 +589,124 @@ export function resolveSmartRemindersAndAlerts(params: {
         isCompleted: false,
         isDemo: variant.isDemo,
       });
+    }
+  }
+
+  // 5. Alertas de materiales insuficientes para piezas de proyectos activos
+  if (enablePurchase || enableLowStock) {
+    const doneOrCancelled = new Set(['completed', 'delivered', 'cancelled']);
+    const pendingByComponent = new Set(
+      pendingMaterials
+        .filter((pm) => isOpenPendingMaterial(pm) && pm.componentId)
+        .map((pm) => pm.componentId as string),
+    );
+    for (const comp of components) {
+      if (comp.status !== 'blocked_by_material') continue;
+      if (pendingByComponent.has(comp.id)) continue;
+      if (persistedByKey.has(`material_shortage:${comp.id}`)) continue;
+      const proj = projectMap.get(comp.projectId);
+      if (!proj || doneOrCancelled.has(proj.status)) continue;
+
+      items.push({
+        id: `auto_shortage_${comp.id}`,
+        source: 'auto_rule',
+        reminderId: null,
+        type: 'material_shortage',
+        title: `Insumo faltante: ${proj.name} · ${comp.name}`,
+        message: 'Esta pieza está bloqueada por falta de material y aún no tiene una compra pendiente registrada.',
+        dueDate: nowDate.toISOString(),
+        triggerAt: nowDate.toISOString(),
+        relatedEntityId: proj.id,
+        relatedEntityType: 'project',
+        urgency: 'due_soon',
+        isRead: false,
+        isCompleted: false,
+        isDemo: comp.isDemo,
+      });
+    }
+  }
+
+  // 6. Seguimiento de clientes en encargos activos o pausados sin movimiento reciente (>10 días)
+  if (enableClient) {
+    const activeClientStatuses = new Set(['planning', 'in_progress', 'paused']);
+    const staleThresholdMs = 10 * 24 * 60 * 60 * 1000;
+    for (const proj of projects) {
+      if (!proj.clientId || !activeClientStatuses.has(proj.status)) continue;
+      if (persistedByKey.has(`client_followup:${proj.id}`)) continue;
+      const client = clientMap.get(proj.clientId);
+      if (!client) continue;
+      const updatedMs = Date.parse(proj.updatedAt);
+      if (Number.isNaN(updatedMs)) continue;
+      if (nowDate.getTime() - updatedMs < staleThresholdMs) continue;
+
+      items.push({
+        id: `auto_client_followup_${proj.id}`,
+        source: 'auto_rule',
+        reminderId: null,
+        type: 'client_followup',
+        title: `Seguimiento: ${client.name} (${proj.name})`,
+        message: `El encargo lleva más de 10 días sin novedades (${proj.status === 'paused' ? 'en pausa' : 'en curso'}).`,
+        dueDate: nowDate.toISOString(),
+        triggerAt: nowDate.toISOString(),
+        relatedEntityId: proj.id,
+        relatedEntityType: 'project',
+        urgency: proj.status === 'paused' ? 'due_soon' : 'upcoming',
+        isRead: false,
+        isCompleted: false,
+        isDemo: proj.isDemo,
+      });
+    }
+  }
+
+  // 7. Alertas de cronómetro olvidado o sesión abierta prolongada
+  if (enableTimerAlerts) {
+    const nowMs = nowDate.getTime();
+    for (const sess of workSessions) {
+      if (sess.status !== 'running' && sess.status !== 'paused') continue;
+      if (persistedByKey.has(`timer_reminder:${sess.id}`)) continue;
+      const proj = projectMap.get(sess.projectId);
+      const comp = componentMap.get(sess.componentId);
+      const breakdown = calculateSessionDurations(sess, nowMs);
+
+      if (sess.status === 'running' && breakdown.effectiveSeconds >= forgottenTimerMins * 60) {
+        items.push({
+          id: `auto_timer_forgotten_${sess.id}`,
+          source: 'auto_rule',
+          reminderId: null,
+          type: 'timer_reminder',
+          title: `Cronómetro activo: ${proj?.name ?? 'Proyecto'} · ${comp?.name ?? 'Pieza'}`,
+          message: `Lleva ${formatClockHHMMSS(breakdown.effectiveSeconds)} (${formatDurationMinutes(breakdown.effectiveMinutes)}) en marcha. Verifica si sigues tejiendo o si deseas pausarlo.`,
+          dueDate: nowDate.toISOString(),
+          triggerAt: nowDate.toISOString(),
+          relatedEntityId: sess.id,
+          relatedEntityType: 'work_session',
+          urgency: 'overdue',
+          isRead: false,
+          isCompleted: false,
+          isDemo: sess.isDemo,
+        });
+      } else if (sess.status === 'paused') {
+        const updatedMs = Date.parse(sess.updatedAt);
+        const hoursPaused = Number.isNaN(updatedMs) ? 0 : (nowMs - updatedMs) / (1000 * 60 * 60);
+        if (hoursPaused >= 12) {
+          items.push({
+            id: `auto_timer_paused_${sess.id}`,
+            source: 'auto_rule',
+            reminderId: null,
+            type: 'timer_reminder',
+            title: `Sesión en pausa pendiente: ${proj?.name ?? 'Proyecto'}`,
+            message: `${comp?.name ?? 'Pieza'} acumula ${formatClockHHMMSS(breakdown.effectiveSeconds)} sin finalizar desde hace más de 12 horas.`,
+            dueDate: nowDate.toISOString(),
+            triggerAt: nowDate.toISOString(),
+            relatedEntityId: sess.id,
+            relatedEntityType: 'work_session',
+            urgency: 'due_soon',
+            isRead: false,
+            isCompleted: false,
+            isDemo: sess.isDemo,
+          });
+        }
+      }
     }
   }
 

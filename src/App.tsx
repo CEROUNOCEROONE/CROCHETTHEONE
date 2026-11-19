@@ -1,7 +1,9 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import { DataProvider, useWorkshopData } from '@/src/data/DataContext.tsx';
 import { DashboardView } from '@/src/modules/dashboard/DashboardView.tsx';
+import { NotificationOrchestrator } from '@/src/modules/notifications/NotificationOrchestrator.tsx';
+import type { SettingsStepId } from '@/src/modules/settings/WorkshopSettingsView.tsx';
 import { FloatingTimerDock } from '@/src/modules/timer/FloatingTimerDock.tsx';
 import { AppShell } from '@/src/shared/components/AppShell.tsx';
 import { HeaderStatusBar } from '@/src/shared/components/HeaderStatusBar.tsx';
@@ -56,6 +58,18 @@ const PlannedModuleView = lazy(() =>
   })),
 );
 
+const VALID_ROUTE_SET = new Set<ModuleRouteId>([
+  'dashboard',
+  'projects',
+  'timer',
+  'inventory',
+  'shopping',
+  'quoting',
+  'clients',
+  'planner',
+  'settings',
+]);
+
 function ModuleLoadingFallback() {
   return (
     <div
@@ -98,7 +112,45 @@ function AppWorkspace() {
     projectId: string;
     componentId: string;
   } | null>(null);
+  const [timerFinishConfirmSessionId, setTimerFinishConfirmSessionId] = useState<
+    string | null
+  >(null);
+  const [settingsSection, setSettingsSection] = useState<SettingsStepId | null>(
+    null,
+  );
   const { settings, activeTimerSession } = useWorkshopData();
+
+  // Resolver deep-links al abrir desde notificaciones Android/PWA
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.location.search) return;
+    const params = new URLSearchParams(window.location.search);
+    const routeParam = params.get('route');
+    const projectId = params.get('projectId');
+    const componentId = params.get('componentId');
+    const action = params.get('action');
+    const sessionId = params.get('sessionId');
+    const section = params.get('section');
+
+    if (routeParam && VALID_ROUTE_SET.has(routeParam as ModuleRouteId)) {
+      const targetRoute = routeParam as ModuleRouteId;
+      setActiveRoute(targetRoute);
+      if (targetRoute === 'projects' && projectId) {
+        setSelectedProjectId(projectId);
+      }
+      if (targetRoute === 'timer') {
+        if (projectId && componentId) {
+          setTimerTarget({ projectId, componentId });
+        }
+        if (action === 'confirm-finish' && sessionId) {
+          setTimerFinishConfirmSessionId(sessionId);
+        }
+      }
+      if (targetRoute === 'settings' && section === 'notifications') {
+        setSettingsSection('notifications');
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     const route = getRouteDefinition(activeRoute);
@@ -132,28 +184,67 @@ function AppWorkspace() {
     );
   }, [activeRoute]);
 
-  const handleOpenProjectFromDashboard = (projectId: string) => {
+  const handleOpenProjectFromDashboard = useCallback((projectId: string) => {
     setSelectedProjectId(projectId);
     setActiveRoute('projects');
-  };
+  }, []);
 
-  const handleStartTimerForComponent = (
-    projectId: string,
-    componentId: string,
-  ) => {
-    setTimerTarget({ projectId, componentId });
-    setActiveRoute('timer');
-  };
+  const handleStartTimerForComponent = useCallback(
+    (projectId: string, componentId: string) => {
+      setTimerTarget({ projectId, componentId });
+      setActiveRoute('timer');
+    },
+    [],
+  );
 
-  const handleQuoteProject = (projectId: string) => {
+  const handleQuoteProject = useCallback((projectId: string) => {
     setQuotingProjectTargetId(projectId);
     setActiveRoute('quoting');
-  };
+  }, []);
 
-  const handleOpenProjectPayments = (projectId: string) => {
+  const handleOpenProjectPayments = useCallback((projectId: string) => {
     setClientsTarget({ projectId });
     setActiveRoute('clients');
-  };
+  }, []);
+
+  const handleNotificationNavigation = useCallback(
+    (params: {
+      route: ModuleRouteId;
+      projectId?: string | null;
+      componentId?: string | null;
+      confirmFinishSessionId?: string | null;
+    }) => {
+      setActiveRoute(params.route);
+      if (params.route === 'projects' && params.projectId) {
+        setSelectedProjectId(params.projectId);
+      }
+      if (params.route === 'timer') {
+        if (params.projectId && params.componentId) {
+          setTimerTarget({
+            projectId: params.projectId,
+            componentId: params.componentId,
+          });
+        }
+        if (params.confirmFinishSessionId) {
+          setTimerFinishConfirmSessionId(params.confirmFinishSessionId);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleOpenTimerFromDock = useCallback(
+    (target?: { projectId?: string; componentId?: string }) => {
+      if (target?.projectId && target?.componentId) {
+        setTimerTarget({
+          projectId: target.projectId,
+          componentId: target.componentId,
+        });
+      }
+      setActiveRoute('timer');
+    },
+    [],
+  );
 
   const renderContent = () => {
     if (activeRoute === 'dashboard') {
@@ -181,7 +272,9 @@ function AppWorkspace() {
         <TimerView
           initialProjectId={timerTarget?.projectId ?? null}
           initialComponentId={timerTarget?.componentId ?? null}
+          initialFinishConfirmSessionId={timerFinishConfirmSessionId}
           onClearInitialTarget={() => setTimerTarget(null)}
+          onClearFinishConfirm={() => setTimerFinishConfirmSessionId(null)}
           onNavigateToProjects={() => setActiveRoute('projects')}
         />
       );
@@ -230,31 +323,47 @@ function AppWorkspace() {
       );
     }
     if (activeRoute === 'settings') {
-      return <WorkshopSettingsView />;
+      return (
+        <WorkshopSettingsView
+          initialSection={settingsSection}
+          onClearInitialSection={() => setSettingsSection(null)}
+        />
+      );
     }
     const planned = getRouteDefinition(activeRoute);
     return <PlannedModuleView route={planned} onNavigate={setActiveRoute} />;
   };
 
   return (
-    <AppShell
-      activeRoute={activeRoute}
-      workshopName={settings.workshopName}
-      onSelectRoute={setActiveRoute}
-      headerActionsSlot={
-        <HeaderStatusBar
-          onNavigate={setActiveRoute}
-          onOpenProject={handleOpenProjectFromDashboard}
-        />
-      }
-      timerDockSlot={
-        activeTimerSession ? (
-          <FloatingTimerDock onOpenTimerView={() => setActiveRoute('timer')} />
-        ) : undefined
-      }
-    >
-      <Suspense fallback={<ModuleLoadingFallback />}>{renderContent()}</Suspense>
-    </AppShell>
+    <>
+      <NotificationOrchestrator onNavigateRoute={handleNotificationNavigation} />
+      <AppShell
+        activeRoute={activeRoute}
+        workshopName={settings.workshopName}
+        onSelectRoute={setActiveRoute}
+        headerActionsSlot={
+          <HeaderStatusBar
+            onNavigate={setActiveRoute}
+            onOpenProject={handleOpenProjectFromDashboard}
+            onOpenTimer={() => setActiveRoute('timer')}
+            onOpenNotificationSettings={() => {
+              setSettingsSection('notifications');
+              setActiveRoute('settings');
+            }}
+          />
+        }
+        timerDockSlot={
+          activeTimerSession && activeRoute !== 'timer' ? (
+            <FloatingTimerDock
+              onOpenTimerView={handleOpenTimerFromDock}
+              onOpenProject={handleOpenProjectFromDashboard}
+            />
+          ) : undefined
+        }
+      >
+        <Suspense fallback={<ModuleLoadingFallback />}>{renderContent()}</Suspense>
+      </AppShell>
+    </>
   );
 }
 

@@ -22,10 +22,12 @@ import {
   formatClockHHMMSS,
   isUnusuallyLongActiveSession,
 } from '@/src/domain/services/timerEngine.ts';
+import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { useLiveNowMs } from '@/src/shared/hooks/useLiveNowMs.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -40,7 +42,9 @@ import {
 interface TimerViewProps {
   readonly initialProjectId?: string | null;
   readonly initialComponentId?: string | null;
+  readonly initialFinishConfirmSessionId?: string | null;
   onClearInitialTarget?(): void;
+  onClearFinishConfirm?(): void;
   onNavigateToProjects?(): void;
 }
 
@@ -56,7 +60,9 @@ const ENTRY_TYPE_META: Record<
 export const TimerView: React.FC<TimerViewProps> = ({
   initialProjectId = null,
   initialComponentId = null,
+  initialFinishConfirmSessionId = null,
   onClearInitialTarget,
+  onClearFinishConfirm,
   onNavigateToProjects,
 }) => {
   const {
@@ -77,8 +83,11 @@ export const TimerView: React.FC<TimerViewProps> = ({
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedComponentId, setSelectedComponentId] = useState<string>('');
   const [sessionNotes, setSessionNotes] = useState<string>('');
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const hasRunningSession = workSessions.some((s) => s.status === 'running');
+  const nowMs = useLiveNowMs(hasRunningSession);
   const [busy, setBusy] = useState(false);
+  const [finishConfirmSession, setFinishConfirmSession] =
+    useState<WorkSession | null>(null);
   const profile = useViewportProfile();
   const [feedback, setFeedback] = useState<{
     type: 'error';
@@ -108,16 +117,31 @@ export const TimerView: React.FC<TimerViewProps> = ({
     reasonInput: string;
   } | null>(null);
 
-  // Tick de 1s solo para refrescar cálculo basado en timestamps ISO
+  // Abrir confirmación segura si el usuario tocó "Finalizar" desde una notificación
   useEffect(() => {
-    setNowMs(Date.now());
-    const hasRunning = workSessions.some((s) => s.status === 'running');
-    if (!hasRunning) return;
-    const id = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [workSessions]);
+    if (!initialFinishConfirmSessionId) return;
+    const target = workSessions.find(
+      (s) =>
+        s.id === initialFinishConfirmSessionId &&
+        (s.status === 'running' || s.status === 'paused'),
+    );
+    if (target) {
+      setSelectedProjectId(target.projectId);
+      setSelectedComponentId(target.componentId);
+      if (isUnusuallyLongActiveSession(target, Date.now())) {
+        const breakdown = calculateSessionDurations(target, Date.now());
+        setAdjustModalState({
+          mode: 'finish_override',
+          session: target,
+          minutesInput: String(Math.max(1, breakdown.effectiveMinutes)),
+          reasonInput: '',
+        });
+      } else {
+        setFinishConfirmSession(target);
+      }
+    }
+    onClearFinishConfirm?.();
+  }, [initialFinishConfirmSessionId, workSessions, onClearFinishConfirm]);
 
   // Sincronizar selección inicial cuando el usuario llega desde Proyectos o Dock
   useEffect(() => {
@@ -1461,6 +1485,33 @@ export const TimerView: React.FC<TimerViewProps> = ({
           </div>
         </div>
       )}
+      {/* Modal confirmar finalización disparada desde notificación externa */}
+      <ConfirmModal
+        isOpen={Boolean(finishConfirmSession)}
+        title="Confirmar cierre de sesión"
+        description={
+          finishConfirmSession
+            ? `Se guardarán ${formatClockHHMMSS(
+                calculateSessionDurations(finishConfirmSession, nowMs)
+                  .effectiveSeconds,
+              )} efectivos en "${
+                componentMap.get(finishConfirmSession.componentId)?.name ?? 'Pieza'
+              }" (${
+                projectMap.get(finishConfirmSession.projectId)?.name ?? 'Proyecto'
+              }).`
+            : ''
+        }
+        confirmLabel="Finalizar y guardar"
+        variant="default"
+        isBusy={busy}
+        onCancel={() => setFinishConfirmSession(null)}
+        onConfirm={() => {
+          if (!finishConfirmSession) return;
+          void handleFinishExact(finishConfirmSession).then(() => {
+            setFinishConfirmSession(null);
+          });
+        }}
+      />
     </>
   );
 };

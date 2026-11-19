@@ -138,6 +138,16 @@ export function createDefaultWorkshopSettings(): WorkshopSettings {
     enableInstallmentReminders: true,
     enablePurchaseReminders: true,
     enableLowStockReminders: true,
+    enableClientReminders: true,
+    enableBrowserNotifications: false,
+    enableTimerNotifications: true,
+    timerReminderIntervalMinutes: 60,
+    forgottenTimerThresholdMinutes: 180,
+    enableSoundAlerts: false,
+    enableVibrationAlerts: true,
+    quietHoursEnabled: false,
+    quietHoursStart: '22:00',
+    quietHoursEnd: '07:00',
     customMaterialCategories: [],
   };
 }
@@ -219,6 +229,48 @@ export function normalizeWorkshopSettings(
       typeof raw.enableLowStockReminders === 'boolean'
         ? raw.enableLowStockReminders
         : defaults.enableLowStockReminders,
+    enableClientReminders:
+      typeof raw.enableClientReminders === 'boolean'
+        ? raw.enableClientReminders
+        : defaults.enableClientReminders,
+    enableBrowserNotifications:
+      typeof raw.enableBrowserNotifications === 'boolean'
+        ? raw.enableBrowserNotifications
+        : defaults.enableBrowserNotifications,
+    enableTimerNotifications:
+      typeof raw.enableTimerNotifications === 'boolean'
+        ? raw.enableTimerNotifications
+        : defaults.enableTimerNotifications,
+    timerReminderIntervalMinutes:
+      typeof raw.timerReminderIntervalMinutes === 'number' &&
+      Number.isFinite(raw.timerReminderIntervalMinutes)
+        ? Math.max(0, Math.min(720, Math.round(raw.timerReminderIntervalMinutes)))
+        : defaults.timerReminderIntervalMinutes,
+    forgottenTimerThresholdMinutes:
+      typeof raw.forgottenTimerThresholdMinutes === 'number' &&
+      Number.isFinite(raw.forgottenTimerThresholdMinutes)
+        ? Math.max(15, Math.min(1440, Math.round(raw.forgottenTimerThresholdMinutes)))
+        : defaults.forgottenTimerThresholdMinutes,
+    enableSoundAlerts:
+      typeof raw.enableSoundAlerts === 'boolean'
+        ? raw.enableSoundAlerts
+        : defaults.enableSoundAlerts,
+    enableVibrationAlerts:
+      typeof raw.enableVibrationAlerts === 'boolean'
+        ? raw.enableVibrationAlerts
+        : defaults.enableVibrationAlerts,
+    quietHoursEnabled:
+      typeof raw.quietHoursEnabled === 'boolean'
+        ? raw.quietHoursEnabled
+        : defaults.quietHoursEnabled,
+    quietHoursStart:
+      typeof raw.quietHoursStart === 'string' && /^\d{2}:\d{2}$/.test(raw.quietHoursStart)
+        ? raw.quietHoursStart
+        : defaults.quietHoursStart,
+    quietHoursEnd:
+      typeof raw.quietHoursEnd === 'string' && /^\d{2}:\d{2}$/.test(raw.quietHoursEnd)
+        ? raw.quietHoursEnd
+        : defaults.quietHoursEnd,
     customMaterialCategories: deduplicateCustomCategories(
       raw.customMaterialCategories,
     ),

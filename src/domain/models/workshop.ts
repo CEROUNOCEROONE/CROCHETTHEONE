@@ -30,5 +30,15 @@ export interface WorkshopSettings extends BaseEntity {
   readonly enableInstallmentReminders?: boolean;
   readonly enablePurchaseReminders?: boolean;
   readonly enableLowStockReminders?: boolean;
+  readonly enableClientReminders?: boolean;
+  readonly enableBrowserNotifications?: boolean;
+  readonly enableTimerNotifications?: boolean;
+  readonly timerReminderIntervalMinutes?: number;
+  readonly forgottenTimerThresholdMinutes?: number;
+  readonly enableSoundAlerts?: boolean;
+  readonly enableVibrationAlerts?: boolean;
+  readonly quietHoursEnabled?: boolean;
+  readonly quietHoursStart?: string;
+  readonly quietHoursEnd?: string;
   readonly customMaterialCategories?: string[];
 }

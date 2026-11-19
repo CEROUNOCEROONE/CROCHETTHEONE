@@ -480,6 +480,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         | 'enableInstallmentReminders'
         | 'enablePurchaseReminders'
         | 'enableLowStockReminders'
+        | 'enableClientReminders'
+        | 'enableBrowserNotifications'
+        | 'enableTimerNotifications'
+        | 'timerReminderIntervalMinutes'
+        | 'forgottenTimerThresholdMinutes'
+        | 'enableSoundAlerts'
+        | 'enableVibrationAlerts'
+        | 'quietHoursEnabled'
+        | 'quietHoursStart'
+        | 'quietHoursEnd'
         | 'customMaterialCategories'
       >
     >,
@@ -555,6 +565,34 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         partial.enablePurchaseReminders ?? current.enablePurchaseReminders ?? true,
       enableLowStockReminders:
         partial.enableLowStockReminders ?? current.enableLowStockReminders ?? true,
+      enableClientReminders:
+        partial.enableClientReminders ?? current.enableClientReminders ?? true,
+      enableBrowserNotifications:
+        partial.enableBrowserNotifications ?? current.enableBrowserNotifications ?? false,
+      enableTimerNotifications:
+        partial.enableTimerNotifications ?? current.enableTimerNotifications ?? true,
+      timerReminderIntervalMinutes:
+        partial.timerReminderIntervalMinutes !== undefined
+          ? Math.max(0, Math.min(720, Math.round(partial.timerReminderIntervalMinutes)))
+          : (current.timerReminderIntervalMinutes ?? 60),
+      forgottenTimerThresholdMinutes:
+        partial.forgottenTimerThresholdMinutes !== undefined
+          ? Math.max(15, Math.min(1440, Math.round(partial.forgottenTimerThresholdMinutes)))
+          : (current.forgottenTimerThresholdMinutes ?? 180),
+      enableSoundAlerts:
+        partial.enableSoundAlerts ?? current.enableSoundAlerts ?? false,
+      enableVibrationAlerts:
+        partial.enableVibrationAlerts ?? current.enableVibrationAlerts ?? true,
+      quietHoursEnabled:
+        partial.quietHoursEnabled ?? current.quietHoursEnabled ?? false,
+      quietHoursStart:
+        partial.quietHoursStart && /^\d{2}:\d{2}$/.test(partial.quietHoursStart)
+          ? partial.quietHoursStart
+          : (current.quietHoursStart ?? '22:00'),
+      quietHoursEnd:
+        partial.quietHoursEnd && /^\d{2}:\d{2}$/.test(partial.quietHoursEnd)
+          ? partial.quietHoursEnd
+          : (current.quietHoursEnd ?? '07:00'),
       customMaterialCategories: nextCustomCategories,
     };
     const saved = await this.settings.upsert(updated);

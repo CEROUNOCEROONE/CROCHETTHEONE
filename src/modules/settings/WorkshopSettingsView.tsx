@@ -3,6 +3,8 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Bell,
+  BellRing,
   Calculator,
   Check,
   Crown,
@@ -17,6 +19,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Volume2,
 } from 'lucide-react';
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import type {
@@ -39,6 +42,13 @@ import {
 } from '@/src/domain/services/formatters.ts';
 import { formatUsdRatePerUnit } from '@/src/domain/services/exchangeRateService.ts';
 import { calculateQuoteSummary } from '@/src/domain/services/quoteMath.ts';
+import {
+  getNotificationCapabilities,
+  playSoftNotificationChime,
+  requestNotificationPermissionExplicitly,
+  triggerSafeVibration,
+  type NotificationCapabilities,
+} from '@/src/pwa/notificationBridge.ts';
 import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
@@ -50,7 +60,12 @@ import {
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
 
-type SettingsStepId = 'general' | 'costs' | 'backups' | 'system';
+export type SettingsStepId =
+  | 'general'
+  | 'costs'
+  | 'notifications'
+  | 'backups'
+  | 'system';
 
 interface SettingsStepDef {
   readonly id: SettingsStepId;
@@ -79,8 +94,16 @@ const SETTINGS_STEPS: SettingsStepDef[] = [
     icon: Calculator,
   },
   {
-    id: 'backups',
+    id: 'notifications',
     number: 3,
+    label: 'Avisos y cronómetro',
+    mobileLabel: 'Avisos PWA',
+    subtitle: 'Alertas, permisos y horario',
+    icon: Bell,
+  },
+  {
+    id: 'backups',
+    number: 4,
     label: 'Respaldos JSON',
     mobileLabel: 'Respaldos JSON',
     subtitle: 'Exportar y restaurar copia',
@@ -88,7 +111,7 @@ const SETTINGS_STEPS: SettingsStepDef[] = [
   },
   {
     id: 'system',
-    number: 4,
+    number: 5,
     label: 'Ejemplos y sistema',
     mobileLabel: 'Ejemplos y PWA',
     subtitle: 'Datos demo e instalación',
@@ -118,7 +141,15 @@ const STORE_LABELS: Record<string, string> = {
   reminders: 'Recordatorios',
 };
 
-export const WorkshopSettingsView: React.FC = () => {
+interface WorkshopSettingsViewProps {
+  readonly initialSection?: SettingsStepId | null;
+  onClearInitialSection?(): void;
+}
+
+export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
+  initialSection = null,
+  onClearInitialSection,
+}) => {
   const {
     settings,
     stats,
@@ -143,6 +174,10 @@ export const WorkshopSettingsView: React.FC = () => {
   const snapDeckRef = useRef<SnapDeckHandle | null>(null);
   const [activeStep, setActiveStep] = useState<SettingsStepId>('general');
   const [showFixedCostGuide, setShowFixedCostGuide] = useState(false);
+  const [notifCaps, setNotifCaps] = useState<NotificationCapabilities>(() =>
+    getNotificationCapabilities(),
+  );
+  const [notifBusy, setNotifBusy] = useState(false);
 
   const [workshopName, setWorkshopName] = useState(settings.workshopName);
   const [ownerDisplayName, setOwnerDisplayName] = useState(settings.ownerDisplayName);
@@ -202,6 +237,18 @@ export const WorkshopSettingsView: React.FC = () => {
     setInternetCostPercent(String(settings.internetCostPercent));
     setWasteAndContingencyPercent(String(settings.wasteAndContingencyPercent));
   }, [settings]);
+
+  useEffect(() => {
+    if (!initialSection) return;
+    setActiveStep(initialSection);
+    setNotifCaps(getNotificationCapabilities());
+    const targetSlide = `settings-${initialSection}`;
+    const raf = window.requestAnimationFrame(() => {
+      snapDeckRef.current?.goToSlide(targetSlide);
+    });
+    onClearInitialSection?.();
+    return () => window.cancelAnimationFrame(raf);
+  }, [initialSection, onClearInitialSection]);
 
   const parsePercent = (raw: string) =>
     Math.round(Math.max(0, Math.min(100, Number(raw) || 0)) * 100) / 100;
@@ -407,13 +454,53 @@ export const WorkshopSettingsView: React.FC = () => {
   const goToStep = (stepId: SettingsStepId) => {
     setActiveStep(stepId);
     snapDeckRef.current?.goToSlide(`settings-${stepId}`);
+    if (stepId === 'notifications') {
+      setNotifCaps(getNotificationCapabilities());
+    }
   };
 
   const handleSlideChange = (slideId: string) => {
     if (slideId === 'settings-general') setActiveStep('general');
     else if (slideId === 'settings-costs') setActiveStep('costs');
-    else if (slideId === 'settings-backups') setActiveStep('backups');
+    else if (slideId === 'settings-notifications') {
+      setActiveStep('notifications');
+      setNotifCaps(getNotificationCapabilities());
+    } else if (slideId === 'settings-backups') setActiveStep('backups');
     else if (slideId === 'settings-system') setActiveStep('system');
+  };
+
+  const handleUpdateNotifSetting = async (
+    partial: Parameters<typeof updateSettings>[0],
+  ) => {
+    setNotifBusy(true);
+    setFeedback(null);
+    try {
+      await updateSettings(partial);
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'No se pudo actualizar la preferencia.',
+      });
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
+  const handleRequestNotifPermission = async () => {
+    setNotifBusy(true);
+    setFeedback(null);
+    try {
+      const next = await requestNotificationPermissionExplicitly();
+      setNotifCaps(getNotificationCapabilities());
+      if (next === 'granted') {
+        await updateSettings({ enableBrowserNotifications: true });
+      }
+    } finally {
+      setNotifBusy(false);
+    }
   };
 
   const currentStepIndex = SETTINGS_STEPS.findIndex((s) => s.id === activeStep);
@@ -449,7 +536,7 @@ export const WorkshopSettingsView: React.FC = () => {
 
         <nav
           aria-label="Secciones de configuración del taller"
-          className="grid w-full grid-cols-4 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
+          className="grid w-full grid-cols-5 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:inline-flex sm:w-auto sm:items-center"
         >
           {SETTINGS_STEPS.map((step) => {
             const isActive = step.id === activeStep;
@@ -459,16 +546,18 @@ export const WorkshopSettingsView: React.FC = () => {
                 ? 'Taller'
                 : step.id === 'costs'
                   ? 'Costos'
-                  : step.id === 'backups'
-                    ? 'Copias'
-                    : 'Sistema';
+                  : step.id === 'notifications'
+                    ? 'Avisos'
+                    : step.id === 'backups'
+                      ? 'Copias'
+                      : 'Sistema';
             return (
               <button
                 key={step.id}
                 type="button"
                 onClick={() => goToStep(step.id)}
                 aria-current={isActive ? 'step' : undefined}
-                className={`inline-flex min-h-[36px] items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:gap-1.5 sm:px-2.5 ${
+                className={`inline-flex min-h-[36px] items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors whitespace-nowrap sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                   isActive
                     ? 'bg-teal-700 text-white'
                     : 'text-slate-600 hover:bg-white hover:text-slate-900'
@@ -989,10 +1078,10 @@ export const WorkshopSettingsView: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => goToStep('backups')}
+                    onClick={() => goToStep('notifications')}
                     className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
                   >
-                    <span>Respaldos JSON</span>
+                    <span>Avisos y PWA</span>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>
@@ -1001,14 +1090,348 @@ export const WorkshopSettingsView: React.FC = () => {
           </div>
         </SnapSlide>
 
-        {/* VISTA 3: RESPALDO Y RESTAURACIÓN LOCAL */}
+        {/* VISTA 3: NOTIFICACIONES, CRONÓMETRO Y AVISOS PWA */}
+        <SnapSlide id="settings-notifications" label="Avisos y cronómetro">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
+            <div className="space-y-5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                  Paso 3 de 5 · Notificaciones del taller y PWA
+                </p>
+                <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
+                  Cronómetro persistente, avisos y horario silencioso
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
+                  Controla las alertas internas del sistema y las notificaciones nativas/PWA en Android y escritorio. Todo se guarda localmente sin backend.
+                </p>
+              </div>
+
+              {/* Estado de permiso del navegador / Android */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" aria-hidden="true" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900">
+                        Permiso del navegador y PWA:{' '}
+                        <span
+                          className={
+                            notifCaps.permission === 'granted'
+                              ? 'text-emerald-700'
+                              : notifCaps.permission === 'denied'
+                                ? 'text-rose-700'
+                                : 'text-amber-700'
+                          }
+                        >
+                          {notifCaps.permission === 'granted'
+                            ? 'Concedido'
+                            : notifCaps.permission === 'denied'
+                              ? 'Bloqueado'
+                              : notifCaps.permission === 'unsupported'
+                                ? 'No compatible en este entorno'
+                                : 'Pendiente de activar'}
+                        </span>
+                      </h4>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        {notifCaps.permission === 'granted'
+                          ? notifCaps.supportsActions
+                            ? 'Service Worker listo con acciones rápidas (Pausar / Finalizar) en dispositivos compatibles.'
+                            : 'Las notificaciones están activas en el dispositivo.'
+                          : notifCaps.permission === 'denied'
+                            ? 'Para habilitarlas nuevamente, abre la configuración de permisos del sitio en Chrome/Android. La campana interna sigue funcionando sin interrupciones.'
+                            : 'Permite recibir alertas cuando cambias de pantalla o bloqueas el teléfono con un cronómetro activo.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {notifCaps.supported && notifCaps.permission === 'default' && (
+                    <button
+                      type="button"
+                      disabled={notifBusy}
+                      onClick={() => void handleRequestNotifPermission()}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+                    >
+                      <BellRing className="h-4 w-4" aria-hidden="true" />
+                      <span>Solicitar permiso</span>
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      Activar notificaciones externas del dispositivo
+                    </p>
+                    <p className="text-slate-500">
+                      Envía avisos del cronómetro y alertas urgentes mediante el Service Worker cuando el permiso esté concedido.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={notifBusy}
+                    checked={Boolean(settings.enableBrowserNotifications)}
+                    onChange={(e) =>
+                      void handleUpdateNotifSetting({
+                        enableBrowserNotifications: e.target.checked,
+                      })
+                    }
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                  />
+                </label>
+              </div>
+
+              {/* Cronómetro y avisos de sesión olvidada */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                  <label className="flex cursor-pointer items-center justify-between gap-2 text-xs font-semibold text-slate-900">
+                    <span>Avisos del cronómetro de tejido</span>
+                    <input
+                      type="checkbox"
+                      disabled={notifBusy}
+                      checked={settings.enableTimerNotifications !== false}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          enableTimerNotifications: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                    />
+                  </label>
+
+                  <div>
+                    <label
+                      htmlFor="timer-interval-select"
+                      className="block text-xs font-medium text-slate-700"
+                    >
+                      Recordatorio periódico mientras tejes
+                    </label>
+                    <select
+                      id="timer-interval-select"
+                      disabled={notifBusy || settings.enableTimerNotifications === false}
+                      value={settings.timerReminderIntervalMinutes ?? 60}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          timerReminderIntervalMinutes: Number(e.target.value),
+                        })
+                      }
+                      className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-900 disabled:opacity-50"
+                    >
+                      <option value={0}>Desactivado (solo estado activo)</option>
+                      <option value={30}>Cada 30 minutos</option>
+                      <option value={60}>Cada 1 hora (Recomendado)</option>
+                      <option value={90}>Cada 1 hora 30 minutos</option>
+                      <option value={120}>Cada 2 horas</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="timer-forgotten-select"
+                      className="block text-xs font-medium text-slate-700"
+                    >
+                      Alerta de cronómetro olvidado
+                    </label>
+                    <select
+                      id="timer-forgotten-select"
+                      disabled={notifBusy || settings.enableTimerNotifications === false}
+                      value={settings.forgottenTimerThresholdMinutes ?? 180}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          forgottenTimerThresholdMinutes: Number(e.target.value),
+                        })
+                      }
+                      className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-900 disabled:opacity-50"
+                    >
+                      <option value={60}>Después de 1 hora continua</option>
+                      <option value={120}>Después de 2 horas continuas</option>
+                      <option value={180}>Después de 3 horas continuas</option>
+                      <option value={240}>Después de 4 horas continuas</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Categorías y sonido/silencio */}
+                <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 text-xs">
+                  <p className="font-semibold text-slate-900">
+                    Categorías activas en campana y alertas
+                  </p>
+
+                  {[
+                    ['enableDeliveryReminders', 'Proyectos y fechas de entrega'],
+                    ['enableClientReminders', 'Seguimiento a clientes sin novedad'],
+                    ['enableInstallmentReminders', 'Cuotas y cobros pendientes'],
+                    ['enablePurchaseReminders', 'Compras e insumos faltantes'],
+                    ['enableLowStockReminders', 'Stock mínimo por color'],
+                  ].map(([fieldKey, label]) => {
+                    const key = fieldKey as
+                      | 'enableDeliveryReminders'
+                      | 'enableClientReminders'
+                      | 'enableInstallmentReminders'
+                      | 'enablePurchaseReminders'
+                      | 'enableLowStockReminders';
+                    return (
+                      <label
+                        key={key}
+                        className="flex cursor-pointer items-center justify-between gap-2 py-0.5 text-slate-700"
+                      >
+                        <span>{label}</span>
+                        <input
+                          type="checkbox"
+                          disabled={notifBusy}
+                          checked={settings[key] !== false}
+                          onChange={(e) =>
+                            void handleUpdateNotifSetting({ [key]: e.target.checked })
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Sonido, vibración y horario silencioso */}
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-slate-900">
+                    Sonido, vibración y horario silencioso
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playSoftNotificationChime();
+                      triggerSafeVibration();
+                    }}
+                    className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    <Volume2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    <span>Probar tono y vibración</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 p-2.5">
+                    <span className="font-medium text-slate-700">Tono suave</span>
+                    <input
+                      type="checkbox"
+                      disabled={notifBusy}
+                      checked={Boolean(settings.enableSoundAlerts)}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          enableSoundAlerts: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-teal-700"
+                    />
+                  </label>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 p-2.5">
+                    <span className="font-medium text-slate-700">Vibración móvil</span>
+                    <input
+                      type="checkbox"
+                      disabled={notifBusy}
+                      checked={settings.enableVibrationAlerts !== false}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          enableVibrationAlerts: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-teal-700"
+                    />
+                  </label>
+
+                  <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 p-2.5">
+                    <span className="font-medium text-slate-700">Horario silencioso</span>
+                    <input
+                      type="checkbox"
+                      disabled={notifBusy}
+                      checked={Boolean(settings.quietHoursEnabled)}
+                      onChange={(e) =>
+                        void handleUpdateNotifSetting({
+                          quietHoursEnabled: e.target.checked,
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-teal-700"
+                    />
+                  </label>
+                </div>
+
+                {settings.quietHoursEnabled && (
+                  <div className="grid grid-cols-2 gap-3 pt-1 sm:max-w-sm">
+                    <div>
+                      <label
+                        htmlFor="quiet-start"
+                        className="block text-[11px] font-medium text-slate-600"
+                      >
+                        Silenciar desde
+                      </label>
+                      <input
+                        id="quiet-start"
+                        type="time"
+                        disabled={notifBusy}
+                        value={settings.quietHoursStart ?? '22:00'}
+                        onChange={(e) =>
+                          void handleUpdateNotifSetting({
+                            quietHoursStart: e.target.value,
+                          })
+                        }
+                        className="mt-1 w-full min-h-[38px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="quiet-end"
+                        className="block text-[11px] font-medium text-slate-600"
+                      >
+                        Hasta las
+                      </label>
+                      <input
+                        id="quiet-end"
+                        type="time"
+                        disabled={notifBusy}
+                        value={settings.quietHoursEnd ?? '07:00'}
+                        onChange={(e) =>
+                          void handleUpdateNotifSetting({
+                            quietHoursEnd: e.target.value,
+                          })
+                        }
+                        className="mt-1 w-full min-h-[38px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => goToStep('costs')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  <span>Anterior</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToStep('backups')}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                >
+                  <span>Respaldos JSON</span>
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </SnapSlide>
+
+        {/* VISTA 4: RESPALDO Y RESTAURACIÓN LOCAL */}
         <SnapSlide id="settings-backups" label="Respaldos JSON">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
             <div className="flex flex-col justify-between space-y-5">
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
-                    Paso 3 de 4 · Seguridad de tus datos
+                    Paso 4 de 5 · Seguridad de tus datos
                   </p>
                   <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
                     Respaldo y restauración local (.json)
@@ -1246,7 +1669,7 @@ export const WorkshopSettingsView: React.FC = () => {
               <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => goToStep('costs')}
+                  onClick={() => goToStep('notifications')}
                   className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -1265,14 +1688,14 @@ export const WorkshopSettingsView: React.FC = () => {
           </div>
         </SnapSlide>
 
-        {/* VISTA 4: DATOS DE DEMOSTRACIÓN Y ESTADO PWA / BASE LOCAL */}
+        {/* VISTA 5: DATOS DE DEMOSTRACIÓN Y ESTADO PWA / BASE LOCAL */}
         <SnapSlide id="settings-system" label="Ejemplos y sistema">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
             <div className="flex flex-col justify-between space-y-5">
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
-                    Paso 4 de 4 · Pruebas y dispositivo
+                    Paso 5 de 5 · Pruebas y dispositivo
                   </p>
                   <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
                     Ejemplos del taller y aplicación PWA

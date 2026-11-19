@@ -104,7 +104,12 @@ import {
   resolveEffectiveTier,
   type PlanCapabilities,
 } from '@/src/domain/services/planCapabilities.ts';
+import { resolveActiveTimerCandidate } from '@/src/domain/services/timerEngine.ts';
 import { getOrCreateInstallationId } from '@/src/shared/utils/installationId.ts';
+import {
+  broadcastWorkshopSync,
+  subscribeWorkshopSync,
+} from '@/src/shared/utils/workshopSyncBus.ts';
 
 export interface SavePulse {
   readonly seq: number;
@@ -170,6 +175,16 @@ interface DataContextValue {
         | 'enableInstallmentReminders'
         | 'enablePurchaseReminders'
         | 'enableLowStockReminders'
+        | 'enableClientReminders'
+        | 'enableBrowserNotifications'
+        | 'enableTimerNotifications'
+        | 'timerReminderIntervalMinutes'
+        | 'forgottenTimerThresholdMinutes'
+        | 'enableSoundAlerts'
+        | 'enableVibrationAlerts'
+        | 'quietHoursEnabled'
+        | 'quietHoursStart'
+        | 'quietHoursEnd'
       >
     >,
   ): Promise<WorkshopSettings>;
@@ -376,6 +391,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       at: new Date().toISOString(),
       summary,
     }));
+    broadcastWorkshopSync('WORKSHOP_DB_UPDATED', 'all');
   }, []);
 
   const refresh = useCallback(async () => {
@@ -420,6 +436,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Sincronización entre pestañas, Service Worker y reactivación tras bloqueo/segundo plano
+  useEffect(() => {
+    const unsubscribe = subscribeWorkshopSync((msg) => {
+      if (msg.type === 'WORKSHOP_DB_UPDATED') {
+        void refresh();
+      }
+    });
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    };
+    const handleFocusOrPageShow = () => {
+      void refresh();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    window.addEventListener('focus', handleFocusOrPageShow);
+    window.addEventListener('pageshow', handleFocusOrPageShow);
+
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      window.removeEventListener('focus', handleFocusOrPageShow);
+      window.removeEventListener('pageshow', handleFocusOrPageShow);
+    };
   }, [refresh]);
 
   const syncDailyUsdRates = useCallback(async () => {
@@ -476,6 +521,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           | 'enableInstallmentReminders'
           | 'enablePurchaseReminders'
           | 'enableLowStockReminders'
+          | 'enableClientReminders'
+          | 'enableBrowserNotifications'
+          | 'enableTimerNotifications'
+          | 'timerReminderIntervalMinutes'
+          | 'forgottenTimerThresholdMinutes'
+          | 'enableSoundAlerts'
+          | 'enableVibrationAlerts'
+          | 'quietHoursEnabled'
+          | 'quietHoursStart'
+          | 'quietHoursEnd'
         >
       >,
     ) => {
@@ -633,14 +688,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [refresh, markSaved],
   );
 
-  const activeTimerSession = useMemo(() => {
-    const running = workSessions.find((s) => s.status === 'running');
-    if (running) return running;
-    const paused = workSessions
-      .filter((s) => s.status === 'paused')
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    return paused[0] ?? null;
-  }, [workSessions]);
+  const activeTimerSession = useMemo(
+    () => resolveActiveTimerCandidate(workSessions),
+    [workSessions],
+  );
 
   const createMaterial = useCallback(
     async (input: CreateMaterialInput) => {
