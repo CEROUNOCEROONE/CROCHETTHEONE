@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   Bell,
   Calendar,
   CalendarDays,
@@ -53,12 +52,14 @@ import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
+import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
 import {
   SnapDeck,
   SnapSlide,
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -221,6 +222,22 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
   // Confirmaciones de eliminación
   const [taskToDelete, setTaskToDelete] = useState<EnrichedTask | null>(null);
   const [reminderToDelete, setReminderToDelete] = useState<Reminder | null>(null);
+
+  const hasOpenFormModal = Boolean(taskFormOpen || rulesPanelOpen || reminderFormOpen);
+
+  useEscapeKey(
+    hasOpenFormModal && !busy && !taskToDelete && !reminderToDelete,
+    () => {
+      setFeedback(null);
+      if (taskFormOpen) {
+        setTaskFormOpen(false);
+      } else if (rulesPanelOpen) {
+        setRulesPanelOpen(false);
+      } else if (reminderFormOpen) {
+        setReminderFormOpen(false);
+      }
+    },
+  );
 
   const projectMap = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -917,32 +934,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         </div>
       </div>
 
-      {feedback && (
-        <div
-          role={feedback.type === 'error' ? 'alert' : 'status'}
-          className={`flex items-start justify-between gap-3 rounded-xl border p-2.5 text-xs sm:text-sm ${
-            feedback.type === 'warning'
-              ? 'border-amber-200 bg-amber-50 text-amber-900'
-              : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
-        >
-          <div className="flex items-start gap-2">
-            <AlertTriangle
-              className={`mt-0.5 h-4 w-4 shrink-0 ${
-                feedback.type === 'warning' ? 'text-amber-700' : 'text-rose-700'
-              }`}
-            />
-            <p>{feedback.message}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFeedback(null)}
-            className="shrink-0 text-xs font-medium underline"
-          >
-            Cerrar
-          </button>
-        </div>
-      )}
+      <InlineFeedbackAlert
+        feedback={!hasOpenFormModal ? feedback : null}
+        onDismiss={() => setFeedback(null)}
+      />
     </div>
   );
 
@@ -995,7 +990,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
       ))}
       <button
         type="button"
-        onClick={() => setRulesPanelOpen(true)}
+        onClick={() => {
+          setFeedback(null);
+          setRulesPanelOpen(true);
+        }}
         className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
       >
         <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1726,7 +1724,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         >
           <form
             onSubmit={(e) => void handleSaveTask(e)}
-            className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
+            className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3
@@ -1737,13 +1735,21 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
               </h3>
               <button
                 type="button"
-                onClick={() => setTaskFormOpen(false)}
+                onClick={() => {
+                  setTaskFormOpen(false);
+                  setFeedback(null);
+                }}
                 aria-label="Cerrar formulario de tarea"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <InlineFeedbackAlert
+              feedback={feedback}
+              onDismiss={() => setFeedback(null)}
+            />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -1928,7 +1934,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setTaskFormOpen(false)}
+                onClick={() => {
+                  setTaskFormOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
@@ -1955,7 +1964,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         >
           <form
             onSubmit={(e) => void handleSaveReminderRules(e)}
-            className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
+            className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
           >
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
@@ -1971,13 +1980,21 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setRulesPanelOpen(false)}
+                onClick={() => {
+                  setRulesPanelOpen(false);
+                  setFeedback(null);
+                }}
                 aria-label="Cerrar reglas de anticipación"
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <InlineFeedbackAlert
+              feedback={feedback}
+              onDismiss={() => setFeedback(null)}
+            />
 
             {!canCustomizeReminders && (
               <FeatureGate
@@ -2105,7 +2122,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setRulesPanelOpen(false)}
+                onClick={() => {
+                  setRulesPanelOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cerrar
@@ -2134,7 +2154,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
         >
           <form
             onSubmit={(e) => void handleSaveReminder(e)}
-            className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
+            className="max-h-[90dvh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3
@@ -2145,13 +2165,21 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
               </h3>
               <button
                 type="button"
-                onClick={() => setReminderFormOpen(false)}
+                onClick={() => {
+                  setReminderFormOpen(false);
+                  setFeedback(null);
+                }}
                 aria-label="Cerrar formulario de recordatorio"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <InlineFeedbackAlert
+              feedback={feedback}
+              onDismiss={() => setFeedback(null)}
+            />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -2261,7 +2289,10 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setReminderFormOpen(false)}
+                onClick={() => {
+                  setReminderFormOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancelar

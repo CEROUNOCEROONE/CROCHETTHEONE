@@ -13,6 +13,7 @@ import type {
 } from '@/src/domain/models/index.ts';
 import {
   roundCurrencyAmount,
+  roundUnitCostAmount,
   type WorkshopCurrencyCode,
 } from './currencyCatalog.ts';
 import {
@@ -144,7 +145,7 @@ export function normalizeQuoteMaterialLines(
     }
     const unitCostCOP = Math.max(
       0,
-      roundCurrencyAmount(Number(line.unitCostCOP) || 0, currency),
+      roundUnitCostAmount(Number(line.unitCostCOP) || 0, currency),
     );
     return {
       variantId: line.variantId ? line.variantId : null,
@@ -506,7 +507,7 @@ export function extractProjectQuotePrefill(params: {
     const variant = variantById.get(variantId);
     if (!variant || quantity <= 0) continue;
     const material = materialById.get(variant.materialId);
-    const unitCostCOP = Math.max(0, roundCurrencyAmount(variant.unitCostCOP));
+    const unitCostCOP = Math.max(0, roundUnitCostAmount(variant.unitCostCOP));
     materialLines.push({
       variantId: variant.id,
       label: material?.name ?? 'Material',

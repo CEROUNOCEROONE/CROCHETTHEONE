@@ -178,6 +178,7 @@ export interface WorkshopDataEngine {
         | 'enableInstallmentReminders'
         | 'enablePurchaseReminders'
         | 'enableLowStockReminders'
+        | 'customMaterialCategories'
       >
     >,
   ): Promise<WorkshopSettings>;

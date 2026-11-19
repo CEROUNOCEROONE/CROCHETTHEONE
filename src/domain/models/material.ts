@@ -1,6 +1,6 @@
 import type { BaseEntity, MoneyCOP } from './common.ts';
 
-export type MaterialCategory =
+export type PredefinedMaterialCategory =
   | 'yarn_cotton'
   | 'yarn_acrylic'
   | 'wool'
@@ -10,6 +10,8 @@ export type MaterialCategory =
   | 'needles'
   | 'accessories'
   | 'other';
+
+export type MaterialCategory = PredefinedMaterialCategory | (string & {});
 
 export type MeasurementUnit = 'g' | 'm' | 'unit' | 'pair' | 'bag';
 
@@ -34,6 +36,8 @@ export interface MaterialVariant extends BaseEntity {
   readonly reservedStock: number;
   readonly totalConsumed: number;
   readonly minStock: number;
+  /** Control individual de alerta de stock mínimo por variante (por defecto true si no está definido) */
+  readonly minStockAlertEnabled?: boolean;
   readonly photoUrl: string | null;
   readonly notes: string;
 }

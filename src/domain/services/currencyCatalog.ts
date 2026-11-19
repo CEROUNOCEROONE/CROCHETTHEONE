@@ -265,6 +265,21 @@ export function roundCurrencyAmount(
   return Math.round(amount * 100) / 100;
 }
 
+/**
+ * Redondea costos unitarios por gramo/metro/unidad conservando al menos 2 decimales
+ * (incluso en monedas sin centavos como COP) para evitar errores de redondeo en promedios ponderados.
+ */
+export function roundUnitCostAmount(
+  amount: number,
+  code?: WorkshopCurrencyCode,
+): number {
+  if (!Number.isFinite(amount)) return 0;
+  const spec = getCurrencySpec(code);
+  const decimals = Math.max(2, spec.decimals);
+  const factor = 10 ** decimals;
+  return Math.round(amount * factor) / factor;
+}
+
 export function toMinorUnits(
   amount: number,
   code?: WorkshopCurrencyCode,
@@ -298,9 +313,17 @@ export function parseNonNegativeMoney(
 ): number {
   const spec = getCurrencySpec(code);
   const trimmed = raw.trim();
-  if (!trimmed) return 0;
+  if (!trimmed || trimmed.startsWith('-')) return 0;
 
   if (spec.decimals === 0) {
+    const decimalNormalized = trimmed.replace(',', '.');
+    if (
+      /^\d+\.\d{1,2}$/.test(decimalNormalized) ||
+      /^\.\d{1,2}$/.test(decimalNormalized)
+    ) {
+      const n = Number.parseFloat(decimalNormalized);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+    }
     const cleaned = trimmed.replace(/[^\d]/g, '');
     if (!cleaned) return 0;
     const n = Number.parseInt(cleaned, 10);
@@ -315,4 +338,42 @@ export function parseNonNegativeMoney(
   const n = Number.parseFloat(rebuilt);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100) / 100;
+}
+
+export function parseNonNegativeUnitCost(
+  raw: string,
+  code?: WorkshopCurrencyCode,
+): number {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith('-')) return 0;
+  const normalized = trimmed.replace(',', '.').replace(/[^\d.]/g, '');
+  const parts = normalized.split('.');
+  const rebuilt =
+    parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : parts[0];
+  const n = Number.parseFloat(rebuilt);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return roundUnitCostAmount(n, code);
+}
+
+export function validateNonNegativeDecimalInput(
+  raw: string,
+  options?: { required?: boolean; fieldLabel?: string },
+): string | null {
+  const label = options?.fieldLabel ?? 'El valor';
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return options?.required ? `${label} es obligatorio.` : null;
+  }
+  if (trimmed.startsWith('-')) {
+    return `${label} no puede ser negativo.`;
+  }
+  const normalized = trimmed.replace(',', '.');
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) {
+    return `${label} debe ser un número válido no negativo (ej. 22,50 o 22.50).`;
+  }
+  const n = Number.parseFloat(normalized);
+  if (!Number.isFinite(n) || n < 0) {
+    return `${label} debe ser un número válido no negativo.`;
+  }
+  return null;
 }

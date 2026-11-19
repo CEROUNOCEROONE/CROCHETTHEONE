@@ -549,6 +549,7 @@ export function resolveSmartRemindersAndAlerts(params: {
   // 4. Alertas automáticas de stock bajo por color
   if (enableLowStock) {
     for (const variant of variants) {
+      if (variant.minStockAlertEnabled === false) continue;
       const available = Math.max(0, variant.physicalStock - variant.reservedStock);
       if (available > variant.minStock) continue;
       if (persistedByKey.has(`low_stock:${variant.id}`)) continue;

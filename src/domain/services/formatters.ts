@@ -3,6 +3,7 @@ import type { ISODate, MoneyCOP } from '@/src/domain/models/index.ts';
 import {
   getCurrencySpec,
   roundCurrencyAmount,
+  roundUnitCostAmount,
   type WorkshopCurrencyCode,
 } from './currencyCatalog.ts';
 import {
@@ -39,10 +40,14 @@ export function getActiveUsdRates(): UsdRatesSnapshot | null {
 function getNumberFormatter(
   code: WorkshopCurrencyCode,
   includeDecimals: boolean,
+  maxDecimalsOverride?: number,
 ): Intl.NumberFormat {
   const spec = getCurrencySpec(code);
-  const minFrac = includeDecimals && spec.decimals > 0 ? spec.decimals : 0;
-  const maxFrac = spec.decimals;
+  const maxFrac =
+    maxDecimalsOverride !== undefined
+      ? Math.max(spec.decimals, maxDecimalsOverride)
+      : spec.decimals;
+  const minFrac = includeDecimals ? maxFrac : 0;
   const key = `${spec.code}_${minFrac}_${maxFrac}`;
   let fmt = formatterCache.get(key);
   if (!fmt) {
@@ -67,6 +72,22 @@ export function formatMoney(
   );
   const hasCents = !Number.isInteger(rounded);
   return getNumberFormatter(currencyCode, hasCents).format(rounded);
+}
+
+export function formatUnitCost(
+  amount: MoneyCOP,
+  currencyCode: WorkshopCurrencyCode = activeCurrencyCode,
+): string {
+  const rounded = roundUnitCostAmount(
+    Number.isFinite(amount) ? amount : 0,
+    currencyCode,
+  );
+  const hasDecimals = !Number.isInteger(rounded);
+  return getNumberFormatter(
+    currencyCode,
+    hasDecimals,
+    hasDecimals ? 2 : undefined,
+  ).format(rounded);
 }
 
 export function formatCOP(

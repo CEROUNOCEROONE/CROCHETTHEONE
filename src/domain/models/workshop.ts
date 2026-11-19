@@ -30,4 +30,5 @@ export interface WorkshopSettings extends BaseEntity {
   readonly enableInstallmentReminders?: boolean;
   readonly enablePurchaseReminders?: boolean;
   readonly enableLowStockReminders?: boolean;
+  readonly customMaterialCategories?: string[];
 }

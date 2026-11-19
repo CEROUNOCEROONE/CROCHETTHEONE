@@ -2,14 +2,19 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRightLeft,
+  Bell,
+  BellOff,
   BookmarkCheck,
+  CheckCircle2,
   Edit3,
   History,
+  Info,
   MinusCircle,
   Package,
   Plus,
   PlusCircle,
   Search,
+  Sparkles,
   Trash2,
   Unlock,
   X,
@@ -22,21 +27,36 @@ import type {
   MaterialVariant,
   MeasurementUnit,
 } from '@/src/domain/models/index.ts';
-import { getMoneyInputStep } from '@/src/domain/services/currencyCatalog.ts';
-import { formatCOP, formatDateTimeCO } from '@/src/domain/services/formatters.ts';
 import {
+  parseNonNegativeUnitCost,
+  validateNonNegativeDecimalInput,
+} from '@/src/domain/services/currencyCatalog.ts';
+import { formatCOP, formatDateTimeCO, formatUnitCost } from '@/src/domain/services/formatters.ts';
+import {
+  buildMaterialCategoryOptions,
+  computeWeightedAverageUnitCost,
   formatUnitQuantity,
   getCategoryLabel,
   getReservationRemaining,
+  getUnitCostDisplayLabel,
   getUnitShortLabel,
   getVariantAvailableStock,
   getVariantInventoryValueCOP,
+  isSameNormalizedText,
   isVariantLowStock,
-  MATERIAL_CATEGORY_OPTIONS,
+  isVariantMinStockAlertEnabled,
   MEASUREMENT_UNIT_OPTIONS,
   MOVEMENT_TYPE_META,
+  normalizeComparisonKey,
+  normalizeInventoryText,
   RESERVATION_STATUS_META,
+  resolveMaterialCategorySelection,
+  type VariantMetadataConflictStrategy,
 } from '@/src/domain/services/inventoryService.ts';
+import {
+  SmartAutocompleteInput,
+  type SmartSuggestion,
+} from '@/src/shared/components/SmartAutocompleteInput.tsx';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import {
@@ -46,8 +66,10 @@ import {
 } from '@/src/shared/components/SnapDeck.tsx';
 import { canCreateMaterialReservation } from '@/src/domain/services/planCapabilities.ts';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
+import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -121,6 +143,8 @@ export const InventoryView: React.FC = () => {
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [matName, setMatName] = useState('');
   const [matCategory, setMatCategory] = useState<MaterialCategory>('yarn_cotton');
+  const [customCategorySpec, setCustomCategorySpec] = useState('');
+  const [forceCreateNewMaterial, setForceCreateNewMaterial] = useState(false);
   const [matBrand, setMatBrand] = useState('');
   const [matUnit, setMatUnit] = useState<MeasurementUnit>('g');
   const [matDescription, setMatDescription] = useState('');
@@ -133,6 +157,10 @@ export const InventoryView: React.FC = () => {
   const [firstCostCOP, setFirstCostCOP] = useState('50');
   const [firstInitialStock, setFirstInitialStock] = useState('100');
   const [firstMinStock, setFirstMinStock] = useState('50');
+  const [firstMinStockAlertEnabled, setFirstMinStockAlertEnabled] = useState(true);
+  const [firstNotes, setFirstNotes] = useState('');
+  const [firstMetadataStrategy, setFirstMetadataStrategy] =
+    useState<VariantMetadataConflictStrategy>('keep_existing');
 
   // Modal Agregar/Editar Variante de Color
   const [variantModalOpen, setVariantModalOpen] = useState(false);
@@ -146,7 +174,10 @@ export const InventoryView: React.FC = () => {
   const [varCostCOP, setVarCostCOP] = useState('0');
   const [varInitialStock, setVarInitialStock] = useState('0');
   const [varMinStock, setVarMinStock] = useState('0');
+  const [varMinStockAlertEnabled, setVarMinStockAlertEnabled] = useState(true);
   const [varNotes, setVarNotes] = useState('');
+  const [varMetadataStrategy, setVarMetadataStrategy] =
+    useState<VariantMetadataConflictStrategy>('keep_existing');
 
   // Modal Ajuste Manual de Stock
   const [adjustStockVariant, setAdjustStockVariant] = useState<MaterialVariant | null>(null);
@@ -184,6 +215,45 @@ export const InventoryView: React.FC = () => {
   const [variantToDelete, setVariantToDelete] = useState<MaterialVariant | null>(null);
   const [materialToDelete, setMaterialToDelete] = useState<Material | null>(null);
 
+  const hasOpenFormModal = Boolean(
+    materialModalOpen ||
+      variantModalOpen ||
+      adjustStockVariant ||
+      reserveModalOpen ||
+      directConsumeVariant ||
+      consumeResModal ||
+      modifyResModal,
+  );
+
+  const closeActiveFormModal = () => {
+    setFeedback(null);
+    if (modifyResModal) {
+      setModifyResModal(null);
+    } else if (consumeResModal) {
+      setConsumeResModal(null);
+    } else if (directConsumeVariant) {
+      setDirectConsumeVariant(null);
+    } else if (reserveModalOpen) {
+      setReserveModalOpen(false);
+    } else if (adjustStockVariant) {
+      setAdjustStockVariant(null);
+    } else if (variantModalOpen) {
+      setVariantModalOpen(false);
+    } else if (materialModalOpen) {
+      setMaterialModalOpen(false);
+    }
+  };
+
+  useEscapeKey(
+    hasOpenFormModal &&
+      !busy &&
+      !reserveGateOpen &&
+      !reservationToRelease &&
+      !variantToDelete &&
+      !materialToDelete,
+    closeActiveFormModal,
+  );
+
   const materialMap = useMemo(
     () => new Map(materials.map((m) => [m.id, m])),
     [materials],
@@ -200,6 +270,477 @@ export const InventoryView: React.FC = () => {
     () => new Map(components.map((c) => [c.id, c])),
     [components],
   );
+
+  // Catálogo dinámico de categorías (predefinidas + personalizadas persistidas)
+  const categoryOptions = useMemo(
+    () => buildMaterialCategoryOptions(materials, settings.customMaterialCategories),
+    [materials, settings.customMaterialCategories],
+  );
+
+  // Resolución en tiempo real de la categoría seleccionada / especificada en "Otros insumos"
+  const categoryResolution = useMemo(
+    () =>
+      resolveMaterialCategorySelection({
+        selectedCategory: matCategory,
+        customSpecification: customCategorySpec,
+        existingCatalog: categoryOptions,
+      }),
+    [matCategory, customCategorySpec, categoryOptions],
+  );
+
+  // Detección inteligente de material existente para reutilización sin mezclar unidades incompatibles
+  const sameNameRealMaterials = useMemo(() => {
+    if (editingMaterial) return [];
+    const normalizedName = normalizeComparisonKey(matName);
+    if (!normalizedName) return [];
+    return materials.filter(
+      (m) => !m.isDemo && normalizeComparisonKey(m.name) === normalizedName,
+    );
+  }, [editingMaterial, matName, materials]);
+
+  const reusedMaterial = useMemo(() => {
+    if (editingMaterial || forceCreateNewMaterial) return null;
+    const sameUnitCandidates = sameNameRealMaterials.filter(
+      (m) => m.unit === matUnit,
+    );
+    if (sameUnitCandidates.length === 0) return null;
+    const brandKey = normalizeComparisonKey(matBrand);
+    if (brandKey) {
+      const exactBrandMatch = sameUnitCandidates.find(
+        (m) => normalizeComparisonKey(m.brand) === brandKey,
+      );
+      if (exactBrandMatch) return exactBrandMatch;
+    }
+    return sameUnitCandidates[0];
+  }, [editingMaterial, forceCreateNewMaterial, sameNameRealMaterials, matUnit, matBrand]);
+
+  const unitConflictMaterial = useMemo(() => {
+    if (editingMaterial || forceCreateNewMaterial || reusedMaterial) return null;
+    return sameNameRealMaterials.find((m) => m.unit !== matUnit) ?? null;
+  }, [editingMaterial, forceCreateNewMaterial, reusedMaterial, sameNameRealMaterials, matUnit]);
+
+  // Detección de variante de color existente dentro del material reutilizado
+  const matchedExistingVariant = useMemo(() => {
+    if (editingMaterial || !reusedMaterial) return null;
+    const colorKey = normalizeComparisonKey(firstColorName);
+    if (!colorKey) return null;
+    return (
+      variants.find(
+        (v) =>
+          v.materialId === reusedMaterial.id &&
+          normalizeComparisonKey(v.colorName) === colorKey,
+      ) ?? null
+    );
+  }, [editingMaterial, reusedMaterial, firstColorName, variants]);
+
+  // Detección de variante de color existente en el modal "Agregar color a [Material]"
+  const matchedParentExistingVariant = useMemo(() => {
+    if (editingVariant || !variantParentMaterial) return null;
+    const colorKey = normalizeComparisonKey(varColorName);
+    if (!colorKey) return null;
+    return (
+      variants.find(
+        (v) =>
+          v.materialId === variantParentMaterial.id &&
+          normalizeComparisonKey(v.colorName) === colorKey,
+      ) ?? null
+    );
+  }, [editingVariant, variantParentMaterial, varColorName, variants]);
+
+  const buildVariantMetadataConflicts = (
+    existingVar: MaterialVariant | null,
+    incoming: {
+      provider: string;
+      sizeOrGauge: string;
+      sku: string;
+      colorHex: string;
+      notes: string;
+    },
+  ): Array<{ fieldLabel: string; existingValue: string; incomingValue: string }> => {
+    if (!existingVar) return [];
+    const conflicts: Array<{
+      fieldLabel: string;
+      existingValue: string;
+      incomingValue: string;
+    }> = [];
+
+    const incProvider = normalizeInventoryText(incoming.provider);
+    if (
+      existingVar.provider &&
+      incProvider &&
+      !isSameNormalizedText(existingVar.provider, incProvider)
+    ) {
+      conflicts.push({
+        fieldLabel: 'Proveedor',
+        existingValue: existingVar.provider,
+        incomingValue: incProvider,
+      });
+    }
+
+    const incSize = normalizeInventoryText(incoming.sizeOrGauge);
+    if (
+      existingVar.sizeOrGauge &&
+      incSize &&
+      !isSameNormalizedText(existingVar.sizeOrGauge, incSize)
+    ) {
+      conflicts.push({
+        fieldLabel: 'Calibre / tamaño',
+        existingValue: existingVar.sizeOrGauge,
+        incomingValue: incSize,
+      });
+    }
+
+    const incSku = normalizeInventoryText(incoming.sku);
+    if (
+      existingVar.sku &&
+      incSku &&
+      !isSameNormalizedText(existingVar.sku, incSku)
+    ) {
+      conflicts.push({
+        fieldLabel: 'SKU / código',
+        existingValue: existingVar.sku,
+        incomingValue: incSku,
+      });
+    }
+
+    const incHex = incoming.colorHex.trim();
+    if (
+      existingVar.colorHex &&
+      incHex &&
+      existingVar.colorHex.toLowerCase() !== incHex.toLowerCase()
+    ) {
+      conflicts.push({
+        fieldLabel: 'Muestra visual',
+        existingValue: existingVar.colorHex.toUpperCase(),
+        incomingValue: incHex.toUpperCase(),
+      });
+    }
+
+    const incNotes = normalizeInventoryText(incoming.notes);
+    if (
+      existingVar.notes &&
+      incNotes &&
+      !isSameNormalizedText(existingVar.notes, incNotes)
+    ) {
+      conflicts.push({
+        fieldLabel: 'Notas',
+        existingValue: existingVar.notes,
+        incomingValue: incNotes,
+      });
+    }
+
+    return conflicts;
+  };
+
+  const firstMetadataConflicts = useMemo(
+    () =>
+      buildVariantMetadataConflicts(matchedExistingVariant, {
+        provider: firstProvider,
+        sizeOrGauge: firstSize,
+        sku: firstSku,
+        colorHex: firstColorHex,
+        notes: firstNotes,
+      }),
+    [matchedExistingVariant, firstProvider, firstSize, firstSku, firstColorHex, firstNotes],
+  );
+
+  const variantMetadataConflicts = useMemo(
+    () =>
+      buildVariantMetadataConflicts(matchedParentExistingVariant, {
+        provider: varProvider,
+        sizeOrGauge: varSize,
+        sku: varSku,
+        colorHex: varColorHex,
+        notes: varNotes,
+      }),
+    [matchedParentExistingVariant, varProvider, varSize, varSku, varColorHex, varNotes],
+  );
+
+  const firstWeightedPreview = useMemo(() => {
+    if (!matchedExistingVariant) return null;
+    const qty = Math.max(0, Number(firstInitialStock) || 0);
+    const cost = parseNonNegativeUnitCost(firstCostCOP, settings.currency);
+    return computeWeightedAverageUnitCost({
+      previousPhysicalStock: matchedExistingVariant.physicalStock,
+      previousUnitCost: matchedExistingVariant.unitCostCOP,
+      entryQuantity: qty,
+      entryUnitCost: cost > 0 ? cost : matchedExistingVariant.unitCostCOP,
+      currency: settings.currency,
+    });
+  }, [matchedExistingVariant, firstInitialStock, firstCostCOP, settings.currency]);
+
+  const variantWeightedPreview = useMemo(() => {
+    if (!matchedParentExistingVariant) return null;
+    const qty = Math.max(0, Number(varInitialStock) || 0);
+    const cost = parseNonNegativeUnitCost(varCostCOP, settings.currency);
+    return computeWeightedAverageUnitCost({
+      previousPhysicalStock: matchedParentExistingVariant.physicalStock,
+      previousUnitCost: matchedParentExistingVariant.unitCostCOP,
+      entryQuantity: qty,
+      entryUnitCost: cost > 0 ? cost : matchedParentExistingVariant.unitCostCOP,
+      currency: settings.currency,
+    });
+  }, [matchedParentExistingVariant, varInitialStock, varCostCOP, settings.currency]);
+
+  // Sugerencias de autocompletado: Nombre del material
+  const materialNameSuggestions = useMemo<SmartSuggestion<Material>[]>(() => {
+    return materials
+      .filter((m) => (editingMaterial ? m.id !== editingMaterial.id : !m.isDemo))
+      .map((mat) => {
+        const matVariants = variants.filter((v) => v.materialId === mat.id);
+        return {
+          id: mat.id,
+          value: mat.name,
+          label: mat.name,
+          sublabel: `${getCategoryLabel(mat.category)}${
+            mat.brand ? ` · ${mat.brand}` : ''
+          } · Unidad: ${getUnitShortLabel(mat.unit)}`,
+          badge: `${matVariants.length} color${matVariants.length === 1 ? '' : 'es'}`,
+          badgeTone: 'teal' as const,
+          payload: mat,
+        };
+      });
+  }, [materials, variants, editingMaterial]);
+
+  // Sugerencias de autocompletado: Especificar categoría ("Otros insumos")
+  const customCategorySuggestions = useMemo<
+    SmartSuggestion<{ value: MaterialCategory; label: string; isCustom?: boolean }>[]
+  >(() => {
+    return categoryOptions
+      .filter((opt) => opt.value !== 'other')
+      .map((opt) => ({
+        id: `cat-${opt.value}`,
+        value: opt.label,
+        label: opt.label,
+        sublabel: opt.isCustom
+          ? 'Categoría personalizada registrada en el taller'
+          : 'Categoría estándar del catálogo',
+        badge: opt.isCustom ? 'Personalizada' : 'Existente',
+        badgeTone: opt.isCustom ? ('teal' as const) : ('slate' as const),
+        payload: opt,
+      }));
+  }, [categoryOptions]);
+
+  // Sugerencias de autocompletado: Marca o referencia
+  const brandSuggestions = useMemo<SmartSuggestion<string>[]>(() => {
+    const seen = new Map<string, { brand: string; count: number }>();
+    for (const mat of materials) {
+      const cleaned = normalizeInventoryText(mat.brand);
+      if (!cleaned) continue;
+      const key = normalizeComparisonKey(cleaned);
+      const prev = seen.get(key);
+      if (prev) {
+        prev.count += 1;
+      } else {
+        seen.set(key, { brand: cleaned, count: 1 });
+      }
+    }
+    return Array.from(seen.entries()).map(([key, info]) => ({
+      id: `brand-${key}`,
+      value: info.brand,
+      label: info.brand,
+      sublabel: `Usada en ${info.count} material${info.count === 1 ? '' : 'es'}`,
+      badge: 'Marca existente',
+      badgeTone: 'slate' as const,
+      payload: info.brand,
+    }));
+  }, [materials]);
+
+  // Sugerencias de autocompletado: Nombre del color (modal Nuevo material y primer color)
+  const firstColorSuggestions = useMemo<SmartSuggestion<MaterialVariant | null>[]>(() => {
+    const list: SmartSuggestion<MaterialVariant | null>[] = [];
+    const seenKeys = new Set<string>();
+
+    if (reusedMaterial) {
+      const sameMatVariants = variants.filter((v) => v.materialId === reusedMaterial.id);
+      for (const v of sameMatVariants) {
+        const key = normalizeComparisonKey(v.colorName);
+        if (!key || seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        list.push({
+          id: `same-var-${v.id}`,
+          value: v.colorName,
+          label: v.colorName,
+          sublabel: `Registrado en ${reusedMaterial.name} · Stock físico actual: ${formatUnitQuantity(
+            v.physicalStock,
+            reusedMaterial.unit,
+          )}`,
+          badge: 'Ya existe · Sumar entrada',
+          badgeTone: 'amber',
+          colorHex: v.colorHex,
+          payload: v,
+        });
+      }
+    }
+
+    for (const v of variants) {
+      const key = normalizeComparisonKey(v.colorName);
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      const parentMat = materialMap.get(v.materialId);
+      list.push({
+        id: `color-${v.id}`,
+        value: v.colorName,
+        label: v.colorName,
+        sublabel: parentMat ? `Usado en ${parentMat.name}` : 'Color registrado en el taller',
+        badge: 'Color del taller',
+        badgeTone: 'teal',
+        colorHex: v.colorHex,
+        payload: null,
+      });
+    }
+
+    return list;
+  }, [reusedMaterial, variants, materialMap]);
+
+  // Sugerencias de autocompletado: Nombre del color (modal Agregar / Editar color)
+  const variantColorSuggestions = useMemo<SmartSuggestion<MaterialVariant | null>[]>(() => {
+    const list: SmartSuggestion<MaterialVariant | null>[] = [];
+    const seenKeys = new Set<string>();
+
+    if (variantParentMaterial) {
+      const sameMatVariants = variants.filter(
+        (v) =>
+          v.materialId === variantParentMaterial.id &&
+          (!editingVariant || v.id !== editingVariant.id),
+      );
+      for (const v of sameMatVariants) {
+        const key = normalizeComparisonKey(v.colorName);
+        if (!key || seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        list.push({
+          id: `parent-var-${v.id}`,
+          value: v.colorName,
+          label: v.colorName,
+          sublabel: `Registrado en ${variantParentMaterial.name} · Stock físico: ${formatUnitQuantity(
+            v.physicalStock,
+            variantParentMaterial.unit,
+          )}`,
+          badge: editingVariant ? 'Color en este material' : 'Ya existe · Sumar entrada',
+          badgeTone: 'amber',
+          colorHex: v.colorHex,
+          payload: v,
+        });
+      }
+    }
+
+    for (const v of variants) {
+      const key = normalizeComparisonKey(v.colorName);
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      const parentMat = materialMap.get(v.materialId);
+      list.push({
+        id: `workshop-color-${v.id}`,
+        value: v.colorName,
+        label: v.colorName,
+        sublabel: parentMat ? `Usado en ${parentMat.name}` : 'Color registrado en el taller',
+        badge: 'Color del taller',
+        badgeTone: 'teal',
+        colorHex: v.colorHex,
+        payload: null,
+      });
+    }
+
+    return list;
+  }, [variantParentMaterial, editingVariant, variants, materialMap]);
+
+  // Sugerencias de autocompletado: Proveedor habitual
+  const providerSuggestions = useMemo<SmartSuggestion<string>[]>(() => {
+    const seen = new Map<string, { provider: string; count: number }>();
+    for (const v of variants) {
+      const cleaned = normalizeInventoryText(v.provider);
+      if (!cleaned) continue;
+      const key = normalizeComparisonKey(cleaned);
+      const prev = seen.get(key);
+      if (prev) {
+        prev.count += 1;
+      } else {
+        seen.set(key, { provider: cleaned, count: 1 });
+      }
+    }
+    return Array.from(seen.entries()).map(([key, info]) => ({
+      id: `prov-${key}`,
+      value: info.provider,
+      label: info.provider,
+      sublabel: `Asociado a ${info.count} color${info.count === 1 ? '' : 'es'}`,
+      badge: 'Proveedor',
+      badgeTone: 'slate' as const,
+      payload: info.provider,
+    }));
+  }, [variants]);
+
+  // Sugerencias de autocompletado: Calibre o tamaño
+  const sizeSuggestions = useMemo<SmartSuggestion<string>[]>(() => {
+    const seen = new Map<string, string>();
+    for (const v of variants) {
+      const cleaned = normalizeInventoryText(v.sizeOrGauge ?? '');
+      if (!cleaned) continue;
+      const key = normalizeComparisonKey(cleaned);
+      if (!seen.has(key)) {
+        seen.set(key, cleaned);
+      }
+    }
+    return Array.from(seen.entries()).map(([key, size]) => ({
+      id: `size-${key}`,
+      value: size,
+      label: size,
+      badge: 'Calibre / tamaño',
+      badgeTone: 'slate' as const,
+      payload: size,
+    }));
+  }, [variants]);
+
+  // Sugerencias de autocompletado: Código / SKU
+  const skuSuggestions = useMemo<SmartSuggestion<string>[]>(() => {
+    const seen = new Map<string, { sku: string; context: string }>();
+    for (const v of variants) {
+      const cleaned = normalizeInventoryText(v.sku ?? '');
+      if (!cleaned) continue;
+      const key = normalizeComparisonKey(cleaned);
+      if (!seen.has(key)) {
+        const mat = materialMap.get(v.materialId);
+        seen.set(key, {
+          sku: cleaned,
+          context: mat ? `${mat.name} · ${v.colorName}` : v.colorName,
+        });
+      }
+    }
+    return Array.from(seen.entries()).map(([key, info]) => ({
+      id: `sku-${key}`,
+      value: info.sku,
+      label: info.sku,
+      sublabel: info.context,
+      badge: 'Código registrado',
+      badgeTone: 'slate' as const,
+      payload: info.sku,
+    }));
+  }, [variants, materialMap]);
+
+  // Sugerencias de autocompletado: Notas / observaciones frecuentes
+  const noteSuggestions = useMemo<SmartSuggestion<string>[]>(() => {
+    const seen = new Map<string, { note: string; context: string }>();
+    for (const v of variants) {
+      const cleaned = normalizeInventoryText(v.notes);
+      if (!cleaned) continue;
+      const key = normalizeComparisonKey(cleaned);
+      if (!seen.has(key)) {
+        const mat = materialMap.get(v.materialId);
+        seen.set(key, {
+          note: cleaned,
+          context: mat ? `${mat.name} · ${v.colorName}` : v.colorName,
+        });
+      }
+    }
+    return Array.from(seen.entries()).map(([key, info]) => ({
+      id: `note-${key}`,
+      value: info.note,
+      label: info.note,
+      sublabel: info.context,
+      badge: 'Nota frecuente',
+      badgeTone: 'slate' as const,
+      payload: info.note,
+    }));
+  }, [variants, materialMap]);
 
   // Indicadores generales de Inventario
   const totalValueCOP = useMemo(
@@ -383,9 +924,12 @@ export const InventoryView: React.FC = () => {
 
   // Handlers de Material
   const openNewMaterialModal = () => {
+    setFeedback(null);
     setEditingMaterial(null);
     setMatName('');
     setMatCategory('yarn_cotton');
+    setCustomCategorySpec('');
+    setForceCreateNewMaterial(false);
     setMatBrand('');
     setMatUnit('g');
     setMatDescription('');
@@ -397,17 +941,77 @@ export const InventoryView: React.FC = () => {
     setFirstCostCOP('50');
     setFirstInitialStock('100');
     setFirstMinStock('50');
+    setFirstMinStockAlertEnabled(true);
+    setFirstNotes('');
+    setFirstMetadataStrategy('keep_existing');
     setMaterialModalOpen(true);
   };
 
   const openEditMaterialModal = (mat: Material) => {
+    setFeedback(null);
     setEditingMaterial(mat);
     setMatName(mat.name);
     setMatCategory(mat.category);
+    setCustomCategorySpec('');
+    setForceCreateNewMaterial(false);
     setMatBrand(mat.brand);
     setMatUnit(mat.unit);
     setMatDescription(mat.description);
     setMaterialModalOpen(true);
+  };
+
+  const handleSelectMaterialSuggestion = (suggestion: SmartSuggestion<Material>) => {
+    const selectedMat = suggestion.payload;
+    if (!selectedMat) return;
+    setMatName(selectedMat.name);
+    setMatCategory(selectedMat.category);
+    setCustomCategorySpec('');
+    setMatUnit(selectedMat.unit);
+    setMatBrand(selectedMat.brand);
+    setMatDescription(selectedMat.description);
+    setForceCreateNewMaterial(false);
+  };
+
+  const handleSelectFirstColorSuggestion = (
+    suggestion: SmartSuggestion<MaterialVariant | null>,
+  ) => {
+    setFirstColorName(suggestion.value);
+    setFirstMetadataStrategy('keep_existing');
+    if (suggestion.colorHex) {
+      setFirstColorHex(suggestion.colorHex);
+    }
+    const existingVar = suggestion.payload;
+    if (existingVar) {
+      setFirstCostCOP(String(existingVar.unitCostCOP));
+      setFirstProvider(existingVar.provider || '');
+      setFirstSize(existingVar.sizeOrGauge ?? '');
+      setFirstSku(existingVar.sku ?? '');
+      setFirstNotes(existingVar.notes || '');
+      const alertEnabled = isVariantMinStockAlertEnabled(existingVar);
+      setFirstMinStockAlertEnabled(alertEnabled);
+      setFirstMinStock(String(existingVar.minStock));
+    }
+  };
+
+  const handleSelectVariantColorSuggestion = (
+    suggestion: SmartSuggestion<MaterialVariant | null>,
+  ) => {
+    setVarColorName(suggestion.value);
+    setVarMetadataStrategy('keep_existing');
+    if (suggestion.colorHex) {
+      setVarColorHex(suggestion.colorHex);
+    }
+    const existingVar = suggestion.payload;
+    if (existingVar && !editingVariant) {
+      setVarCostCOP(String(existingVar.unitCostCOP));
+      setVarProvider(existingVar.provider || '');
+      setVarSize(existingVar.sizeOrGauge ?? '');
+      setVarSku(existingVar.sku ?? '');
+      setVarNotes(existingVar.notes || '');
+      const alertEnabled = isVariantMinStockAlertEnabled(existingVar);
+      setVarMinStockAlertEnabled(alertEnabled);
+      setVarMinStock(String(existingVar.minStock));
+    }
   };
 
   const handleSaveMaterial = async (e: React.FormEvent) => {
@@ -415,33 +1019,67 @@ export const InventoryView: React.FC = () => {
     setBusy(true);
     setFeedback(null);
     try {
+      const finalCategory = categoryResolution.category;
+
       if (editingMaterial) {
         await updateMaterial(editingMaterial.id, {
           name: matName,
-          category: matCategory,
+          category: finalCategory,
           brand: matBrand,
           unit: matUnit,
           description: matDescription,
         });
       } else {
-        const createdMat = await createMaterial({
-          name: matName,
-          category: matCategory,
-          brand: matBrand,
-          unit: matUnit,
-          description: matDescription,
+        const costError = validateNonNegativeDecimalInput(firstCostCOP, {
+          required: true,
+          fieldLabel: 'El costo unitario',
         });
+        if (costError) {
+          throw new Error(costError);
+        }
+
+        let targetMaterialId: string;
+        if (reusedMaterial) {
+          targetMaterialId = reusedMaterial.id;
+          const wantsCustomCategoryUpdate =
+            matCategory === 'other' &&
+            Boolean(normalizeInventoryText(customCategorySpec)) &&
+            !isSameNormalizedText(reusedMaterial.category, finalCategory);
+          const wantsBrandEnrichment =
+            !normalizeInventoryText(reusedMaterial.brand) &&
+            Boolean(normalizeInventoryText(matBrand));
+
+          if (wantsCustomCategoryUpdate || wantsBrandEnrichment) {
+            await updateMaterial(reusedMaterial.id, {
+              category: wantsCustomCategoryUpdate ? finalCategory : reusedMaterial.category,
+              brand: wantsBrandEnrichment ? matBrand : reusedMaterial.brand,
+            });
+          }
+        } else {
+          const createdMat = await createMaterial({
+            name: matName,
+            category: finalCategory,
+            brand: matBrand,
+            unit: matUnit,
+            description: matDescription,
+            allowSeparateOnSameName: forceCreateNewMaterial,
+          });
+          targetMaterialId = createdMat.id;
+        }
+
         await createVariant({
-          materialId: createdMat.id,
+          materialId: targetMaterialId,
           colorName: firstColorName,
           colorHex: firstColorHex,
           sizeOrGauge: firstSize || null,
           sku: firstSku || null,
           provider: firstProvider,
-          unitCostCOP: Number(firstCostCOP) || 0,
-          initialPhysicalStock: Number(firstInitialStock) || 0,
-          minStock: Number(firstMinStock) || 0,
-          notes: '',
+          unitCostCOP: parseNonNegativeUnitCost(firstCostCOP, settings.currency),
+          initialPhysicalStock: Math.max(0, Number(firstInitialStock) || 0),
+          minStock: Math.max(0, Number(firstMinStock) || 0),
+          minStockAlertEnabled: firstMinStockAlertEnabled,
+          metadataConflictStrategy: firstMetadataStrategy,
+          notes: firstNotes,
         });
       }
       setMaterialModalOpen(false);
@@ -458,6 +1096,7 @@ export const InventoryView: React.FC = () => {
 
   // Handlers de Variantes por Color
   const openCreateVariantModal = (mat: Material) => {
+    setFeedback(null);
     setVariantParentMaterial(mat);
     setEditingVariant(null);
     setVarColorName('');
@@ -468,11 +1107,14 @@ export const InventoryView: React.FC = () => {
     setVarCostCOP('50');
     setVarInitialStock('100');
     setVarMinStock('50');
+    setVarMinStockAlertEnabled(true);
     setVarNotes('');
+    setVarMetadataStrategy('keep_existing');
     setVariantModalOpen(true);
   };
 
   const openEditVariantModal = (mat: Material, variant: MaterialVariant) => {
+    setFeedback(null);
     setVariantParentMaterial(mat);
     setEditingVariant(variant);
     setVarColorName(variant.colorName);
@@ -483,7 +1125,9 @@ export const InventoryView: React.FC = () => {
     setVarCostCOP(String(variant.unitCostCOP));
     setVarInitialStock(String(variant.physicalStock));
     setVarMinStock(String(variant.minStock));
+    setVarMinStockAlertEnabled(isVariantMinStockAlertEnabled(variant));
     setVarNotes(variant.notes);
+    setVarMetadataStrategy('keep_existing');
     setVariantModalOpen(true);
   };
 
@@ -493,6 +1137,16 @@ export const InventoryView: React.FC = () => {
     setBusy(true);
     setFeedback(null);
     try {
+      const costError = validateNonNegativeDecimalInput(varCostCOP, {
+        required: true,
+        fieldLabel: 'El costo unitario',
+      });
+      if (costError) {
+        throw new Error(costError);
+      }
+
+      const parsedUnitCost = parseNonNegativeUnitCost(varCostCOP, settings.currency);
+      const preservedMinStock = Math.max(0, Number(varMinStock) || 0);
       if (editingVariant) {
         await updateVariantMetadata(editingVariant.id, {
           colorName: varColorName,
@@ -500,8 +1154,9 @@ export const InventoryView: React.FC = () => {
           sizeOrGauge: varSize || null,
           sku: varSku || null,
           provider: varProvider,
-          unitCostCOP: Number(varCostCOP) || 0,
-          minStock: Number(varMinStock) || 0,
+          unitCostCOP: parsedUnitCost,
+          minStock: preservedMinStock,
+          minStockAlertEnabled: varMinStockAlertEnabled,
           notes: varNotes,
         });
       } else {
@@ -512,9 +1167,11 @@ export const InventoryView: React.FC = () => {
           sizeOrGauge: varSize || null,
           sku: varSku || null,
           provider: varProvider,
-          unitCostCOP: Number(varCostCOP) || 0,
-          initialPhysicalStock: Number(varInitialStock) || 0,
-          minStock: Number(varMinStock) || 0,
+          unitCostCOP: parsedUnitCost,
+          initialPhysicalStock: Math.max(0, Number(varInitialStock) || 0),
+          minStock: preservedMinStock,
+          minStockAlertEnabled: varMinStockAlertEnabled,
+          metadataConflictStrategy: varMetadataStrategy,
           notes: varNotes,
         });
       }
@@ -532,6 +1189,7 @@ export const InventoryView: React.FC = () => {
 
   // Ajuste de Stock Físico
   const openAdjustStockModal = (variant: MaterialVariant) => {
+    setFeedback(null);
     setAdjustStockVariant(variant);
     setAdjustDirection('add');
     setAdjustQty('50');
@@ -578,6 +1236,7 @@ export const InventoryView: React.FC = () => {
       setReserveGateOpen(true);
       return;
     }
+    setFeedback(null);
     const defaultVar = variant ?? variants[0];
     setReserveVariantId(defaultVar?.id ?? '');
     const compatibleProjects = projects.filter((p) =>
@@ -638,6 +1297,7 @@ export const InventoryView: React.FC = () => {
 
   // Consumo directo
   const openDirectConsumeModal = (variant: MaterialVariant) => {
+    setFeedback(null);
     setDirectConsumeVariant(variant);
     const compatible = variant.isDemo
       ? projects
@@ -869,24 +1529,10 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            {feedback && (
-              <div
-                role="alert"
-                className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-900 sm:text-sm"
-              >
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-                  <p>{feedback.message}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFeedback(null)}
-                  className="text-xs font-medium underline shrink-0"
-                >
-                  Cerrar
-                </button>
-              </div>
-            )}
+            <InlineFeedbackAlert
+              feedback={!hasOpenFormModal ? feedback : null}
+              onDismiss={() => setFeedback(null)}
+            />
           </div>
         }
       >
@@ -990,7 +1636,7 @@ export const InventoryView: React.FC = () => {
                   className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 >
                   <option value="all">Todas las categorías</option>
-                  {MATERIAL_CATEGORY_OPTIONS.map((opt) => (
+                  {categoryOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -1174,15 +1820,22 @@ export const InventoryView: React.FC = () => {
                                   )}
                                 </div>
                                 <p className="mt-1 text-xs text-slate-500 tabular-nums">
-                                  Costo: {formatCOP(variant.unitCostCOP)} /{' '}
+                                  Costo: {formatUnitCost(variant.unitCostCOP)} /{' '}
                                   {getUnitShortLabel(material.unit)}
                                   <UsdEquiv amount={variant.unitCostCOP} prefix=" (" suffix=")" />
                                   {variant.sizeOrGauge
                                     ? ` · Calibre ${variant.sizeOrGauge}`
                                     : ''}
                                   {variant.provider ? ` · ${variant.provider}` : ''}
-                                  {` · Mínimo: ${formatUnitQuantity(variant.minStock, material.unit)}`}
+                                  {isVariantMinStockAlertEnabled(variant)
+                                    ? ` · Mínimo: ${formatUnitQuantity(variant.minStock, material.unit)}`
+                                    : ' · Alerta mín.: Desactivada'}
                                 </p>
+                                {variant.notes && (
+                                  <p className="mt-1 text-xs text-slate-600 line-clamp-2">
+                                    Nota: {variant.notes}
+                                  </p>
+                                )}
                               </div>
                             </div>
 
@@ -1483,6 +2136,7 @@ export const InventoryView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
+                                setFeedback(null);
                                 setConsumeResModal(res);
                                 setConsumeResQty(String(remaining));
                                 setConsumeResNotes('');
@@ -1495,6 +2149,7 @@ export const InventoryView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
+                                setFeedback(null);
                                 setModifyResModal(res);
                                 setModifyResQty(String(res.reservedQuantity));
                                 setModifyResNotes(res.notes);
@@ -1645,7 +2300,7 @@ export const InventoryView: React.FC = () => {
                             {getUnitShortLabel(unit)} · Reservado:{' '}
                             {mov.previousReservedStock} → {mov.newReservedStock}{' '}
                             {getUnitShortLabel(unit)} · Costo ref:{' '}
-                            {formatCOP(mov.unitCostAtMovementCOP)}
+                            {formatUnitCost(mov.unitCostAtMovementCOP)}
                             <UsdEquiv
                               amount={mov.unitCostAtMovementCOP}
                               prefix=" ("
@@ -1689,7 +2344,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="material-modal-title"
         >
-          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -1708,7 +2363,10 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setMaterialModalOpen(false)}
+                onClick={() => {
+                  setMaterialModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar formulario"
               >
@@ -1720,6 +2378,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleSaveMaterial(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label
@@ -1728,15 +2390,104 @@ export const InventoryView: React.FC = () => {
                   >
                     Nombre del material *
                   </label>
-                  <input
+                  <SmartAutocompleteInput<Material>
                     id="mat-name"
-                    type="text"
                     required
                     placeholder="Ej. Hilo de Algodón Peinado, Lana Merino..."
                     value={matName}
-                    onChange={(e) => setMatName(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    onChange={(val) => {
+                      setMatName(val);
+                      if (forceCreateNewMaterial) {
+                        setForceCreateNewMaterial(false);
+                      }
+                    }}
+                    onSelectSuggestion={handleSelectMaterialSuggestion}
+                    suggestions={materialNameSuggestions}
+                    emptyCreationHint="Material nuevo: se registrará en el catálogo al guardar."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
+
+                  {!editingMaterial && reusedMaterial && (
+                    <div className="mt-2 flex flex-col gap-1.5 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5 text-xs text-teal-900 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" />
+                        <div>
+                          <p className="font-semibold">
+                            Reutilizando material existente: «{reusedMaterial.name}»
+                          </p>
+                          <p className="text-[11px] text-teal-800">
+                            {getCategoryLabel(reusedMaterial.category)}
+                            {reusedMaterial.brand ? ` · Marca: ${reusedMaterial.brand}` : ''}
+                            {' · Unidad: '}
+                            {getUnitShortLabel(reusedMaterial.unit)}. No se creará un material duplicado.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setForceCreateNewMaterial(true)}
+                        className="self-start text-[11px] font-semibold text-teal-800 underline hover:text-teal-950 sm:self-center shrink-0"
+                      >
+                        Crear como material separado
+                      </button>
+                    </div>
+                  )}
+
+                  {!editingMaterial && unitConflictMaterial && (
+                    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50/90 px-3.5 py-2.5 text-xs text-amber-950">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                        <div className="space-y-1.5">
+                          <p className="font-semibold">
+                            Unidad distinta detectada para «{unitConflictMaterial.name}»
+                          </p>
+                          <p className="text-[11px] text-amber-900">
+                            Ya existe en el catálogo medido en{' '}
+                            <strong>{getUnitShortLabel(unitConflictMaterial.unit)}</strong>. Para evitar mezclar{' '}
+                            {getUnitShortLabel(matUnit)} con {getUnitShortLabel(unitConflictMaterial.unit)}, elige una opción:
+                          </p>
+                          <div className="flex flex-wrap gap-2 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMatUnit(unitConflictMaterial.unit);
+                                setForceCreateNewMaterial(false);
+                              }}
+                              className="rounded-lg border border-amber-400 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-100"
+                            >
+                              Usar existente ({getUnitShortLabel(unitConflictMaterial.unit)})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setForceCreateNewMaterial(true)}
+                              className="rounded-lg bg-amber-800 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-900"
+                            >
+                              Crear como material separado en {getUnitShortLabel(matUnit)}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!editingMaterial &&
+                    forceCreateNewMaterial &&
+                    sameNameRealMaterials.length > 0 && (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        <span>
+                          Se registrará como material independiente en{' '}
+                          <strong>{getUnitShortLabel(matUnit)}</strong>.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setForceCreateNewMaterial(false)}
+                          className="text-[11px] font-semibold text-teal-800 underline hover:text-teal-950"
+                        >
+                          Volver a comprobar coincidencias
+                        </button>
+                      </div>
+                    )}
                 </div>
 
                 <div>
@@ -1749,12 +2500,16 @@ export const InventoryView: React.FC = () => {
                   <select
                     id="mat-cat"
                     value={matCategory}
-                    onChange={(e) =>
-                      setMatCategory(e.target.value as MaterialCategory)
-                    }
+                    onChange={(e) => {
+                      const nextCat = e.target.value as MaterialCategory;
+                      setMatCategory(nextCat);
+                      if (nextCat !== 'other') {
+                        setCustomCategorySpec('');
+                      }
+                    }}
                     className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   >
-                    {MATERIAL_CATEGORY_OPTIONS.map((opt) => (
+                    {categoryOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
@@ -1783,7 +2538,57 @@ export const InventoryView: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  {!editingMaterial && reusedMaterial && (
+                    <p className="mt-1 text-[11px] text-teal-800">
+                      Vinculado a «{reusedMaterial.name}» ({getUnitShortLabel(reusedMaterial.unit)}). Cambia la unidad si deseas crear un material separado.
+                    </p>
+                  )}
                 </div>
+
+                {matCategory === 'other' && (
+                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                    <label
+                      htmlFor="mat-custom-cat"
+                      className="block text-xs font-semibold text-slate-800"
+                    >
+                      Especificar categoría
+                    </label>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Escribe una categoría nueva para guardarla en el catálogo o selecciona una existente de la lista.
+                    </p>
+                    <SmartAutocompleteInput<{
+                      value: MaterialCategory;
+                      label: string;
+                      isCustom?: boolean;
+                    }>
+                      id="mat-custom-cat"
+                      placeholder="Ej. Trapillo, Macramé, Cintas y cordones, Cuero..."
+                      value={customCategorySpec}
+                      onChange={setCustomCategorySpec}
+                      onSelectSuggestion={(s) => setCustomCategorySpec(s.label)}
+                      suggestions={customCategorySuggestions}
+                      emptyCreationHint="Nueva categoría: se creará y quedará disponible en el catálogo."
+                      className="mt-2"
+                      inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    />
+                    {normalizeInventoryText(customCategorySpec) && (
+                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-teal-800">
+                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-teal-700" />
+                        {categoryResolution.isReusedExisting ? (
+                          <span>
+                            Se reutilizará la categoría existente{' '}
+                            <strong>«{categoryResolution.displayLabel}»</strong> sin duplicarla.
+                          </span>
+                        ) : (
+                          <span>
+                            Se creará y guardará la nueva categoría{' '}
+                            <strong>«{categoryResolution.displayLabel}»</strong> para futuros registros.
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="sm:col-span-2">
                   <label
@@ -1792,22 +2597,29 @@ export const InventoryView: React.FC = () => {
                   >
                     Marca o referencia
                   </label>
-                  <input
+                  <SmartAutocompleteInput<string>
                     id="mat-brand"
-                    type="text"
                     placeholder="Ej. Abuelita, Cisne, Sinfonía..."
                     value={matBrand}
-                    onChange={(e) => setMatBrand(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    onChange={setMatBrand}
+                    suggestions={brandSuggestions}
+                    emptyCreationHint="Nueva marca o referencia."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
               </div>
 
               {!editingMaterial && (
                 <div className="space-y-4 border-t border-slate-100 pt-4">
-                  <p className="text-xs font-semibold text-slate-800">
-                    Datos del primer color *
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-slate-800">
+                      {reusedMaterial
+                        ? `Color o entrada de stock para «${reusedMaterial.name}» *`
+                        : 'Datos del primer color *'}
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <label
@@ -1816,14 +2628,26 @@ export const InventoryView: React.FC = () => {
                       >
                         Nombre del color *
                       </label>
-                      <input
+                      <SmartAutocompleteInput<MaterialVariant | null>
                         id="first-color-name"
-                        type="text"
                         required
                         placeholder="Ej. Blanco Nieve, Rosa Pastel..."
                         value={firstColorName}
-                        onChange={(e) => setFirstColorName(e.target.value)}
-                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                        onChange={(val) => {
+                          setFirstColorName(val);
+                          if (firstMetadataStrategy !== 'keep_existing') {
+                            setFirstMetadataStrategy('keep_existing');
+                          }
+                        }}
+                        onSelectSuggestion={handleSelectFirstColorSuggestion}
+                        suggestions={firstColorSuggestions}
+                        emptyCreationHint={
+                          reusedMaterial
+                            ? `Nuevo color para «${reusedMaterial.name}».`
+                            : 'Nuevo color para este material.'
+                        }
+                        className="mt-1.5"
+                        inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
                     </div>
                     <div>
@@ -1856,12 +2680,101 @@ export const InventoryView: React.FC = () => {
                       </div>
                     </div>
 
+                    {matchedExistingVariant && reusedMaterial && (
+                      <div className="sm:col-span-2 space-y-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2.5 text-xs text-amber-950">
+                        <div className="flex items-start gap-2.5">
+                          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                          <div>
+                            <p className="font-semibold">
+                              El color «{matchedExistingVariant.colorName}» ya existe en «{reusedMaterial.name}»
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-amber-900 tabular-nums">
+                              Stock actual:{' '}
+                              <strong>
+                                {formatUnitQuantity(
+                                  matchedExistingVariant.physicalStock,
+                                  reusedMaterial.unit,
+                                )}
+                              </strong>{' '}
+                              · Costo actual:{' '}
+                              <strong>
+                                {formatUnitCost(matchedExistingVariant.unitCostCOP)} /{' '}
+                                {getUnitCostDisplayLabel(reusedMaterial.unit)}
+                              </strong>
+                              .
+                              {Number(firstInitialStock) > 0 && firstWeightedPreview !== null && (
+                                <>
+                                  {' '}Nuevo stock:{' '}
+                                  <strong>
+                                    {formatUnitQuantity(
+                                      matchedExistingVariant.physicalStock +
+                                        Math.max(0, Number(firstInitialStock) || 0),
+                                      reusedMaterial.unit,
+                                    )}
+                                  </strong>{' '}
+                                  · Nuevo costo promedio ponderado:{' '}
+                                  <strong>
+                                    {formatUnitCost(firstWeightedPreview)} /{' '}
+                                    {getUnitCostDisplayLabel(reusedMaterial.unit)}
+                                  </strong>
+                                  .
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        {firstMetadataConflicts.length > 0 && (
+                          <div className="rounded-lg border border-amber-300 bg-white/80 p-2.5 text-[11px] text-slate-800">
+                            <p className="font-semibold text-amber-950">
+                              Se detectaron datos distintos a los guardados en este color:
+                            </p>
+                            <ul className="mt-1 space-y-0.5 text-slate-700">
+                              {firstMetadataConflicts.map((c) => (
+                                <li key={c.fieldLabel}>
+                                  <strong>{c.fieldLabel}:</strong> «{c.existingValue}» → «{c.incomingValue}»
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="mt-2 flex flex-col gap-1.5 sm:flex-row sm:gap-4">
+                              <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
+                                <input
+                                  type="radio"
+                                  name="first-meta-strategy"
+                                  checked={firstMetadataStrategy === 'keep_existing'}
+                                  onChange={() => setFirstMetadataStrategy('keep_existing')}
+                                  className="text-teal-700"
+                                />
+                                <span>Conservar datos guardados del color</span>
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
+                                <input
+                                  type="radio"
+                                  name="first-meta-strategy"
+                                  checked={firstMetadataStrategy === 'update_with_new'}
+                                  onChange={() => setFirstMetadataStrategy('update_with_new')}
+                                  className="text-teal-700"
+                                />
+                                <span>Actualizar color con los nuevos datos</span>
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div>
                       <label
                         htmlFor="first-initial-stock"
                         className="block text-xs font-semibold text-slate-700"
                       >
-                        Stock físico inicial ({getUnitShortLabel(matUnit)})
+                        {matchedExistingVariant
+                          ? `Cantidad a ingresar (+${getUnitShortLabel(
+                              reusedMaterial?.unit ?? matUnit,
+                            )})`
+                          : `Stock físico inicial (${getUnitShortLabel(
+                              reusedMaterial?.unit ?? matUnit,
+                            )})`}
                       </label>
                       <input
                         id="first-initial-stock"
@@ -1876,22 +2789,58 @@ export const InventoryView: React.FC = () => {
                     </div>
 
                     <div>
-                      <label
-                        htmlFor="first-min-stock"
-                        className="block text-xs font-semibold text-slate-700"
-                      >
-                        Stock mínimo de alerta
-                      </label>
-                      <input
-                        id="first-min-stock"
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        required
-                        value={firstMinStock}
-                        onChange={(e) => setFirstMinStock(e.target.value)}
-                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="first-min-stock"
+                          className="block text-xs font-semibold text-slate-700"
+                        >
+                          Stock mínimo de alerta
+                        </label>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={firstMinStockAlertEnabled}
+                          aria-label="Activar o desactivar alerta de stock mínimo"
+                          onClick={() =>
+                            setFirstMinStockAlertEnabled((prev) => !prev)
+                          }
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                            firstMinStockAlertEnabled
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {firstMinStockAlertEnabled ? (
+                            <>
+                              <Bell className="h-3 w-3 text-teal-700" />
+                              <span>Alerta activa</span>
+                            </>
+                          ) : (
+                            <>
+                              <BellOff className="h-3 w-3 text-slate-500" />
+                              <span>Sin alerta</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {firstMinStockAlertEnabled ? (
+                        <input
+                          id="first-min-stock"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          required
+                          value={firstMinStock}
+                          onChange={(e) => setFirstMinStock(e.target.value)}
+                          className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                        />
+                      ) : (
+                        <div className="mt-1.5 flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 text-xs text-slate-500">
+                          Alerta desactivada (umbral guardado: {Math.max(0, Number(firstMinStock) || 0)}{' '}
+                          {getUnitShortLabel(reusedMaterial?.unit ?? matUnit)}).
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1899,20 +2848,21 @@ export const InventoryView: React.FC = () => {
                         htmlFor="first-cost-cop"
                         className="block text-xs font-semibold text-slate-700"
                       >
-                        Costo por {getUnitShortLabel(matUnit)} ({settings.currency})
+                        Costo por {getUnitCostDisplayLabel(reusedMaterial?.unit ?? matUnit)} (
+                        {settings.currency})
                       </label>
                       <input
                         id="first-cost-cop"
-                        type="number"
-                        min={0}
-                        step={getMoneyInputStep(settings.currency)}
+                        type="text"
+                        inputMode="decimal"
                         required
+                        placeholder="Ej. 22,50"
                         value={firstCostCOP}
                         onChange={(e) => setFirstCostCOP(e.target.value)}
                         className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
                       <UsdEquiv
-                        amount={Number(firstCostCOP)}
+                        amount={parseNonNegativeUnitCost(firstCostCOP, settings.currency)}
                         hideWhenZero
                         block
                         className="mt-1"
@@ -1926,13 +2876,15 @@ export const InventoryView: React.FC = () => {
                       >
                         Proveedor habitual
                       </label>
-                      <input
+                      <SmartAutocompleteInput<string>
                         id="first-provider"
-                        type="text"
                         placeholder="Ej. Lanas El Centro"
                         value={firstProvider}
-                        onChange={(e) => setFirstProvider(e.target.value)}
-                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                        onChange={setFirstProvider}
+                        suggestions={providerSuggestions}
+                        emptyCreationHint="Nuevo proveedor."
+                        className="mt-1.5"
+                        inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
                     </div>
 
@@ -1943,13 +2895,15 @@ export const InventoryView: React.FC = () => {
                       >
                         Calibre / tamaño (opcional)
                       </label>
-                      <input
+                      <SmartAutocompleteInput<string>
                         id="first-size"
-                        type="text"
                         placeholder="Ej. 2.5mm - 3.0mm, 12mm"
                         value={firstSize}
-                        onChange={(e) => setFirstSize(e.target.value)}
-                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                        onChange={setFirstSize}
+                        suggestions={sizeSuggestions}
+                        emptyCreationHint="Nuevo calibre o tamaño."
+                        className="mt-1.5"
+                        inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
                     </div>
 
@@ -1960,13 +2914,34 @@ export const InventoryView: React.FC = () => {
                       >
                         Código / SKU (opcional)
                       </label>
-                      <input
+                      <SmartAutocompleteInput<string>
                         id="first-sku"
-                        type="text"
                         placeholder="Ej. ALG-BLA-01"
                         value={firstSku}
-                        onChange={(e) => setFirstSku(e.target.value)}
-                        className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                        onChange={setFirstSku}
+                        suggestions={skuSuggestions}
+                        emptyCreationHint="Nuevo código o SKU."
+                        className="mt-1.5"
+                        inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="first-notes"
+                        className="block text-xs font-semibold text-slate-700"
+                      >
+                        Notas / observaciones (opcional)
+                      </label>
+                      <SmartAutocompleteInput<string>
+                        id="first-notes"
+                        value={firstNotes}
+                        onChange={setFirstNotes}
+                        suggestions={noteSuggestions}
+                        placeholder="Ej. Lote de tintura, proveedor alternativo o detalle técnico..."
+                        emptyCreationHint="Nueva nota u observación."
+                        className="mt-1.5"
+                        inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -1976,7 +2951,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setMaterialModalOpen(false)}
+                  onClick={() => {
+                    setMaterialModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
@@ -1990,7 +2968,11 @@ export const InventoryView: React.FC = () => {
                     ? 'Guardando...'
                     : editingMaterial
                       ? 'Guardar cambios'
-                      : 'Crear material y color'}
+                      : matchedExistingVariant
+                        ? 'Registrar entrada de stock'
+                        : reusedMaterial
+                          ? 'Agregar color al material'
+                          : 'Crear material y color'}
                 </button>
               </div>
             </form>
@@ -2006,7 +2988,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="variant-modal-title"
         >
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2025,7 +3007,10 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setVariantModalOpen(false)}
+                onClick={() => {
+                  setVariantModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar formulario"
               >
@@ -2037,6 +3022,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleSaveVariant(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label
@@ -2045,14 +3034,22 @@ export const InventoryView: React.FC = () => {
                   >
                     Nombre del color *
                   </label>
-                  <input
+                  <SmartAutocompleteInput<MaterialVariant | null>
                     id="var-color-name"
-                    type="text"
                     required
                     value={varColorName}
-                    onChange={(e) => setVarColorName(e.target.value)}
+                    onChange={(val) => {
+                      setVarColorName(val);
+                      if (varMetadataStrategy !== 'keep_existing') {
+                        setVarMetadataStrategy('keep_existing');
+                      }
+                    }}
+                    onSelectSuggestion={handleSelectVariantColorSuggestion}
+                    suggestions={variantColorSuggestions}
                     placeholder="Ej. Azul Celeste"
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    emptyCreationHint={`Nuevo color para «${variantParentMaterial.name}».`}
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -2085,13 +3082,98 @@ export const InventoryView: React.FC = () => {
                   </div>
                 </div>
 
+                {!editingVariant && matchedParentExistingVariant && (
+                  <div className="sm:col-span-2 space-y-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-2.5 text-xs text-amber-950">
+                    <div className="flex items-start gap-2.5">
+                      <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                      <div>
+                        <p className="font-semibold">
+                          El color «{matchedParentExistingVariant.colorName}» ya existe en este material
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-amber-900 tabular-nums">
+                          Stock actual:{' '}
+                          <strong>
+                            {formatUnitQuantity(
+                              matchedParentExistingVariant.physicalStock,
+                              variantParentMaterial.unit,
+                            )}
+                          </strong>{' '}
+                          · Costo actual:{' '}
+                          <strong>
+                            {formatUnitCost(matchedParentExistingVariant.unitCostCOP)} /{' '}
+                            {getUnitCostDisplayLabel(variantParentMaterial.unit)}
+                          </strong>
+                          .
+                          {Number(varInitialStock) > 0 && variantWeightedPreview !== null && (
+                            <>
+                              {' '}Nuevo stock:{' '}
+                              <strong>
+                                {formatUnitQuantity(
+                                  matchedParentExistingVariant.physicalStock +
+                                    Math.max(0, Number(varInitialStock) || 0),
+                                  variantParentMaterial.unit,
+                                )}
+                              </strong>{' '}
+                              · Nuevo costo promedio ponderado:{' '}
+                              <strong>
+                                {formatUnitCost(variantWeightedPreview)} /{' '}
+                                {getUnitCostDisplayLabel(variantParentMaterial.unit)}
+                              </strong>
+                              .
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {variantMetadataConflicts.length > 0 && (
+                      <div className="rounded-lg border border-amber-300 bg-white/80 p-2.5 text-[11px] text-slate-800">
+                        <p className="font-semibold text-amber-950">
+                          Se detectaron datos distintos a los guardados en este color:
+                        </p>
+                        <ul className="mt-1 space-y-0.5 text-slate-700">
+                          {variantMetadataConflicts.map((c) => (
+                            <li key={c.fieldLabel}>
+                              <strong>{c.fieldLabel}:</strong> «{c.existingValue}» → «{c.incomingValue}»
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 flex flex-col gap-1.5 sm:flex-row sm:gap-4">
+                          <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
+                            <input
+                              type="radio"
+                              name="var-meta-strategy"
+                              checked={varMetadataStrategy === 'keep_existing'}
+                              onChange={() => setVarMetadataStrategy('keep_existing')}
+                              className="text-teal-700"
+                            />
+                            <span>Conservar datos guardados del color</span>
+                          </label>
+                          <label className="flex cursor-pointer items-center gap-1.5 font-medium text-slate-800">
+                            <input
+                              type="radio"
+                              name="var-meta-strategy"
+                              checked={varMetadataStrategy === 'update_with_new'}
+                              onChange={() => setVarMetadataStrategy('update_with_new')}
+                              className="text-teal-700"
+                            />
+                            <span>Actualizar color con los nuevos datos</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {!editingVariant && (
                   <div>
                     <label
                       htmlFor="var-init-stock"
                       className="block text-xs font-semibold text-slate-700"
                     >
-                      Stock físico inicial ({getUnitShortLabel(variantParentMaterial.unit)})
+                      {matchedParentExistingVariant
+                        ? `Cantidad a ingresar (+${getUnitShortLabel(variantParentMaterial.unit)})`
+                        : `Stock físico inicial (${getUnitShortLabel(variantParentMaterial.unit)})`}
                     </label>
                     <input
                       id="var-init-stock"
@@ -2107,22 +3189,56 @@ export const InventoryView: React.FC = () => {
                 )}
 
                 <div>
-                  <label
-                    htmlFor="var-min-stock"
-                    className="block text-xs font-semibold text-slate-700"
-                  >
-                    Stock mínimo ({getUnitShortLabel(variantParentMaterial.unit)})
-                  </label>
-                  <input
-                    id="var-min-stock"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    required
-                    value={varMinStock}
-                    onChange={(e) => setVarMinStock(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="var-min-stock"
+                      className="block text-xs font-semibold text-slate-700"
+                    >
+                      Stock mínimo ({getUnitShortLabel(variantParentMaterial.unit)})
+                    </label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={varMinStockAlertEnabled}
+                      aria-label="Activar o desactivar alerta de stock mínimo"
+                      onClick={() => setVarMinStockAlertEnabled((prev) => !prev)}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                        varMinStockAlertEnabled
+                          ? 'bg-teal-100 text-teal-800'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {varMinStockAlertEnabled ? (
+                        <>
+                          <Bell className="h-3 w-3 text-teal-700" />
+                          <span>Alerta activa</span>
+                        </>
+                      ) : (
+                        <>
+                          <BellOff className="h-3 w-3 text-slate-500" />
+                          <span>Sin alerta</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {varMinStockAlertEnabled ? (
+                    <input
+                      id="var-min-stock"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      required
+                      value={varMinStock}
+                      onChange={(e) => setVarMinStock(e.target.value)}
+                      className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    />
+                  ) : (
+                    <div className="mt-1.5 flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 text-xs text-slate-500">
+                      Alerta desactivada (umbral guardado: {Math.max(0, Number(varMinStock) || 0)}{' '}
+                      {getUnitShortLabel(variantParentMaterial.unit)}).
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2130,20 +3246,21 @@ export const InventoryView: React.FC = () => {
                     htmlFor="var-cost"
                     className="block text-xs font-semibold text-slate-700"
                   >
-                    Costo unitario ({settings.currency})
+                    Costo por {getUnitCostDisplayLabel(variantParentMaterial.unit)} (
+                    {settings.currency})
                   </label>
                   <input
                     id="var-cost"
-                    type="number"
-                    min={0}
-                    step={getMoneyInputStep(settings.currency)}
+                    type="text"
+                    inputMode="decimal"
                     required
+                    placeholder="Ej. 22,50"
                     value={varCostCOP}
                     onChange={(e) => setVarCostCOP(e.target.value)}
                     className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                   <UsdEquiv
-                    amount={Number(varCostCOP)}
+                    amount={parseNonNegativeUnitCost(varCostCOP, settings.currency)}
                     hideWhenZero
                     block
                     className="mt-1"
@@ -2157,12 +3274,15 @@ export const InventoryView: React.FC = () => {
                   >
                     Proveedor
                   </label>
-                  <input
+                  <SmartAutocompleteInput<string>
                     id="var-provider"
-                    type="text"
                     value={varProvider}
-                    onChange={(e) => setVarProvider(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    onChange={setVarProvider}
+                    suggestions={providerSuggestions}
+                    placeholder="Ej. Lanas El Centro"
+                    emptyCreationHint="Nuevo proveedor."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
 
@@ -2173,12 +3293,15 @@ export const InventoryView: React.FC = () => {
                   >
                     Calibre / tamaño
                   </label>
-                  <input
+                  <SmartAutocompleteInput<string>
                     id="var-size"
-                    type="text"
                     value={varSize}
-                    onChange={(e) => setVarSize(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    onChange={setVarSize}
+                    suggestions={sizeSuggestions}
+                    placeholder="Ej. 2.5mm - 3.0mm"
+                    emptyCreationHint="Nuevo calibre o tamaño."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
 
@@ -2189,12 +3312,34 @@ export const InventoryView: React.FC = () => {
                   >
                     SKU / código
                   </label>
-                  <input
+                  <SmartAutocompleteInput<string>
                     id="var-sku"
-                    type="text"
                     value={varSku}
-                    onChange={(e) => setVarSku(e.target.value)}
-                    className="mt-1.5 w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    onChange={setVarSku}
+                    suggestions={skuSuggestions}
+                    placeholder="Ej. ALG-CEL-02"
+                    emptyCreationHint="Nuevo código o SKU."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label
+                    htmlFor="var-notes"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Notas / observaciones (opcional)
+                  </label>
+                  <SmartAutocompleteInput<string>
+                    id="var-notes"
+                    value={varNotes}
+                    onChange={setVarNotes}
+                    suggestions={noteSuggestions}
+                    placeholder="Ej. Lote de tintura, proveedor alternativo o detalle técnico..."
+                    emptyCreationHint="Nueva nota u observación."
+                    className="mt-1.5"
+                    inputClassName="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
               </div>
@@ -2202,7 +3347,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setVariantModalOpen(false)}
+                  onClick={() => {
+                    setVariantModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
@@ -2212,7 +3360,11 @@ export const InventoryView: React.FC = () => {
                   disabled={busy}
                   className="min-h-[44px] rounded-lg bg-teal-700 px-5 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
                 >
-                  {busy ? 'Guardando...' : 'Guardar color'}
+                  {busy
+                    ? 'Guardando...'
+                    : !editingVariant && matchedParentExistingVariant
+                      ? 'Registrar entrada de stock'
+                      : 'Guardar color'}
                 </button>
               </div>
             </form>
@@ -2228,7 +3380,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="adjust-stock-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2249,7 +3401,11 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setAdjustStockVariant(null)}
+                onClick={() => {
+                  setAdjustStockVariant(null);
+                  setFeedback(null);
+                }}
+                aria-label="Cerrar ajuste de stock"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -2260,6 +3416,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleConfirmAdjustStock(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -2328,7 +3488,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setAdjustStockVariant(null)}
+                  onClick={() => {
+                    setAdjustStockVariant(null);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2354,7 +3517,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="reserve-modal-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2370,7 +3533,11 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setReserveModalOpen(false)}
+                onClick={() => {
+                  setReserveModalOpen(false);
+                  setFeedback(null);
+                }}
+                aria-label="Cerrar reserva de material"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -2381,6 +3548,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleConfirmReserve(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="res-variant"
@@ -2497,7 +3668,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setReserveModalOpen(false)}
+                  onClick={() => {
+                    setReserveModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2523,7 +3697,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="direct-consume-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2540,7 +3714,11 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setDirectConsumeVariant(null)}
+                onClick={() => {
+                  setDirectConsumeVariant(null);
+                  setFeedback(null);
+                }}
+                aria-label="Cerrar consumo directo"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -2551,6 +3729,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleConfirmDirectConsume(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="dc-project"
@@ -2614,7 +3796,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setDirectConsumeVariant(null)}
+                  onClick={() => {
+                    setDirectConsumeVariant(null);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2640,7 +3825,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="consume-res-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2656,7 +3841,11 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setConsumeResModal(null)}
+                onClick={() => {
+                  setConsumeResModal(null);
+                  setFeedback(null);
+                }}
+                aria-label="Cerrar consumo de reserva"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -2667,6 +3856,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleConfirmConsumeFromRes(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="cres-qty"
@@ -2706,7 +3899,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setConsumeResModal(null)}
+                  onClick={() => {
+                    setConsumeResModal(null);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2732,7 +3928,7 @@ export const InventoryView: React.FC = () => {
           aria-modal="true"
           aria-labelledby="modify-res-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -2748,7 +3944,11 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setModifyResModal(null)}
+                onClick={() => {
+                  setModifyResModal(null);
+                  setFeedback(null);
+                }}
+                aria-label="Cerrar ajuste de reserva"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-5 w-5" />
@@ -2759,6 +3959,10 @@ export const InventoryView: React.FC = () => {
               onSubmit={(e) => void handleConfirmModifyRes(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="mres-qty"
@@ -2795,7 +3999,10 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setModifyResModal(null)}
+                  onClick={() => {
+                    setModifyResModal(null);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar

@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle,
   Archive,
   ArrowRight,
   ClipboardList,
@@ -29,18 +28,21 @@ import type {
   ShoppingListItem,
 } from '@/src/domain/models/index.ts';
 import {
-  getMoneyInputStep,
+  parseNonNegativeUnitCost,
   roundCurrencyAmount,
+  validateNonNegativeDecimalInput,
 } from '@/src/domain/services/currencyCatalog.ts';
 import {
   formatCOP,
   formatDateCO,
   formatDateTimeCO,
+  formatUnitCost,
 } from '@/src/domain/services/formatters.ts';
 import {
+  buildMaterialCategoryOptions,
   formatUnitQuantity,
+  getUnitCostDisplayLabel,
   getUnitShortLabel,
-  MATERIAL_CATEGORY_OPTIONS,
   MEASUREMENT_UNIT_OPTIONS,
 } from '@/src/domain/services/inventoryService.ts';
 import {
@@ -52,6 +54,7 @@ import {
 } from '@/src/domain/services/procurementService.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -59,6 +62,7 @@ import {
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -216,6 +220,34 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   const [noteToDelete, setNoteToDelete] = useState<NoteOrList | null>(null);
   const [itemToDelete, setItemToDelete] = useState<ShoppingListItem | null>(null);
 
+  const hasOpenFormModal = Boolean(
+    pendingModalOpen ||
+      sendToListPending ||
+      noteModalOpen ||
+      itemModalOpen ||
+      receiptModalOpen,
+  );
+
+  const closeActiveFormModal = () => {
+    setFeedback(null);
+    if (receiptModalOpen) {
+      setReceiptModalOpen(false);
+    } else if (itemModalOpen) {
+      setItemModalOpen(false);
+    } else if (noteModalOpen) {
+      setNoteModalOpen(false);
+    } else if (sendToListPending) {
+      setSendToListPending(null);
+    } else if (pendingModalOpen) {
+      setPendingModalOpen(false);
+    }
+  };
+
+  useEscapeKey(
+    hasOpenFormModal && !busy && !pendingToDelete && !noteToDelete && !itemToDelete,
+    closeActiveFormModal,
+  );
+
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const componentMap = useMemo(
     () => new Map(components.map((c) => [c.id, c])),
@@ -223,6 +255,24 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   );
   const materialMap = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const variantMap = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
+  const categoryOptions = useMemo(
+    () => buildMaterialCategoryOptions(materials, settings.customMaterialCategories),
+    [materials, settings.customMaterialCategories],
+  );
+
+  const activeItemUnit: MeasurementUnit = useMemo(() => {
+    if (itemMode === 'catalog' && !editingItem) {
+      const v = variantMap.get(itemVariantId);
+      const m = v ? materialMap.get(v.materialId) : undefined;
+      return m?.unit ?? itemUnit;
+    }
+    if (editingItem?.variantId) {
+      const v = variantMap.get(editingItem.variantId);
+      const m = v ? materialMap.get(v.materialId) : undefined;
+      return m?.unit ?? itemUnit;
+    }
+    return itemUnit;
+  }, [editingItem, itemMode, itemUnit, itemVariantId, materialMap, variantMap]);
 
   const shoppingLists = useMemo(
     () =>
@@ -450,6 +500,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   );
 
   const openNewPendingModal = () => {
+    setFeedback(null);
     const defaultProj = projects[0]?.id ?? '';
     const compatibleVars = availableVariantsForProject(defaultProj);
     setEditingPending(null);
@@ -472,6 +523,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openEditPendingModal = (pm: PendingMaterial) => {
+    setFeedback(null);
     setEditingPending(pm);
     setPendProjectId(pm.projectId);
     setPendComponentId(pm.componentId ?? '');
@@ -511,6 +563,14 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
         let targetVariantId = pendVariantId;
         if (quickNewMatOpen) {
+          const quickCostErr = validateNonNegativeDecimalInput(quickVarCostCOP, {
+            required: false,
+            fieldLabel: `El costo estimado por ${getUnitCostDisplayLabel(quickMatUnit)}`,
+          });
+          if (quickCostErr) {
+            throw new Error(quickCostErr);
+          }
+
           const createdMat = await createMaterial({
             name: quickMatName,
             category: quickMatCategory,
@@ -525,7 +585,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
             sizeOrGauge: null,
             sku: null,
             provider: pendProvider,
-            unitCostCOP: Math.max(0, Number(quickVarCostCOP) || 0),
+            unitCostCOP: parseNonNegativeUnitCost(quickVarCostCOP, settings.currency),
             initialPhysicalStock: 0,
             minStock: 0,
             notes: '',
@@ -582,6 +642,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openSendToListModal = (pm: PendingMaterial) => {
+    setFeedback(null);
     const compatibleLists = activeShoppingLists.filter((l) =>
       pm.isDemo ? l.isDemo : !l.isDemo,
     );
@@ -626,6 +687,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openNewNoteModal = (defaultType: NoteOrListType) => {
+    setFeedback(null);
     setEditingNote(null);
     setNoteTitle('');
     setNoteType(defaultType);
@@ -635,6 +697,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openEditNoteModal = (note: NoteOrList) => {
+    setFeedback(null);
     setEditingNote(note);
     setNoteTitle(note.title);
     setNoteType(note.type);
@@ -691,6 +754,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openNewItemModal = (list: NoteOrList) => {
+    setFeedback(null);
     const compatibleVars = variants.filter((v) => (list.isDemo ? v.isDemo : !v.isDemo));
     const firstVar = compatibleVars[0];
     const firstMat = firstVar ? materialMap.get(firstVar.materialId) : undefined;
@@ -710,6 +774,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openEditItemModal = (item: ShoppingListItem) => {
+    setFeedback(null);
     setEditingItem(item);
     setItemListId(item.listId);
     setItemMode(item.variantId ? 'catalog' : 'custom');
@@ -734,13 +799,25 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     setBusy(true);
     setFeedback(null);
     try {
+      const priceErr = validateNonNegativeDecimalInput(itemEstimatedPrice, {
+        required: true,
+        fieldLabel: `El precio estimado por ${getUnitCostDisplayLabel(activeItemUnit)}`,
+      });
+      if (priceErr) {
+        throw new Error(priceErr);
+      }
+      const parsedEstimatedPrice = parseNonNegativeUnitCost(
+        itemEstimatedPrice,
+        settings.currency,
+      );
+
       if (editingItem) {
         await updateShoppingListItem(editingItem.id, {
           customName: itemMode === 'custom' ? itemCustomName : undefined,
           colorName: itemMode === 'custom' ? itemColorName : undefined,
           unit: itemMode === 'custom' ? itemUnit : undefined,
           plannedQuantity: Number(itemPlannedQty),
-          estimatedUnitPriceCOP: Number(itemEstimatedPrice),
+          estimatedUnitPriceCOP: parsedEstimatedPrice,
           provider: itemProvider,
           status:
             editingItem.status === 'partially_received' ||
@@ -758,7 +835,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           colorName: itemColorName,
           unit: itemUnit,
           plannedQuantity: Number(itemPlannedQty),
-          estimatedUnitPriceCOP: Number(itemEstimatedPrice),
+          estimatedUnitPriceCOP: parsedEstimatedPrice,
           provider: itemProvider,
           status: itemStatus,
           notes: itemNotes,
@@ -795,6 +872,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openReceiptFromPending = (pm: PendingMaterial) => {
+    setFeedback(null);
     const variant = variantMap.get(pm.variantId);
     const mat = variant ? materialMap.get(variant.materialId) : undefined;
     const remaining = getPendingMaterialRemaining(pm);
@@ -827,6 +905,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     itemsToReceive: ShoppingListItem[],
     defaultProvider: string,
   ) => {
+    setFeedback(null);
     const lines: ReceiptDraftLine[] = itemsToReceive
       .filter((i) => getShoppingItemRemainingToReceive(i) > 0)
       .map((i) => {
@@ -862,6 +941,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
   };
 
   const openDirectReceiptModal = () => {
+    setFeedback(null);
     const firstVar = variants.find((v) => !v.isDemo) ?? variants[0];
     const firstMat = firstVar ? materialMap.get(firstVar.materialId) : undefined;
     setReceiptProvider(firstVar?.provider ?? '');
@@ -901,6 +981,20 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       return;
     }
 
+    for (const line of selectedLines) {
+      const lineVar = line.variantId ? variantMap.get(line.variantId) : undefined;
+      const lineMat = lineVar ? materialMap.get(lineVar.materialId) : undefined;
+      const lineUnit: MeasurementUnit = lineMat?.unit ?? 'unit';
+      const costErr = validateNonNegativeDecimalInput(line.unitCostCOP, {
+        required: true,
+        fieldLabel: `El costo real por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label}»`,
+      });
+      if (costErr) {
+        setFeedback({ type: 'error', message: costErr });
+        return;
+      }
+    }
+
     setBusy(true);
     setFeedback(null);
     try {
@@ -915,7 +1009,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           shoppingListItemId: line.shoppingListItemId,
           pendingMaterialId: line.pendingMaterialId,
           quantityReceived: Number(line.quantityReceived),
-          unitCostCOP: Math.max(0, Number(line.unitCostCOP) || 0),
+          unitCostCOP: parseNonNegativeUnitCost(line.unitCostCOP, settings.currency),
           updateVariantUnitCost: line.updateVariantUnitCost,
         })),
       });
@@ -999,7 +1093,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               sum +
                 roundCurrencyAmount(
                   Math.max(0, Number(l.quantityReceived) || 0) *
-                    Math.max(0, Number(l.unitCostCOP) || 0),
+                    parseNonNegativeUnitCost(l.unitCostCOP, settings.currency),
                   settings.currency,
                 ),
               settings.currency,
@@ -1099,25 +1193,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               </div>
             </div>
 
-            {feedback && (
-              <div
-                role="alert"
-                className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-900 sm:text-sm"
-              >
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-                  <p>{feedback.message}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFeedback(null)}
-                  className="rounded-lg p-1 text-slate-500 hover:bg-black/5 shrink-0"
-                  aria-label="Cerrar aviso"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            )}
+            <InlineFeedbackAlert
+              feedback={!hasOpenFormModal ? feedback : null}
+              onDismiss={() => setFeedback(null)}
+            />
           </div>
         }
       >
@@ -2125,7 +2204,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                               <span className="font-medium text-slate-800">{label}</span>
                               <span className="font-mono text-slate-600 tabular-nums">
                                 +{formatUnitQuantity(line.quantityReceived, unit)} ×{' '}
-                                {formatCOP(line.unitCostCOP)} ={' '}
+                                {formatUnitCost(line.unitCostCOP)} ={' '}
                                 <strong className="text-slate-900">
                                   {formatCOP(
                                     roundCurrencyAmount(
@@ -2180,14 +2259,17 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="font-display text-lg font-semibold text-slate-900">
                 {editingPending ? 'Editar material pendiente' : 'Registrar material pendiente'}
               </h2>
               <button
                 type="button"
-                onClick={() => setPendingModalOpen(false)}
+                onClick={() => {
+                  setPendingModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -2199,6 +2281,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               onSubmit={(e) => void handleSavePendingMaterial(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               {!editingPending && (
                 <>
                   <div>
@@ -2341,7 +2427,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                               }
                               className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
                             >
-                              {MATERIAL_CATEGORY_OPTIONS.map((c) => (
+                              {categoryOptions.map((c) => (
                                 <option key={c.value} value={c.value}>
                                   {c.label}
                                 </option>
@@ -2350,7 +2436,8 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                           </div>
                           <div>
                             <label className="block text-[11px] font-semibold text-slate-700">
-                              Unidad y costo est. ({settings.currency})
+                              Unidad y costo est. por {getUnitCostDisplayLabel(quickMatUnit)} (
+                              {settings.currency})
                             </label>
                             <div className="mt-1 flex gap-2">
                               <select
@@ -2367,9 +2454,8 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                 ))}
                               </select>
                               <input
-                                type="number"
-                                min={0}
-                                step={getMoneyInputStep(settings.currency)}
+                                type="text"
+                                inputMode="decimal"
                                 value={quickVarCostCOP}
                                 onChange={(e) => setQuickVarCostCOP(e.target.value)}
                                 placeholder={settings.currency}
@@ -2377,7 +2463,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                               />
                             </div>
                             <UsdEquiv
-                              amount={Number(quickVarCostCOP)}
+                              amount={parseNonNegativeUnitCost(quickVarCostCOP, settings.currency)}
                               hideWhenZero
                               block
                               className="mt-1"
@@ -2464,7 +2550,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setPendingModalOpen(false)}
+                  onClick={() => {
+                    setPendingModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2489,14 +2578,17 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="font-display text-lg font-semibold text-slate-900">
                 Enviar a lista de compras
               </h2>
               <button
                 type="button"
-                onClick={() => setSendToListPending(null)}
+                onClick={() => {
+                  setSendToListPending(null);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -2508,6 +2600,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               onSubmit={(e) => void handleConfirmSendToList(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
                   Lista de compras destino
@@ -2547,7 +2643,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSendToListPending(null)}
+                  onClick={() => {
+                    setSendToListPending(null);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2572,7 +2671,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="font-display text-lg font-semibold text-slate-900">
                 {editingNote
@@ -2585,7 +2684,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               </h2>
               <button
                 type="button"
-                onClick={() => setNoteModalOpen(false)}
+                onClick={() => {
+                  setNoteModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -2597,6 +2699,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               onSubmit={(e) => void handleSaveNoteOrList(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
                   Título
@@ -2666,7 +2772,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setNoteModalOpen(false)}
+                  onClick={() => {
+                    setNoteModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2691,14 +2800,17 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="font-display text-lg font-semibold text-slate-900">
                 {editingItem ? 'Editar ítem de compra' : 'Agregar ítem a lista'}
               </h2>
               <button
                 type="button"
-                onClick={() => setItemModalOpen(false)}
+                onClick={() => {
+                  setItemModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -2710,6 +2822,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               onSubmit={(e) => void handleSaveShoppingItem(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               {!editingItem && (
                 <div className="flex gap-2">
                   <button
@@ -2835,19 +2951,19 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700">
-                    Precio est. / unidad ({settings.currency})
+                    Precio est. por {getUnitCostDisplayLabel(activeItemUnit)} ({settings.currency})
                   </label>
                   <input
-                    type="number"
-                    min={0}
-                    step={getMoneyInputStep(settings.currency)}
+                    type="text"
+                    inputMode="decimal"
                     required
+                    placeholder="Ej. 22,50"
                     value={itemEstimatedPrice}
                     onChange={(e) => setItemEstimatedPrice(e.target.value)}
                     className="mt-1.5 w-full min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm"
                   />
                   <UsdEquiv
-                    amount={Number(itemEstimatedPrice)}
+                    amount={parseNonNegativeUnitCost(itemEstimatedPrice, settings.currency)}
                     hideWhenZero
                     block
                     className="mt-1"
@@ -2905,7 +3021,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setItemModalOpen(false)}
+                  onClick={() => {
+                    setItemModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar
@@ -2930,7 +3049,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           role="dialog"
           aria-modal="true"
         >
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h2 className="font-display text-lg font-semibold text-slate-900">
@@ -2942,7 +3061,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setReceiptModalOpen(false)}
+                onClick={() => {
+                  setReceiptModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -2954,6 +3076,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               onSubmit={(e) => void handleConfirmReceipt(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700">
@@ -2998,7 +3124,11 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 <p className="text-xs font-semibold text-slate-700">
                   Materiales recibidos en esta entrega
                 </p>
-                {receiptLines.map((line, index) => (
+                {receiptLines.map((line, index) => {
+                  const lineVar = line.variantId ? variantMap.get(line.variantId) : undefined;
+                  const lineMat = lineVar ? materialMap.get(lineVar.materialId) : undefined;
+                  const lineUnit: MeasurementUnit = lineMat?.unit ?? 'unit';
+                  return (
                   <div
                     key={line.key}
                     className={`rounded-xl border p-3.5 ${
@@ -3055,7 +3185,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                                             ? `${m?.name ?? 'Material'} · ${v.colorName}`
                                             : item.label,
                                           unitCostCOP:
-                                            Number(item.unitCostCOP) > 0
+                                            parseNonNegativeUnitCost(
+                                              item.unitCostCOP,
+                                              settings.currency,
+                                            ) > 0
                                               ? item.unitCostCOP
                                               : String(v?.unitCostCOP ?? 0),
                                         }
@@ -3090,7 +3223,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-700">
-                            Cantidad recibida ahora
+                            Cantidad recibida ahora ({getUnitShortLabel(lineUnit)})
                           </label>
                           <input
                             type="number"
@@ -3112,13 +3245,13 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-700">
-                            Costo real / unidad ({settings.currency})
+                            Costo real por {getUnitCostDisplayLabel(lineUnit)} ({settings.currency})
                           </label>
                           <input
-                            type="number"
-                            min={0}
-                            step={getMoneyInputStep(settings.currency)}
+                            type="text"
+                            inputMode="decimal"
                             required
+                            placeholder="Ej. 22,50"
                             value={line.unitCostCOP}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -3131,7 +3264,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                             className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-sm"
                           />
                           <UsdEquiv
-                            amount={Number(line.unitCostCOP)}
+                            amount={parseNonNegativeUnitCost(line.unitCostCOP, settings.currency)}
                             hideWhenZero
                             block
                             className="mt-1"
@@ -3155,13 +3288,14 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                               }}
                               className="h-4 w-4 rounded border-slate-300 text-teal-700"
                             />
-                            <span>Actualizar costo base del color</span>
+                            <span>Actualizar costo promedio del color</span>
                           </label>
                         </div>
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div>
@@ -3192,7 +3326,10 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setReceiptModalOpen(false)}
+                  onClick={() => {
+                    setReceiptModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar

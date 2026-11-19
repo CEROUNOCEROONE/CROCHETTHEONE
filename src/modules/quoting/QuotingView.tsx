@@ -18,21 +18,29 @@ import {
   X,
 } from 'lucide-react';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
-import type { Quote, QuoteStatus } from '@/src/domain/models/index.ts';
+import type {
+  MeasurementUnit,
+  Quote,
+  QuoteStatus,
+} from '@/src/domain/models/index.ts';
 import {
   getCurrencySpec,
-  getMoneyInputStep,
   parseNonNegativeMoney,
+  parseNonNegativeUnitCost,
   roundCurrencyAmount,
+  validateNonNegativeDecimalInput,
   type WorkshopCurrencyCode,
 } from '@/src/domain/services/currencyCatalog.ts';
 import {
   formatCOP,
   formatDateCO,
   formatDurationMinutes,
+  formatUnitCost,
 } from '@/src/domain/services/formatters.ts';
 import {
   formatUnitQuantity,
+  getUnitCostDisplayLabel,
+  getUnitShortLabel,
   MEASUREMENT_UNIT_OPTIONS,
 } from '@/src/domain/services/inventoryService.ts';
 import { calculateQuoteSummary } from '@/src/domain/services/quoteMath.ts';
@@ -60,6 +68,7 @@ import {
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -199,6 +208,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     useState<HistoryStatusFilter>('all');
   const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null);
   const [busyQuoteId, setBusyQuoteId] = useState<string | null>(null);
+
+  useEscapeKey(
+    sharePreviewText !== null && !quoteToDelete && !quoteQuotaGateOpen,
+    () => setSharePreviewText(null),
+  );
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -553,14 +567,13 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   };
 
   const currencySpec = getCurrencySpec(settings.currency);
-  const moneyInputStep = getMoneyInputStep(settings.currency);
 
   // Cálculos en vivo del simulador
   const livePricing = useMemo(() => {
     const materialsTotalCOP = roundCurrencyAmount(
       materialLines.reduce((sum, line) => {
         const qty = parseNonNegativeFloat(line.quantity);
-        const unitCost = parseNonNegativeMoney(line.unitCostCOP, settings.currency);
+        const unitCost = parseNonNegativeUnitCost(line.unitCostCOP, settings.currency);
         return sum + roundCurrencyAmount(qty * unitCost, settings.currency);
       }, 0),
       settings.currency,
@@ -651,16 +664,48 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       return;
     }
 
-    const preparedLines = materialLines
-      .filter((line) => line.label.trim().length > 0 || line.variantId !== null)
-      .map((line) => ({
-        variantId: line.variantId,
-        label: line.label.trim() || 'Material',
-        colorName: line.colorName.trim() || 'Estándar',
-        unit: line.unit || 'unit',
-        quantity: parseNonNegativeFloat(line.quantity),
-        unitCostCOP: parseNonNegativeMoney(line.unitCostCOP, settings.currency),
-      }));
+    const activeLines = materialLines.filter(
+      (line) => line.label.trim().length > 0 || line.variantId !== null,
+    );
+
+    for (const line of activeLines) {
+      const lineUnit = (line.unit || 'unit') as MeasurementUnit;
+      const costError = validateNonNegativeDecimalInput(line.unitCostCOP, {
+        required: false,
+        fieldLabel: `El costo por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label.trim() || 'Material'}»`,
+      });
+      if (costError) {
+        setFeedback({ type: 'error', message: costError });
+        return;
+      }
+    }
+
+    const monetaryChecks: Array<[string, string]> = [
+      [hourlyRateRaw, 'La tarifa por hora'],
+      [packagingRaw, 'El costo de empaque'],
+      [shippingRaw, 'El costo de envío'],
+      [manualIndirectRaw, 'El costo indirecto extra'],
+      [finalAgreedPriceRaw, 'El precio final acordado'],
+    ];
+    for (const [rawValue, label] of monetaryChecks) {
+      const err = validateNonNegativeDecimalInput(rawValue, {
+        required: false,
+        fieldLabel: label,
+      });
+      if (err) {
+        setFeedback({ type: 'error', message: err });
+        return;
+      }
+    }
+
+    const preparedLines = activeLines.map((line) => ({
+      variantId: line.variantId,
+      label: line.label.trim() || 'Material',
+      colorName: line.colorName.trim() || 'Estándar',
+      unit: line.unit || 'unit',
+      quantity: parseNonNegativeFloat(line.quantity),
+      unitCostCOP: parseNonNegativeUnitCost(line.unitCostCOP, settings.currency),
+    }));
 
     if (preparedLines.some((l) => l.quantity <= 0)) {
       setFeedback({
@@ -1300,11 +1345,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       <option value="">Elegir material del inventario...</option>
                       {selectableVariants.map((v) => {
                         const mat = materialById.get(v.materialId);
-                        const unit = mat?.unit ?? 'unit';
+                        const unit = (mat?.unit ?? 'unit') as MeasurementUnit;
                         return (
                           <option key={v.id} value={v.id}>
                             {mat?.name ?? 'Material'} · {v.colorName} (
-                            {formatCOP(v.unitCostCOP)}/{unit})
+                            {formatUnitCost(v.unitCostCOP)} / {getUnitCostDisplayLabel(unit)})
                             {v.isDemo ? ' [Ejemplo]' : ''}
                           </option>
                         );
@@ -1398,11 +1443,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           <option value="">Elegir material del inventario...</option>
                           {selectableVariants.map((v) => {
                             const mat = materialById.get(v.materialId);
-                            const unit = mat?.unit ?? 'unit';
+                            const unit = (mat?.unit ?? 'unit') as MeasurementUnit;
                             return (
                               <option key={v.id} value={v.id}>
                                 {mat?.name ?? 'Material'} · {v.colorName} (
-                                {formatCOP(v.unitCostCOP)}/{unit})
+                                {formatUnitCost(v.unitCostCOP)} / {getUnitCostDisplayLabel(unit)})
                                 {v.isDemo ? ' [Ejemplo]' : ''}
                               </option>
                             );
@@ -1444,7 +1489,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         ? variantById.get(line.variantId)
                         : null;
                       const qty = parseNonNegativeFloat(line.quantity);
-                      const unitCost = parseNonNegativeMoney(
+                      const unitCost = parseNonNegativeUnitCost(
                         line.unitCostCOP,
                         settings.currency,
                       );
@@ -1514,7 +1559,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           <div className="grid grid-cols-3 gap-2 sm:grid-cols-12 sm:items-end">
                             <div className="sm:col-span-3">
                               <label className="block text-[11px] font-medium text-slate-500">
-                                Cantidad ({line.unit || 'unit'})
+                                Cantidad ({getUnitShortLabel((line.unit || 'unit') as MeasurementUnit)})
                               </label>
                               <input
                                 type="number"
@@ -1555,12 +1600,16 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
                             <div className={line.variantId ? 'sm:col-span-5' : 'sm:col-span-3'}>
                               <label className="block text-[11px] font-medium text-slate-500">
-                                Costo unitario ({settings.currency})
+                                Costo por{' '}
+                                {getUnitCostDisplayLabel(
+                                  (line.unit || 'unit') as MeasurementUnit,
+                                )}{' '}
+                                ({settings.currency})
                               </label>
                               <input
-                                type="number"
-                                min="0"
-                                step={moneyInputStep}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="Ej. 22,50"
                                 value={line.unitCostCOP}
                                 onChange={(e) =>
                                   handleUpdateLine(line.localKey, {
@@ -1570,7 +1619,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                                 className="mt-1 min-h-[36px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
                               />
                               <UsdEquiv
-                                amount={parseNonNegativeMoney(
+                                amount={parseNonNegativeUnitCost(
                                   line.unitCostCOP,
                                   settings.currency,
                                 )}
@@ -1649,9 +1698,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </div>
                   <input
                     id="quote-hourly-rate"
-                    type="number"
-                    min="0"
-                    step={moneyInputStep}
+                    type="text"
+                    inputMode="decimal"
                     value={hourlyRateRaw}
                     onChange={(e) => setHourlyRateRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1674,9 +1722,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </label>
                   <input
                     id="quote-packaging"
-                    type="number"
-                    min="0"
-                    step={moneyInputStep}
+                    type="text"
+                    inputMode="decimal"
                     value={packagingRaw}
                     onChange={(e) => setPackagingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1698,9 +1745,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </label>
                   <input
                     id="quote-shipping"
-                    type="number"
-                    min="0"
-                    step={moneyInputStep}
+                    type="text"
+                    inputMode="decimal"
                     value={shippingRaw}
                     onChange={(e) => setShippingRaw(e.target.value)}
                     className="mt-1.5 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -1833,9 +1879,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         </label>
                         <input
                           id="quote-manual-indirect"
-                          type="number"
-                          min="0"
-                          step={moneyInputStep}
+                          type="text"
+                          inputMode="decimal"
                           value={manualIndirectRaw}
                           onChange={(e) => setManualIndirectRaw(e.target.value)}
                           className="mt-1 min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 font-mono text-xs text-slate-900 tabular-nums focus:border-teal-700 focus:outline-none"
@@ -2102,9 +2147,8 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
                     <input
                       id="quote-agreed-price"
-                      type="number"
-                      min="0"
-                      step={moneyInputStep}
+                      type="text"
+                      inputMode="decimal"
                       value={finalAgreedPriceRaw}
                       onChange={(e) => setFinalAgreedPriceRaw(e.target.value)}
                       placeholder={`Por defecto: ${formatCOP(livePricing.summary.suggestedPriceCOP)}`}
@@ -2586,7 +2630,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
           aria-modal="true"
           aria-label="Resumen listo para enviar al cliente"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Copy className="h-4 w-4 text-teal-700" aria-hidden="true" />

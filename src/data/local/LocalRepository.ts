@@ -56,15 +56,23 @@ import {
   closeOpenPauseIntervals,
   sumComponentEffectiveMinutes,
 } from '@/src/domain/services/timerEngine.ts';
-import type {
-  AdjustStockInput,
-  ConsumeFromReservationInput,
-  CreateMaterialInput,
-  CreateReservationInput,
-  CreateVariantInput,
-  DirectConsumptionInput,
-  UpdateMaterialInput,
-  UpdateVariantMetadataInput,
+import {
+  buildMaterialCategoryOptions,
+  computeWeightedAverageUnitCost,
+  deduplicateCustomCategories,
+  getUnitShortLabel,
+  isPredefinedMaterialCategory,
+  isSameNormalizedText,
+  normalizeInventoryText,
+  resolveMaterialCategorySelection,
+  type AdjustStockInput,
+  type ConsumeFromReservationInput,
+  type CreateMaterialInput,
+  type CreateReservationInput,
+  type CreateVariantInput,
+  type DirectConsumptionInput,
+  type UpdateMaterialInput,
+  type UpdateVariantMetadataInput,
 } from '@/src/domain/services/inventoryService.ts';
 import type {
   CreateNoteOrListInput,
@@ -117,6 +125,7 @@ import {
 import {
   isSupportedCurrency,
   roundCurrencyAmount,
+  roundUnitCostAmount,
   toMinorUnits,
 } from '@/src/domain/services/currencyCatalog.ts';
 import {
@@ -471,6 +480,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         | 'enableInstallmentReminders'
         | 'enablePurchaseReminders'
         | 'enableLowStockReminders'
+        | 'customMaterialCategories'
       >
     >,
   ): Promise<WorkshopSettings> {
@@ -483,6 +493,10 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       Math.round(Math.max(0, Math.min(100, value)) * 100) / 100;
     const clampDays = (value: number | undefined, fallback: number) =>
       Math.max(0, Math.min(60, Math.round(value ?? fallback)));
+    const nextCustomCategories =
+      partial.customMaterialCategories !== undefined
+        ? deduplicateCustomCategories(partial.customMaterialCategories)
+        : deduplicateCustomCategories(current.customMaterialCategories);
 
     const updated: WorkshopSettings = {
       ...current,
@@ -541,6 +555,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
         partial.enablePurchaseReminders ?? current.enablePurchaseReminders ?? true,
       enableLowStockReminders:
         partial.enableLowStockReminders ?? current.enableLowStockReminders ?? true,
+      customMaterialCategories: nextCustomCategories,
     };
     const saved = await this.settings.upsert(updated);
     setActiveCurrency(saved.currency);
@@ -1688,7 +1703,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       newReservedStock: this.roundQuantity(params.newReservedStock),
       unitCostAtMovementCOP: Math.max(
         0,
-        roundCurrencyAmount(params.unitCostAtMovementCOP, getActiveCurrency()),
+        roundUnitCostAmount(params.unitCostAtMovementCOP, getActiveCurrency()),
       ),
       idempotencyKey: `mov_${params.type}_${id}`,
       notes: params.notes.trim(),
@@ -1697,26 +1712,137 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   }
 
   async createMaterial(input: CreateMaterialInput): Promise<Material> {
-    const cleanName = input.name.trim();
+    const cleanName = normalizeInventoryText(input.name);
     if (!cleanName) {
       throw new Error('El nombre del material es obligatorio.');
     }
+    const cleanBrand = normalizeInventoryText(input.brand);
+    const cleanDesc = input.description.trim();
     const nowIso = new Date().toISOString();
-    const material: Material = {
-      id: this.createLocalId('mat'),
-      ownerId: 'local-workshop',
-      syncStatus: 'local_only',
-      version: 1,
-      isDemo: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      name: cleanName,
-      category: input.category,
-      brand: input.brand.trim(),
-      unit: input.unit,
-      description: input.description.trim(),
-    };
-    return this.materials.upsert(material);
+
+    return runAtomicTransaction<Material>(
+      ['materials', 'workshop_settings'],
+      'readwrite',
+      (tx, done, fail) => {
+        const matStore = tx.objectStore('materials');
+        const settingsStore = tx.objectStore('workshop_settings');
+        const allMatsReq = matStore.getAll();
+        const settingsReq = settingsStore.get('default');
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 2 || aborted) return;
+
+          const allMaterials = (allMatsReq.result as Material[]) ?? [];
+          const currentSettings = normalizeWorkshopSettings(
+            (settingsReq.result as WorkshopSettings | undefined) ?? null,
+          );
+
+          const catalogOptions = buildMaterialCategoryOptions(
+            allMaterials,
+            currentSettings.customMaterialCategories,
+          );
+          const resolvedCategory = resolveMaterialCategorySelection({
+            selectedCategory: input.category,
+            existingCatalog: catalogOptions,
+          }).category;
+
+          if (!isPredefinedMaterialCategory(String(resolvedCategory))) {
+            const nextCategories = deduplicateCustomCategories([
+              ...(currentSettings.customMaterialCategories ?? []),
+              String(resolvedCategory),
+            ]);
+            if (
+              nextCategories.length !==
+              (currentSettings.customMaterialCategories ?? []).length
+            ) {
+              settingsStore.put({
+                ...currentSettings,
+                customMaterialCategories: nextCategories,
+                version: currentSettings.version + 1,
+                updatedAt: nowIso,
+              });
+            }
+          }
+
+          // Protección estricta de unidades: nunca mezclar materiales con el mismo nombre pero distinta unidad de medida,
+          // salvo que el usuario confirme explícitamente crear un material independiente.
+          const sameNameReal = allMaterials.filter(
+            (m) => !m.isDemo && isSameNormalizedText(m.name, cleanName),
+          );
+
+          if (!input.allowSeparateOnSameName) {
+            const existingDuplicate = sameNameReal.find(
+              (m) =>
+                m.unit === input.unit &&
+                (!cleanBrand ||
+                  !m.brand ||
+                  isSameNormalizedText(m.brand, cleanBrand)),
+            );
+
+            if (existingDuplicate) {
+              const shouldEnrich =
+                (!existingDuplicate.brand && Boolean(cleanBrand)) ||
+                (!existingDuplicate.description && Boolean(cleanDesc));
+              if (shouldEnrich) {
+                const enriched: Material = {
+                  ...existingDuplicate,
+                  brand: existingDuplicate.brand || cleanBrand,
+                  description: existingDuplicate.description || cleanDesc,
+                  version: existingDuplicate.version + 1,
+                  updatedAt: nowIso,
+                };
+                matStore.put(enriched);
+                done(enriched);
+                return;
+              }
+              done(existingDuplicate);
+              return;
+            }
+
+            const unitConflict = sameNameReal.find((m) => m.unit !== input.unit);
+            if (unitConflict) {
+              fail(
+                new Error(
+                  `El material «${unitConflict.name}» ya está registrado en ${getUnitShortLabel(unitConflict.unit)}. No se pueden mezclar existencias en ${getUnitShortLabel(input.unit)} dentro del mismo material; cambia la unidad o confírmalo explícitamente como material separado.`,
+                ),
+              );
+              return;
+            }
+          }
+
+          const material: Material = {
+            id: this.createLocalId('mat'),
+            ownerId: 'local-workshop',
+            syncStatus: 'local_only',
+            version: 1,
+            isDemo: false,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            name: cleanName,
+            category: resolvedCategory,
+            brand: cleanBrand,
+            unit: input.unit,
+            description: cleanDesc,
+          };
+          matStore.put(material);
+          done(material);
+        };
+
+        for (const req of [allMatsReq, settingsReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
+      },
+    );
   }
 
   async updateMaterial(
@@ -1728,15 +1854,53 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
       throw new Error('El material que intentas editar no existe.');
     }
     const nextName =
-      updates.name !== undefined ? updates.name.trim() : existing.name;
+      updates.name !== undefined
+        ? normalizeInventoryText(updates.name)
+        : existing.name;
     if (!nextName) {
       throw new Error('El nombre del material no puede quedar vacío.');
     }
+
+    let nextCategory = updates.category ?? existing.category;
+    if (updates.category !== undefined) {
+      const [allMaterials, rawSettings] = await Promise.all([
+        this.materials.getAll(),
+        this.settings.getById('default'),
+      ]);
+      const currentSettings = normalizeWorkshopSettings(rawSettings);
+      const catalogOptions = buildMaterialCategoryOptions(
+        allMaterials,
+        currentSettings.customMaterialCategories,
+      );
+      nextCategory = resolveMaterialCategorySelection({
+        selectedCategory: updates.category,
+        existingCatalog: catalogOptions,
+      }).category;
+
+      if (!isPredefinedMaterialCategory(String(nextCategory))) {
+        const nextCustom = deduplicateCustomCategories([
+          ...(currentSettings.customMaterialCategories ?? []),
+          String(nextCategory),
+        ]);
+        if (
+          nextCustom.length !==
+          (currentSettings.customMaterialCategories ?? []).length
+        ) {
+          await this.saveWorkshopSettings({
+            customMaterialCategories: nextCustom,
+          });
+        }
+      }
+    }
+
     return this.materials.upsert({
       ...existing,
       name: nextName,
-      category: updates.category ?? existing.category,
-      brand: updates.brand !== undefined ? updates.brand.trim() : existing.brand,
+      category: nextCategory,
+      brand:
+        updates.brand !== undefined
+          ? normalizeInventoryText(updates.brand)
+          : existing.brand,
       unit: updates.unit ?? existing.unit,
       description:
         updates.description !== undefined
@@ -1774,7 +1938,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   }
 
   async createVariant(input: CreateVariantInput): Promise<MaterialVariant> {
-    const cleanColor = input.colorName.trim();
+    const cleanColor = normalizeInventoryText(input.colorName);
     if (!cleanColor) {
       throw new Error(
         'El nombre del color es obligatorio para diferenciar cada variante de material.',
@@ -1783,7 +1947,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     if (!Number.isFinite(input.initialPhysicalStock) || input.initialPhysicalStock < 0) {
       throw new Error('El stock físico inicial debe ser mayor o igual a 0.');
     }
-    if (!Number.isFinite(input.minStock) || input.minStock < 0) {
+    const minStockAlertEnabled = input.minStockAlertEnabled !== false;
+    const safeMinStock = input.minStock ?? 0;
+    if (!Number.isFinite(safeMinStock) || safeMinStock < 0) {
       throw new Error('El stock mínimo debe ser mayor o igual a 0.');
     }
     if (!Number.isFinite(input.unitCostCOP) || input.unitCostCOP < 0) {
@@ -1793,17 +1959,134 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     const currency = getActiveCurrency();
     const nowIso = new Date().toISOString();
     const initialQty = this.roundQuantity(input.initialPhysicalStock);
+    const cleanProvider = normalizeInventoryText(input.provider);
+    const cleanSize = normalizeInventoryText(input.sizeOrGauge) || null;
+    const cleanSku = normalizeInventoryText(input.sku) || null;
 
     return runAtomicTransaction<MaterialVariant>(
       ['materials', 'material_variants', 'inventory_movements'],
       'readwrite',
       (tx, done, fail) => {
         const matReq = tx.objectStore('materials').get(input.materialId);
-        matReq.onerror = () => fail(matReq.error);
-        matReq.onsuccess = () => {
+        const siblingVarsReq = tx
+          .objectStore('material_variants')
+          .index('materialId')
+          .getAll(input.materialId);
+
+        let reads = 0;
+        let aborted = false;
+
+        const onRead = () => {
+          reads += 1;
+          if (reads < 2 || aborted) return;
+
           const material = matReq.result as Material | undefined;
           if (!material) {
             fail(new Error('El material padre no existe.'));
+            return;
+          }
+
+          const siblings = (siblingVarsReq.result as MaterialVariant[]) ?? [];
+          const existingSameColor = siblings.find((v) =>
+            isSameNormalizedText(v.colorName, cleanColor),
+          );
+
+          // Si el color ya existe para este material, reutilizamos su variante sumando la nueva entrada,
+          // recalculando el costo promedio ponderado y respetando la política de metadatos elegida por el usuario.
+          if (existingSameColor) {
+            const nextPhysical = this.roundQuantity(
+              existingSameColor.physicalStock + initialQty,
+            );
+            const roundedInputCost = roundUnitCostAmount(input.unitCostCOP, currency);
+            const entryCost =
+              roundedInputCost > 0
+                ? roundedInputCost
+                : existingSameColor.unitCostCOP;
+
+            const nextUnitCost =
+              initialQty > 0
+                ? computeWeightedAverageUnitCost({
+                    previousPhysicalStock: existingSameColor.physicalStock,
+                    previousUnitCost: existingSameColor.unitCostCOP,
+                    entryQuantity: initialQty,
+                    entryUnitCost: entryCost,
+                    currency,
+                  })
+                : existingSameColor.unitCostCOP > 0
+                  ? existingSameColor.unitCostCOP
+                  : roundedInputCost;
+
+            const strategy = input.metadataConflictStrategy ?? 'keep_existing';
+            const incomingHex = input.colorHex?.trim() || null;
+            const incomingNotes = input.notes.trim();
+
+            const nextAlertEnabled =
+              input.minStockAlertEnabled !== undefined
+                ? minStockAlertEnabled
+                : existingSameColor.minStockAlertEnabled ?? true;
+            const nextMinStock =
+              input.minStockAlertEnabled !== undefined
+                ? safeMinStock > 0 ||
+                  existingSameColor.minStock === 0 ||
+                  minStockAlertEnabled
+                  ? this.roundQuantity(safeMinStock)
+                  : existingSameColor.minStock
+                : existingSameColor.minStock;
+
+            const updatedExisting: MaterialVariant = {
+              ...existingSameColor,
+              physicalStock: nextPhysical,
+              colorHex:
+                strategy === 'update_with_new' && incomingHex
+                  ? incomingHex
+                  : existingSameColor.colorHex || incomingHex,
+              sizeOrGauge:
+                strategy === 'update_with_new' && cleanSize
+                  ? cleanSize
+                  : existingSameColor.sizeOrGauge || cleanSize,
+              sku:
+                strategy === 'update_with_new' && cleanSku
+                  ? cleanSku
+                  : existingSameColor.sku || cleanSku,
+              provider:
+                strategy === 'update_with_new' && cleanProvider
+                  ? cleanProvider
+                  : existingSameColor.provider || cleanProvider,
+              unitCostCOP: nextUnitCost,
+              minStock: nextMinStock,
+              minStockAlertEnabled: nextAlertEnabled,
+              notes:
+                strategy === 'update_with_new' && incomingNotes
+                  ? incomingNotes
+                  : existingSameColor.notes || incomingNotes,
+              version: existingSameColor.version + 1,
+              updatedAt: nowIso,
+            };
+
+            tx.objectStore('material_variants').put(updatedExisting);
+
+            if (initialQty > 0) {
+              const entryMov = this.buildImmutableMovement({
+                variantId: updatedExisting.id,
+                projectId: null,
+                reservationId: null,
+                type: 'MANUAL_ADJUSTMENT',
+                quantityDelta: initialQty,
+                previousPhysicalStock: existingSameColor.physicalStock,
+                newPhysicalStock: nextPhysical,
+                previousReservedStock: existingSameColor.reservedStock,
+                newReservedStock: existingSameColor.reservedStock,
+                unitCostAtMovementCOP: entryCost,
+                notes:
+                  incomingNotes ||
+                  `Nueva entrada de existencias en ${material.name} · ${existingSameColor.colorName} (+${initialQty}).`,
+                isDemo: updatedExisting.isDemo,
+                nowIso,
+              });
+              tx.objectStore('inventory_movements').put(entryMov);
+            }
+
+            done(updatedExisting);
             return;
           }
 
@@ -1818,14 +2101,15 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             materialId: material.id,
             colorName: cleanColor,
             colorHex: input.colorHex?.trim() || null,
-            sizeOrGauge: input.sizeOrGauge?.trim() || null,
-            sku: input.sku?.trim() || null,
-            provider: input.provider.trim(),
-            unitCostCOP: roundCurrencyAmount(input.unitCostCOP, currency),
+            sizeOrGauge: cleanSize,
+            sku: cleanSku,
+            provider: cleanProvider,
+            unitCostCOP: roundUnitCostAmount(input.unitCostCOP, currency),
             physicalStock: initialQty,
             reservedStock: 0,
             totalConsumed: 0,
-            minStock: this.roundQuantity(input.minStock),
+            minStock: this.roundQuantity(safeMinStock),
+            minStockAlertEnabled,
             photoUrl: null,
             notes: input.notes.trim(),
           };
@@ -1853,6 +2137,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
 
           done(variant);
         };
+
+        for (const req of [matReq, siblingVarsReq]) {
+          req.onerror = () => {
+            if (!aborted) {
+              aborted = true;
+              fail(req.error);
+            }
+          };
+          req.onsuccess = onRead;
+        }
       },
     );
   }
@@ -1867,11 +2161,16 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     }
     const nextColor =
       updates.colorName !== undefined
-        ? updates.colorName.trim()
+        ? normalizeInventoryText(updates.colorName)
         : existing.colorName;
     if (!nextColor) {
       throw new Error('El nombre del color es obligatorio.');
     }
+    const nextAlertEnabled =
+      updates.minStockAlertEnabled !== undefined
+        ? updates.minStockAlertEnabled
+        : existing.minStockAlertEnabled ?? true;
+
     return this.variants.upsert({
       ...existing,
       colorName: nextColor,
@@ -1881,19 +2180,25 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           : existing.colorHex,
       sizeOrGauge:
         updates.sizeOrGauge !== undefined
-          ? updates.sizeOrGauge?.trim() || null
+          ? normalizeInventoryText(updates.sizeOrGauge) || null
           : existing.sizeOrGauge,
-      sku: updates.sku !== undefined ? updates.sku?.trim() || null : existing.sku,
+      sku:
+        updates.sku !== undefined
+          ? normalizeInventoryText(updates.sku) || null
+          : existing.sku,
       provider:
-        updates.provider !== undefined ? updates.provider.trim() : existing.provider,
+        updates.provider !== undefined
+          ? normalizeInventoryText(updates.provider)
+          : existing.provider,
       unitCostCOP:
         updates.unitCostCOP !== undefined
-          ? Math.max(0, roundCurrencyAmount(updates.unitCostCOP, getActiveCurrency()))
+          ? Math.max(0, roundUnitCostAmount(updates.unitCostCOP, getActiveCurrency()))
           : existing.unitCostCOP,
       minStock:
         updates.minStock !== undefined
           ? Math.max(0, this.roundQuantity(updates.minStock))
           : existing.minStock,
+      minStockAlertEnabled: nextAlertEnabled,
       notes: updates.notes !== undefined ? updates.notes.trim() : existing.notes,
     });
   }
@@ -3543,7 +3848,7 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
                 receivedQuantity: nextReceived,
                 estimatedUnitPriceCOP:
                   line.unitCostCOP > 0
-                    ? roundCurrencyAmount(line.unitCostCOP, currency)
+                    ? roundUnitCostAmount(line.unitCostCOP, currency)
                     : sli.estimatedUnitPriceCOP,
                 provider: cleanProvider || sli.provider,
                 status: nextStatus,
@@ -3593,12 +3898,18 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             }
 
             const qtyRec = this.roundQuantity(line.quantityReceived);
-            const unitCost = Math.max(0, roundCurrencyAmount(line.unitCostCOP, currency));
+            const unitCost = Math.max(0, roundUnitCostAmount(line.unitCostCOP, currency));
             const prevPhysical = variant.physicalStock;
             const nextPhysical = this.roundQuantity(prevPhysical + qtyRec);
             const nextVariantCost =
               line.updateVariantUnitCost !== false && unitCost > 0
-                ? unitCost
+                ? computeWeightedAverageUnitCost({
+                    previousPhysicalStock: prevPhysical,
+                    previousUnitCost: variant.unitCostCOP,
+                    entryQuantity: qtyRec,
+                    entryUnitCost: unitCost,
+                    currency,
+                  })
                 : variant.unitCostCOP;
 
             variantMap.set(variant.id, {

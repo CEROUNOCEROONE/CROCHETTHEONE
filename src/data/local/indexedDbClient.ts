@@ -13,6 +13,7 @@ import {
   isSupportedCurrency,
   roundCurrencyAmount,
 } from '@/src/domain/services/currencyCatalog.ts';
+import { deduplicateCustomCategories } from '@/src/domain/services/inventoryService.ts';
 import { DB_NAME, DB_VERSION } from './dbSchema.ts';
 import { buildUpdatedSchemaMeta, runIdbMigrations } from './migrations.ts';
 
@@ -137,6 +138,7 @@ export function createDefaultWorkshopSettings(): WorkshopSettings {
     enableInstallmentReminders: true,
     enablePurchaseReminders: true,
     enableLowStockReminders: true,
+    customMaterialCategories: [],
   };
 }
 
@@ -217,6 +219,9 @@ export function normalizeWorkshopSettings(
       typeof raw.enableLowStockReminders === 'boolean'
         ? raw.enableLowStockReminders
         : defaults.enableLowStockReminders,
+    customMaterialCategories: deduplicateCustomCategories(
+      raw.customMaterialCategories,
+    ),
   };
 }
 

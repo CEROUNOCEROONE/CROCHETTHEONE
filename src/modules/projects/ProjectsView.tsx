@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  AlertCircle,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -51,9 +50,11 @@ import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
+import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -197,6 +198,27 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     return clients.filter((c) => !c.isDemo);
   }, [clients, editingProject]);
 
+  const hasOpenModal = Boolean(projectModalOpen || compModalOpen);
+
+  useEscapeKey(
+    hasOpenModal &&
+      !projectSaving &&
+      !compSaving &&
+      !deletingProject &&
+      !deletingComponent &&
+      !projectToDelete &&
+      !componentToDelete &&
+      !projectQuotaGateOpen,
+    () => {
+      setFeedback(null);
+      if (compModalOpen) {
+        setCompModalOpen(false);
+      } else if (projectModalOpen) {
+        setProjectModalOpen(false);
+      }
+    },
+  );
+
   const openCreateProjectModal = () => {
     const quota = canCreateOrActivateRealProject(effectiveTier, projects, {
       isDemoTarget: false,
@@ -207,6 +229,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       return;
     }
 
+    setFeedback(null);
     setEditingProject(null);
     setFormName('');
     setFormDescription('');
@@ -228,6 +251,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
 
   const openEditProjectModal = (project: Project) => {
+    setFeedback(null);
     setEditingProject(project);
     setFormName(project.name);
     setFormDescription(project.description);
@@ -337,6 +361,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
 
   const openCreateComponentModal = () => {
+    setFeedback(null);
     setEditingComponent(null);
     setCompName('');
     setCompEstimatedMinutes('30');
@@ -347,6 +372,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
 
   const openEditComponentModal = (comp: ProjectComponent) => {
+    setFeedback(null);
     setEditingComponent(comp);
     setCompName(comp.name);
     setCompEstimatedMinutes(String(comp.estimatedMinutes));
@@ -527,23 +553,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     componentPageSize,
   );
 
-  const feedbackBanner = feedback ? (
-    <div
-      role="alert"
-      className="flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 sm:text-sm"
-    >
-      <div className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
-        <p>{feedback.message}</p>
-      </div>
-      <button
-        type="button"
-        onClick={() => setFeedback(null)}
-        className="text-xs font-medium underline shrink-0"
-      >
-        Cerrar
-      </button>
-    </div>
+  const feedbackBanner = !hasOpenModal && feedback ? (
+    <InlineFeedbackAlert
+      feedback={feedback}
+      onDismiss={() => setFeedback(null)}
+    />
   ) : null;
 
   const renderProjectCard = (project: Project) => {
@@ -1275,7 +1289,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           aria-modal="true"
           aria-labelledby="project-modal-title"
         >
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -1290,7 +1304,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setProjectModalOpen(false)}
+                onClick={() => {
+                  setProjectModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar formulario"
               >
@@ -1302,6 +1319,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               onSubmit={(e) => void handleSaveProject(e)}
               className="mt-5 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label
@@ -1599,7 +1620,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <button
                   type="button"
                   disabled={projectSaving}
-                  onClick={() => setProjectModalOpen(false)}
+                  onClick={() => {
+                    setProjectModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancelar
@@ -1629,7 +1653,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           aria-modal="true"
           aria-labelledby="comp-modal-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3
@@ -1644,7 +1668,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setCompModalOpen(false)}
+                onClick={() => {
+                  setCompModalOpen(false);
+                  setFeedback(null);
+                }}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
                 aria-label="Cerrar"
               >
@@ -1656,6 +1683,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               onSubmit={(e) => void handleSaveComponent(e)}
               className="mt-4 space-y-4"
             >
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="comp-name"
@@ -1756,7 +1787,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <button
                   type="button"
                   disabled={compSaving}
-                  onClick={() => setCompModalOpen(false)}
+                  onClick={() => {
+                    setCompModalOpen(false);
+                    setFeedback(null);
+                  }}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
                 >
                   Cancelar

@@ -164,6 +164,7 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
   const inventoryHighlights: VariantAvailabilitySummary[] = snapshot.variants.map((variant) => {
     const material = materialById.get(variant.materialId);
     const availableStock = Math.max(0, variant.physicalStock - variant.reservedStock);
+    const alertEnabled = variant.minStockAlertEnabled !== false;
     return {
       variantId: variant.id,
       materialName: material?.name ?? 'Material sin categoría',
@@ -174,7 +175,7 @@ export function computeWorkshopStats(snapshot: WorkshopSnapshotInput): WorkshopD
       reservedStock: variant.reservedStock,
       availableStock,
       minStock: variant.minStock,
-      isLowStock: availableStock <= variant.minStock,
+      isLowStock: alertEnabled && availableStock <= variant.minStock,
       isDemo: variant.isDemo,
     };
   });

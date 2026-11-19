@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle,
   ArrowUpRight,
   Calendar,
   Check,
@@ -59,6 +58,7 @@ import {
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
+import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -66,6 +66,7 @@ import {
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -189,6 +190,32 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
   // Modal Estado de Cuenta
   const [statementText, setStatementText] = useState<string | null>(null);
   const [copiedStatement, setCopiedStatement] = useState(false);
+
+  const hasOpenModal = Boolean(
+    clientModalOpen || planModalOpen || payModalOpen || statementText !== null,
+  );
+
+  useEscapeKey(
+    hasOpenModal && !busy && !clientToDelete && !planToDelete && !statementGateOpen,
+    () => {
+      setFeedback(null);
+      if (statementText !== null) {
+        setStatementText(null);
+        return;
+      }
+      if (payModalOpen) {
+        setPayModalOpen(false);
+        return;
+      }
+      if (planModalOpen) {
+        setPlanModalOpen(false);
+        return;
+      }
+      if (clientModalOpen) {
+        setClientModalOpen(false);
+      }
+    },
+  );
 
   const clientById = useMemo(
     () => new Map(clients.map((c) => [c.id, c])),
@@ -1615,25 +1642,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         )}
       </div>
 
-      {feedback && (
-        <div
-          role="alert"
-          className="flex items-start justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-900"
-        >
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-rose-700" aria-hidden="true" />
-            <span>{feedback.message}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFeedback(null)}
-            aria-label="Cerrar error"
-            className="text-rose-700 hover:text-rose-900"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      <InlineFeedbackAlert
+        feedback={!hasOpenModal ? feedback : null}
+        onDismiss={() => setFeedback(null)}
+      />
     </div>
   );
 
@@ -2128,7 +2140,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         >
           <form
             onSubmit={handleSubmitClient}
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
+            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2
@@ -2139,7 +2151,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </h2>
               <button
                 type="button"
-                onClick={() => setClientModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setClientModalOpen(false);
+                }}
                 aria-label="Cerrar modal de cliente"
                 className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
               >
@@ -2148,6 +2163,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             </div>
 
             <div className="mt-4 space-y-3.5">
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div>
                 <label
                   htmlFor="client-name"
@@ -2239,7 +2258,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
-                onClick={() => setClientModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setClientModalOpen(false);
+                }}
                 className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
@@ -2270,7 +2292,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         >
           <form
             onSubmit={handleSubmitPlan}
-            className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+            className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
           >
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <h2
@@ -2283,7 +2305,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </h2>
               <button
                 type="button"
-                onClick={() => setPlanModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setPlanModalOpen(false);
+                }}
                 aria-label="Cerrar modal de plan"
                 className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
               >
@@ -2292,6 +2317,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               {!editingPlan ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
@@ -2716,7 +2745,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
               <button
                 type="button"
-                onClick={() => setPlanModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setPlanModalOpen(false);
+                }}
                 className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
@@ -2747,7 +2779,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
         >
           <form
             onSubmit={handleSubmitPayment}
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
+            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
@@ -2764,7 +2796,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setPayModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setPayModalOpen(false);
+                }}
                 aria-label="Cerrar modal de abono"
                 className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
               >
@@ -2773,6 +2808,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             </div>
 
             <div className="mt-4 space-y-3.5">
+              <InlineFeedbackAlert
+                feedback={feedback}
+                onDismiss={() => setFeedback(null)}
+              />
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3.5 py-2.5 text-xs">
                 <span className="text-slate-600">Saldo pendiente del plan:</span>
                 <div className="text-right">
@@ -2963,7 +3002,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
-                onClick={() => setPayModalOpen(false)}
+                onClick={() => {
+                  setFeedback(null);
+                  setPayModalOpen(false);
+                }}
                 className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
@@ -2988,7 +3030,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
           aria-modal="true"
           aria-labelledby="statement-modal-title"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2
                 id="statement-modal-title"
