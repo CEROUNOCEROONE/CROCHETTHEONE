@@ -128,8 +128,17 @@ export async function showOrUpdateNotification(
         swOptions.actions = safeActions;
       }
 
-      await registration.showNotification(options.title, swOptions);
-      return true;
+      try {
+        await registration.showNotification(options.title, swOptions);
+        return true;
+      } catch {
+        if (swOptions.actions) {
+          const { actions: _ignored, ...withoutActions } = swOptions;
+          await registration.showNotification(options.title, withoutActions);
+          return true;
+        }
+        throw new Error('SW showNotification failed');
+      }
     } catch {
       // Continuar con fallback de Notification API en escritorio si aplica
     }
@@ -165,6 +174,13 @@ export async function showOrUpdateNotification(
 }
 
 export async function closeNotificationsByTag(tag: string): Promise<void> {
+  if (
+    typeof window === 'undefined' ||
+    !('Notification' in window) ||
+    Notification.permission !== 'granted'
+  ) {
+    return;
+  }
   const registration = await getReadyServiceWorkerRegistration();
   if (!registration || typeof registration.getNotifications !== 'function') {
     return;

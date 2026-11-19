@@ -9,6 +9,10 @@ export function useLiveNowMs(isRunning: boolean): number {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   useEffect(() => {
+    if (!isRunning) {
+      return;
+    }
+
     const syncNow = () => {
       setNowMs(Date.now());
     };
@@ -21,20 +25,12 @@ export function useLiveNowMs(isRunning: boolean): number {
       }
     };
 
-    window.addEventListener('focus', syncNow);
     window.addEventListener('pageshow', syncNow);
     document.addEventListener('visibilitychange', handleVisibility);
-
-    let intervalId: number | null = null;
-    if (isRunning) {
-      intervalId = window.setInterval(syncNow, 1000);
-    }
+    const intervalId = window.setInterval(syncNow, 1000);
 
     return () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-      }
-      window.removeEventListener('focus', syncNow);
+      window.clearInterval(intervalId);
       window.removeEventListener('pageshow', syncNow);
       document.removeEventListener('visibilitychange', handleVisibility);
     };

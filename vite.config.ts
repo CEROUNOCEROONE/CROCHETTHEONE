@@ -57,7 +57,8 @@ export default defineConfig(() => {
           ],
         },
         injectManifest: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,webmanifest}'],
+          globPatterns: ['index.html', 'assets/*.{js,css,woff,woff2}'],
+          globIgnores: ['**/assets/aistudio/**', '**/*.map'],
         },
         devOptions: {
           enabled: process.env.DISABLE_HMR !== 'true',

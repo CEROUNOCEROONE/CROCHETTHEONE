@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDefaultWorkshopSettings, normalizeWorkshopSettings } from '../src/data/local/indexedDbClient.ts';
+import {
+  createDefaultWorkshopSettings,
+  isClosedIndexedDbError,
+  normalizeWorkshopSettings,
+  withClosedConnectionRetry,
+} from '../src/data/local/indexedDbClient.ts';
 import type {
   Client,
   Material,
@@ -24,6 +29,7 @@ import {
 import { resolveSmartRemindersAndAlerts } from '../src/domain/services/planningService.ts';
 import {
   calculateSessionDurations,
+  closeOpenPauseIntervals,
   getOtherPausedTimerSessions,
   resolveActiveTimerCandidate,
 } from '../src/domain/services/timerEngine.ts';
@@ -399,4 +405,98 @@ test('resolveSmartRemindersAndAlerts emits timer, shortage & client alerts and h
   const mutedTypes = new Set(mutedAlerts.map((a) => a.type));
   assert.equal(mutedTypes.has('timer_reminder'), false);
   assert.equal(mutedTypes.has('client_followup'), false);
+});
+
+test('withClosedConnectionRetry recovers transparently from Android closed IDB InvalidStateError without retrying business errors', async () => {
+  const closedErr = Object.assign(
+    new Error('Failed to execute transaction on IDBDatabase: The database connection is closing.'),
+    { name: 'InvalidStateError' },
+  );
+  assert.equal(isClosedIndexedDbError(closedErr), true);
+  assert.equal(isClosedIndexedDbError(new Error('Validación de negocio')), false);
+
+  let attempts = 0;
+  let resets = 0;
+  const recovered = await withClosedConnectionRetry(
+    async () => {
+      attempts += 1;
+      if (attempts === 1) throw closedErr;
+      return 'ok-after-reconnect';
+    },
+    () => {
+      resets += 1;
+    },
+  );
+  assert.equal(recovered, 'ok-after-reconnect');
+  assert.equal(attempts, 2);
+  assert.equal(resets, 1);
+
+  // No reintentar errores de negocio ni ciclar infinitamente
+  let businessAttempts = 0;
+  let businessResets = 0;
+  await assert.rejects(
+    () =>
+      withClosedConnectionRetry(
+        async () => {
+          businessAttempts += 1;
+          throw new Error('Sesión ya completada');
+        },
+        () => {
+          businessResets += 1;
+        },
+      ),
+    /Sesión ya completada/,
+  );
+  assert.equal(businessAttempts, 1);
+  assert.equal(businessResets, 0);
+});
+
+test('complete timer lifecycle preserves exact effective time across start, pause, resume and finish', () => {
+  const started = makeSession({
+    id: 'life-1',
+    status: 'running',
+    startTime: '2026-05-15T10:00:00.000Z',
+    pauseIntervals: [],
+  });
+  assert.equal(resolveActiveTimerCandidate([started])?.id, 'life-1');
+
+  // Pausa tras 20 minutos (1200s)
+  const pauseAtIso = '2026-05-15T10:20:00.000Z';
+  const paused: WorkSession = {
+    ...started,
+    status: 'paused',
+    pauseIntervals: [{ pausedAt: pauseAtIso, resumedAt: null }],
+    updatedAt: pauseAtIso,
+  };
+  const duringPause = calculateSessionDurations(
+    paused,
+    Date.parse('2026-05-15T10:35:00.000Z'),
+  );
+  assert.equal(duringPause.effectiveSeconds, 1200);
+  assert.equal(duringPause.pausedSeconds, 900);
+
+  // Reanudación tras 15 minutos de pausa
+  const resumeAtIso = '2026-05-15T10:35:00.000Z';
+  const resumed: WorkSession = {
+    ...paused,
+    status: 'running',
+    pauseIntervals: closeOpenPauseIntervals(paused.pauseIntervals, resumeAtIso),
+    updatedAt: resumeAtIso,
+  };
+  assert.equal(resumed.pauseIntervals[0].resumedAt, resumeAtIso);
+
+  // Finalización 10 minutos después de reanudar -> 30 min efectivos totales (1800s)
+  const finishAtMs = Date.parse('2026-05-15T10:45:00.000Z');
+  const finalBreakdown = calculateSessionDurations(resumed, finishAtMs);
+  assert.equal(finalBreakdown.effectiveSeconds, 1800);
+  assert.equal(finalBreakdown.effectiveMinutes, 30);
+
+  const completed: WorkSession = {
+    ...resumed,
+    status: 'completed',
+    endTime: new Date(finishAtMs).toISOString(),
+    elapsedSeconds: finalBreakdown.elapsedSeconds,
+    effectiveSeconds: finalBreakdown.effectiveSeconds,
+  };
+  assert.equal(resolveActiveTimerCandidate([completed]), null);
 });

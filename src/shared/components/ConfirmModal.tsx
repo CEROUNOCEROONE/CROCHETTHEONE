@@ -35,10 +35,26 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
     if (isOpen) {
       if (!dialog.open) {
-        dialog.showModal();
+        try {
+          if (typeof dialog.showModal === 'function') {
+            dialog.showModal();
+          } else {
+            dialog.setAttribute('open', '');
+          }
+        } catch {
+          try {
+            dialog.show?.();
+          } catch {
+            // ignore if already open
+          }
+        }
       }
     } else if (dialog.open) {
-      dialog.close();
+      try {
+        dialog.close();
+      } catch {
+        dialog.removeAttribute('open');
+      }
     }
   }, [isOpen]);
 

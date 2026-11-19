@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import { OfflineIndicator } from '@/src/pwa/OfflineIndicator.tsx';
@@ -23,6 +23,32 @@ interface AppShellProps {
   onSelectRoute(routeId: ModuleRouteId): void;
 }
 
+function useIsDesktopViewport(): boolean {
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mql = window.matchMedia('(min-width: 1024px)');
+    const handleChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    setIsDesktop(mql.matches);
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', handleChange);
+      return () => mql.removeEventListener('change', handleChange);
+    }
+    mql.addListener(handleChange);
+    return () => mql.removeListener(handleChange);
+  }, []);
+
+  return isDesktop;
+}
+
 export const AppShell: React.FC<AppShellProps> = ({
   activeRoute,
   workshopName,
@@ -32,6 +58,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   onSelectRoute,
 }) => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const isDesktopViewport = useIsDesktopViewport();
   const currentRoute = getRouteDefinition(activeRoute);
   const mobileBottomRoutes = MODULE_ROUTES.filter((r) => r.showInMobileBottomBar);
 
@@ -110,8 +137,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           })}
         </nav>
 
-        {/* Contenedor reservado en escritorio para widget de cronómetro */}
-        {timerDockSlot && (
+        {/* Contenedor reservado en escritorio para widget de cronómetro (montaje único) */}
+        {isDesktopViewport && timerDockSlot && (
           <div className="shrink-0 border-t border-slate-200 p-3">{timerDockSlot}</div>
         )}
       </aside>
@@ -153,8 +180,8 @@ export const AppShell: React.FC<AppShellProps> = ({
         </main>
       </div>
 
-      {/* Mini-reproductor móvil sobre barra inferior sin tapar contenido */}
-      {timerDockSlot && (
+      {/* Mini-reproductor móvil sobre barra inferior sin tapar contenido (montaje único) */}
+      {!isDesktopViewport && timerDockSlot && (
         <div
           data-slot="timer-dock-mobile"
           className="z-30 shrink-0 border-t border-slate-200/80 bg-slate-50 px-3 py-1.5 lg:hidden"

@@ -67,8 +67,37 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
     clients,
   } = useWorkshopData();
 
-  const lastTimerNotifSignatureRef = useRef<string>('');
+  const lastTimerNotifSignatureRef = useRef<string>('none');
   const lastMilestoneKeyRef = useRef<string | null>(null);
+
+  const latestRef = useRef({
+    settings,
+    activeTimerSession,
+    projects,
+    components,
+    workSessions,
+    reminders,
+    pendingMaterials,
+    materials,
+    variants,
+    paymentPlans,
+    installments,
+    clients,
+  });
+  latestRef.current = {
+    settings,
+    activeTimerSession,
+    projects,
+    components,
+    workSessions,
+    reminders,
+    pendingMaterials,
+    materials,
+    variants,
+    paymentPlans,
+    installments,
+    clients,
+  };
 
   // 1. Escuchar mensajes de deep-link y acciones de confirmación del Service Worker
   useEffect(() => {
@@ -130,15 +159,27 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
     };
   }, [onNavigateRoute]);
 
-  // 2. Sincronizar notificación persistente del cronómetro en transiciones de estado
+  const activeSessionId = activeTimerSession?.id ?? null;
+  const activeSessionStatus = activeTimerSession?.status ?? null;
+  const activeSessionPauseCount = activeTimerSession?.pauseIntervals.length ?? 0;
+  const browserNotificationsEnabled = Boolean(settings.enableBrowserNotifications);
+  const timerNotificationsEnabled = settings.enableTimerNotifications !== false;
+
+  // 2. Sincronizar aviso de cronómetro activo solo en transiciones reales de estado
   useEffect(() => {
     if (isLoading) return;
-    const caps = getNotificationCapabilities();
-    const browserNotificationsEnabled =
-      Boolean(settings.enableBrowserNotifications) &&
-      settings.enableTimerNotifications !== false;
+    const {
+      activeTimerSession: currentSession,
+      projects: currentProjects,
+      components: currentComponents,
+    } = latestRef.current;
 
-    if (!activeTimerSession || !browserNotificationsEnabled) {
+    const shouldShowTimerNotif =
+      Boolean(currentSession) &&
+      browserNotificationsEnabled &&
+      timerNotificationsEnabled;
+
+    if (!shouldShowTimerNotif || !currentSession) {
       if (lastTimerNotifSignatureRef.current !== 'none') {
         lastTimerNotifSignatureRef.current = 'none';
         void closeNotificationsByTag(ACTIVE_TIMER_NOTIFICATION_TAG);
@@ -147,20 +188,23 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
       return;
     }
 
-    const signature = `${activeTimerSession.id}:${activeTimerSession.status}:${activeTimerSession.pauseIntervals.length}`;
+    const signature = `${currentSession.id}:${currentSession.status}:${currentSession.pauseIntervals.length}`;
     if (signature === lastTimerNotifSignatureRef.current) {
       return;
     }
     lastTimerNotifSignatureRef.current = signature;
 
+    const caps = getNotificationCapabilities();
     if (!caps.supported || caps.permission !== 'granted') {
       return;
     }
 
-    const project = projects.find((p) => p.id === activeTimerSession.projectId);
-    const component = components.find((c) => c.id === activeTimerSession.componentId);
+    const project = currentProjects.find((p) => p.id === currentSession.projectId);
+    const component = currentComponents.find(
+      (c) => c.id === currentSession.componentId,
+    );
     const payload = buildActiveTimerNotificationPayload({
-      session: activeTimerSession,
+      session: currentSession,
       project,
       component,
       nowMs: Date.now(),
@@ -179,36 +223,96 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
     });
   }, [
     isLoading,
-    activeTimerSession,
-    projects,
-    components,
-    settings.enableBrowserNotifications,
-    settings.enableTimerNotifications,
+    activeSessionId,
+    activeSessionStatus,
+    activeSessionPauseCount,
+    browserNotificationsEnabled,
+    timerNotificationsEnabled,
   ]);
 
-  // 3. Evaluación periódica de hitos de cronómetro y alertas urgentes del taller
+  // 3. Evaluación ligera de hitos del cronómetro y alertas urgentes (sin trabajo en reposo ni bloqueo al arranque)
+  const hasRunningTimer = activeSessionStatus === 'running';
+
   useEffect(() => {
     if (isLoading) return;
+    if (!hasRunningTimer && !browserNotificationsEnabled) {
+      return;
+    }
+
+    const refreshTimerNotificationOnBackground = () => {
+      if (document.visibilityState !== 'hidden') return;
+      const {
+        settings: curSettings,
+        activeTimerSession: curSession,
+        projects: curProjects,
+        components: curComponents,
+      } = latestRef.current;
+      if (
+        !curSession ||
+        curSession.status !== 'running' ||
+        !curSettings.enableBrowserNotifications ||
+        curSettings.enableTimerNotifications === false
+      ) {
+        return;
+      }
+      const caps = getNotificationCapabilities();
+      if (!caps.supported || caps.permission !== 'granted') return;
+
+      const project = curProjects.find((p) => p.id === curSession.projectId);
+      const component = curComponents.find((c) => c.id === curSession.componentId);
+      const payload = buildActiveTimerNotificationPayload({
+        session: curSession,
+        project,
+        component,
+        nowMs: Date.now(),
+        renotify: false,
+      });
+      void showOrUpdateNotification({
+        title: payload.title,
+        body: payload.body,
+        tag: payload.tag,
+        renotify: false,
+        requireInteraction: payload.requireInteraction,
+        silent: true,
+        actions: payload.actions,
+        data: payload.data,
+      });
+    };
 
     const evaluateAndDispatch = async () => {
+      const {
+        settings: curSettings,
+        activeTimerSession: curSession,
+        projects: curProjects,
+        components: curComponents,
+        workSessions: curWorkSessions,
+        reminders: curReminders,
+        pendingMaterials: curPendingMaterials,
+        materials: curMaterials,
+        variants: curVariants,
+        paymentPlans: curPaymentPlans,
+        installments: curInstallments,
+        clients: curClients,
+      } = latestRef.current;
+
       const nowDate = new Date();
       const nowMs = nowDate.getTime();
-      const inQuietHours = isWithinQuietHours(settings, nowDate);
+      const inQuietHours = isWithinQuietHours(curSettings, nowDate);
       const caps = getNotificationCapabilities();
       const canDispatchOS =
         caps.supported &&
         caps.permission === 'granted' &&
-        Boolean(settings.enableBrowserNotifications);
+        Boolean(curSettings.enableBrowserNotifications);
 
       // 3a. Evaluar hitos del cronómetro activo (recordatorio periódico / olvidado)
-      if (activeTimerSession && activeTimerSession.status === 'running') {
-        const project = projects.find((p) => p.id === activeTimerSession.projectId);
-        const component = components.find((c) => c.id === activeTimerSession.componentId);
+      if (curSession && curSession.status === 'running') {
+        const project = curProjects.find((p) => p.id === curSession.projectId);
+        const component = curComponents.find((c) => c.id === curSession.componentId);
         const milestone = evaluateTimerMilestoneNotification({
-          session: activeTimerSession,
+          session: curSession,
           project,
           component,
-          settings,
+          settings: curSettings,
           lastSentMilestoneKey: lastMilestoneKeyRef.current,
           nowMs,
         });
@@ -237,9 +341,9 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
                 data: milestone.payload.data,
               });
             }
-            if (!inQuietHours && settings.enableTimerNotifications !== false) {
-              if (settings.enableSoundAlerts) playSoftNotificationChime();
-              if (settings.enableVibrationAlerts) triggerSafeVibration();
+            if (!inQuietHours && curSettings.enableTimerNotifications !== false) {
+              if (curSettings.enableSoundAlerts) playSoftNotificationChime();
+              if (curSettings.enableVibrationAlerts) triggerSafeVibration();
             }
             markNotificationDispatched(milestone.milestoneKey, nowMs);
             recordNotificationHistoryEvent({
@@ -250,7 +354,7 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
               status: 'sent',
               deliveredToOS,
               route: 'timer',
-              projectId: activeTimerSession.projectId,
+              projectId: curSession.projectId,
             });
           }
         }
@@ -264,17 +368,17 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
       const centerState = loadNotificationCenterState();
       const dismissedSet = new Set(centerState.dismissedIds);
       const alerts = resolveSmartRemindersAndAlerts({
-        settings,
-        reminders,
-        projects,
-        components,
-        workSessions,
-        pendingMaterials,
-        materials,
-        variants,
-        paymentPlans,
-        installments,
-        clients,
+        settings: curSettings,
+        reminders: curReminders,
+        projects: curProjects,
+        components: curComponents,
+        workSessions: curWorkSessions,
+        pendingMaterials: curPendingMaterials,
+        materials: curMaterials,
+        variants: curVariants,
+        paymentPlans: curPaymentPlans,
+        installments: curInstallments,
+        clients: curClients,
         nowDate,
       }).filter(
         (a) =>
@@ -328,42 +432,35 @@ export const NotificationOrchestrator: React.FC<NotificationOrchestratorProps> =
       }
 
       if (dispatchedCount > 0) {
-        if (settings.enableSoundAlerts) playSoftNotificationChime();
-        if (settings.enableVibrationAlerts) triggerSafeVibration();
+        if (curSettings.enableSoundAlerts) playSoftNotificationChime();
+        if (curSettings.enableVibrationAlerts) triggerSafeVibration();
       }
     };
 
-    void evaluateAndDispatch();
+    // Diferir la evaluación inicial para no competir con la carga inicial de la app
+    const bootDelayId = window.setTimeout(() => {
+      void evaluateAndDispatch();
+    }, 3_000);
+
     const intervalId = window.setInterval(() => {
       void evaluateAndDispatch();
-    }, 30_000);
+    }, 60_000);
 
-    const handleWake = () => {
-      if (document.visibilityState === 'visible') {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        refreshTimerNotificationOnBackground();
+      } else if (document.visibilityState === 'visible') {
         void evaluateAndDispatch();
       }
     };
-    document.addEventListener('visibilitychange', handleWake);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      window.clearTimeout(bootDelayId);
       window.clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleWake);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [
-    isLoading,
-    settings,
-    activeTimerSession,
-    projects,
-    components,
-    workSessions,
-    reminders,
-    pendingMaterials,
-    materials,
-    variants,
-    paymentPlans,
-    installments,
-    clients,
-  ]);
+  }, [isLoading, hasRunningTimer, browserNotificationsEnabled]);
 
   return null;
 };

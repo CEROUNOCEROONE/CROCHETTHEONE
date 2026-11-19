@@ -95,9 +95,15 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
     forgottenThresholdMins,
     nowMs,
   );
-  const notifCaps = getNotificationCapabilities();
+  const notifCaps = useMemo(
+    () => getNotificationCapabilities(),
+    // Re-leer capacidades solo cuando se abre/cierra el panel expandido
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [panelOpen],
+  );
 
   const handleTogglePause = async () => {
+    if (busy) return;
     setBusy(true);
     setErrorMsg(null);
     try {
@@ -109,6 +115,21 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : 'No se pudo actualizar el cronómetro.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResumeOtherSession = async (sessionId: string) => {
+    if (busy) return;
+    setBusy(true);
+    setErrorMsg(null);
+    try {
+      await resumeTimerSession(sessionId);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'No se pudo reanudar la sesión.',
       );
     } finally {
       setBusy(false);
@@ -220,7 +241,7 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
               type="button"
               disabled={busy}
               onClick={() => void handleTogglePause()}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:opacity-50 ${
                 isRunning
                   ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
                   : 'border-teal-700 bg-teal-700 text-white hover:bg-teal-800'
@@ -239,7 +260,7 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
               type="button"
               disabled={busy}
               onClick={handleFinishClick}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-50"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
               aria-label="Finalizar y guardar sesión"
               title="Finalizar sesión"
             >
@@ -326,8 +347,8 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void resumeTimerSession(sess.id)}
-                        className="shrink-0 rounded-md bg-teal-50 px-2 py-1 text-[10px] font-semibold text-teal-800 hover:bg-teal-100"
+                        onClick={() => void handleResumeOtherSession(sess.id)}
+                        className="shrink-0 rounded-md bg-teal-50 px-2 py-1 text-[10px] font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50"
                       >
                         Reanudar
                       </button>
@@ -342,7 +363,7 @@ export const FloatingTimerDock: React.FC<FloatingTimerDockProps> = ({
                 <Bell className="h-3 w-3 shrink-0" aria-hidden="true" />
                 {notifCaps.permission === 'granted' &&
                 Boolean(settings.enableBrowserNotifications)
-                  ? 'Aviso PWA activo'
+                  ? 'Recordatorios PWA activos'
                   : 'Persistencia local activa'}
               </span>
 

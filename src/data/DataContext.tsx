@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type {
@@ -385,87 +386,131 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [effectiveTier],
   );
 
-  const markSaved = useCallback((summary: string) => {
+  const inFlightRefreshRef = useRef<Promise<void> | null>(null);
+  const hiddenSinceRef = useRef<number | null>(null);
+
+  const markSaved = useCallback((summary: string, scope: 'all' | 'timer' = 'all') => {
     setLastSaved((prev) => ({
       seq: (prev?.seq ?? 0) + 1,
       at: new Date().toISOString(),
       summary,
     }));
-    broadcastWorkshopSync('WORKSHOP_DB_UPDATED', 'all');
+    broadcastWorkshopSync('WORKSHOP_DB_UPDATED', scope);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshWorkSessionsOnly = useCallback(async () => {
     try {
       setError(null);
-      const [snapshot, meta] = await Promise.all([
-        localWorkshopEngine.loadWorkshopSnapshot(),
-        localWorkshopEngine.getSchemaMeta(),
-      ]);
-      setActiveCurrency(snapshot.settings.currency);
-      setSettings(snapshot.settings);
-      setProjects(snapshot.projects);
-      setComponents(snapshot.components);
-      setWorkSessions(snapshot.workSessions ?? []);
-      setMaterials(snapshot.materials);
-      setVariants(snapshot.variants);
-      setReservations(snapshot.reservations);
-      setPendingMaterials(snapshot.pendingMaterials ?? []);
-      setNotesAndLists(snapshot.notesAndLists ?? []);
-      setShoppingListItems(snapshot.shoppingItems ?? []);
-      setPurchaseReceipts(snapshot.purchaseReceipts ?? []);
-      setMovements(snapshot.movements);
-      setClients(snapshot.clients);
-      setQuotes(snapshot.quotes ?? []);
-      setPaymentPlans(snapshot.paymentPlans ?? []);
-      setInstallments(snapshot.installments ?? []);
-      setTransactions(snapshot.transactions ?? []);
-      setPlannedTasks(snapshot.plannedTasks ?? []);
-      setReminders(snapshot.reminders ?? []);
-      setStats(computeWorkshopStats(snapshot));
-      setSchemaMeta(meta);
+      const nextSessions = await localWorkshopEngine.workSessions.getAll();
+      setWorkSessions(nextSessions);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Error al leer la base de datos local.',
+          : 'Error al sincronizar las sesiones del cronómetro.',
       );
-    } finally {
-      setIsLoading(false);
     }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current;
+    }
+
+    const run = (async () => {
+      try {
+        setError(null);
+        const [snapshot, meta] = await Promise.all([
+          localWorkshopEngine.loadWorkshopSnapshot(),
+          localWorkshopEngine.getSchemaMeta(),
+        ]);
+        setActiveCurrency(snapshot.settings.currency);
+        setSettings(snapshot.settings);
+        setProjects(snapshot.projects);
+        setComponents(snapshot.components);
+        setWorkSessions(snapshot.workSessions ?? []);
+        setMaterials(snapshot.materials);
+        setVariants(snapshot.variants);
+        setReservations(snapshot.reservations);
+        setPendingMaterials(snapshot.pendingMaterials ?? []);
+        setNotesAndLists(snapshot.notesAndLists ?? []);
+        setShoppingListItems(snapshot.shoppingItems ?? []);
+        setPurchaseReceipts(snapshot.purchaseReceipts ?? []);
+        setMovements(snapshot.movements);
+        setClients(snapshot.clients);
+        setQuotes(snapshot.quotes ?? []);
+        setPaymentPlans(snapshot.paymentPlans ?? []);
+        setInstallments(snapshot.installments ?? []);
+        setTransactions(snapshot.transactions ?? []);
+        setPlannedTasks(snapshot.plannedTasks ?? []);
+        setReminders(snapshot.reminders ?? []);
+        setStats(computeWorkshopStats(snapshot));
+        setSchemaMeta(meta);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Error al leer la base de datos local.',
+        );
+      } finally {
+        setIsLoading(false);
+        inFlightRefreshRef.current = null;
+      }
+    })();
+
+    inFlightRefreshRef.current = run;
+    return run;
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Sincronización entre pestañas, Service Worker y reactivación tras bloqueo/segundo plano
+  // Sincronización selectiva entre pestañas, Service Worker y retorno desde segundo plano/BFCache
   useEffect(() => {
     const unsubscribe = subscribeWorkshopSync((msg) => {
       if (msg.type === 'WORKSHOP_DB_UPDATED') {
-        void refresh();
+        if (msg.scope === 'timer') {
+          void refreshWorkSessionsOnly();
+        } else {
+          void refresh();
+        }
       }
     });
 
     const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenSinceRef.current = Date.now();
+        return;
+      }
       if (document.visibilityState === 'visible') {
+        const hiddenSince = hiddenSinceRef.current;
+        hiddenSinceRef.current = null;
+        if (hiddenSince === null) return;
+        const hiddenDurationMs = Date.now() - hiddenSince;
+        if (hiddenDurationMs >= 15_000) {
+          void refresh();
+        } else if (hiddenDurationMs >= 2_500) {
+          void refreshWorkSessionsOnly();
+        }
+      }
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
         void refresh();
       }
     };
-    const handleFocusOrPageShow = () => {
-      void refresh();
-    };
 
     document.addEventListener('visibilitychange', handleVisibilityRefresh);
-    window.addEventListener('focus', handleFocusOrPageShow);
-    window.addEventListener('pageshow', handleFocusOrPageShow);
+    window.addEventListener('pageshow', handlePageShow);
 
     return () => {
       unsubscribe();
       document.removeEventListener('visibilitychange', handleVisibilityRefresh);
-      window.removeEventListener('focus', handleFocusOrPageShow);
-      window.removeEventListener('pageshow', handleFocusOrPageShow);
+      window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [refresh]);
+  }, [refresh, refreshWorkSessionsOnly]);
 
   const syncDailyUsdRates = useCallback(async () => {
     const cached = readCachedUsdRates();
@@ -621,7 +666,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notes,
       );
       await refresh();
-      markSaved('Sesión de cronómetro iniciada');
+      markSaved('Sesión de cronómetro iniciada', 'timer');
       return session;
     },
     [refresh, markSaved],
@@ -630,21 +675,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const pauseTimerSession = useCallback(
     async (sessionId: string) => {
       const session = await localWorkshopEngine.pauseTimerSession(sessionId);
-      await refresh();
-      markSaved('Cronómetro en pausa');
+      await refreshWorkSessionsOnly();
+      markSaved('Cronómetro en pausa', 'timer');
       return session;
     },
-    [refresh, markSaved],
+    [refreshWorkSessionsOnly, markSaved],
   );
 
   const resumeTimerSession = useCallback(
     async (sessionId: string) => {
       const session = await localWorkshopEngine.resumeTimerSession(sessionId);
-      await refresh();
-      markSaved('Cronómetro reanudado');
+      await refreshWorkSessionsOnly();
+      markSaved('Cronómetro reanudado', 'timer');
       return session;
     },
-    [refresh, markSaved],
+    [refreshWorkSessionsOnly, markSaved],
   );
 
   const finishTimerSession = useCallback(
@@ -654,7 +699,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         options,
       );
       await refresh();
-      markSaved('Sesión de tiempo guardada');
+      markSaved('Sesión de tiempo guardada', 'all');
       return session;
     },
     [refresh, markSaved],

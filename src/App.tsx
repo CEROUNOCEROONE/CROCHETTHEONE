@@ -118,7 +118,8 @@ function AppWorkspace() {
   const [settingsSection, setSettingsSection] = useState<SettingsStepId | null>(
     null,
   );
-  const { settings, activeTimerSession } = useWorkshopData();
+  const { settings, activeTimerSession, error: dataError, refresh } =
+    useWorkshopData();
 
   // Resolver deep-links al abrir desde notificaciones Android/PWA
   useEffect(() => {
@@ -246,6 +247,14 @@ function AppWorkspace() {
     [],
   );
 
+  const handleClearTimerTarget = useCallback(() => {
+    setTimerTarget(null);
+  }, []);
+
+  const handleClearFinishConfirm = useCallback(() => {
+    setTimerFinishConfirmSessionId(null);
+  }, []);
+
   const renderContent = () => {
     if (activeRoute === 'dashboard') {
       return (
@@ -273,8 +282,8 @@ function AppWorkspace() {
           initialProjectId={timerTarget?.projectId ?? null}
           initialComponentId={timerTarget?.componentId ?? null}
           initialFinishConfirmSessionId={timerFinishConfirmSessionId}
-          onClearInitialTarget={() => setTimerTarget(null)}
-          onClearFinishConfirm={() => setTimerFinishConfirmSessionId(null)}
+          onClearInitialTarget={handleClearTimerTarget}
+          onClearFinishConfirm={handleClearFinishConfirm}
           onNavigateToProjects={() => setActiveRoute('projects')}
         />
       );
@@ -361,7 +370,30 @@ function AppWorkspace() {
           ) : undefined
         }
       >
-        <Suspense fallback={<ModuleLoadingFallback />}>{renderContent()}</Suspense>
+        <div className="flex h-full flex-col">
+          {dataError && (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-900"
+            >
+              <span className="truncate">
+                Error de base de datos local: {dataError}
+              </span>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="shrink-0 rounded-md bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-800"
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            <Suspense fallback={<ModuleLoadingFallback />}>
+              {renderContent()}
+            </Suspense>
+          </div>
+        </div>
       </AppShell>
     </>
   );

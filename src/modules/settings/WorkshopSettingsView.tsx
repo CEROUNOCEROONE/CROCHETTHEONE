@@ -1099,10 +1099,10 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                   Paso 3 de 5 · Notificaciones del taller y PWA
                 </p>
                 <h3 className="mt-1 font-display text-lg font-semibold text-slate-900">
-                  Cronómetro persistente, avisos y horario silencioso
+                  Cronómetro local, avisos y horario silencioso
                 </h3>
                 <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
-                  Controla las alertas internas del sistema y las notificaciones nativas/PWA en Android y escritorio. Todo se guarda localmente sin backend.
+                  Controla las alertas internas y los avisos opcionales del navegador/PWA. En Android, el sistema operativo puede descartar notificaciones web al ahorrar batería, pero tu cronómetro sigue guardando el tiempo exacto en IndexedDB.
                 </p>
               </div>
 
@@ -1135,11 +1135,11 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         {notifCaps.permission === 'granted'
                           ? notifCaps.supportsActions
-                            ? 'Service Worker listo con acciones rápidas (Pausar / Finalizar) en dispositivos compatibles.'
-                            : 'Las notificaciones están activas en el dispositivo.'
+                            ? 'Service Worker listo con acciones rápidas (Pausar / Finalizar). Android puede ocultar la notificación web por ahorro de energía, pero el cronómetro no pierde el tiempo.'
+                            : 'Las notificaciones web están activas como recordatorio complementario en este dispositivo.'
                           : notifCaps.permission === 'denied'
                             ? 'Para habilitarlas nuevamente, abre la configuración de permisos del sitio en Chrome/Android. La campana interna sigue funcionando sin interrupciones.'
-                            : 'Permite recibir alertas cuando cambias de pantalla o bloqueas el teléfono con un cronómetro activo.'}
+                            : 'Permite recibir avisos opcionales cuando cambias de pantalla con un cronómetro activo o tienes entregas próximas.'}
                       </p>
                     </div>
                   </div>

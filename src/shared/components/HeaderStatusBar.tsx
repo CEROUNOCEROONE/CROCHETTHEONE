@@ -856,7 +856,7 @@ export const HeaderStatusBar: React.FC<HeaderStatusBarProps> = ({
                       <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
                         {caps.permission === 'granted'
                           ? caps.supportsActions
-                            ? 'Tu dispositivo soporta notificaciones persistentes con acciones rápidas (Pausar / Finalizar).'
+                            ? 'Avisos PWA activos con acciones rápidas (Pausar / Finalizar). Nota: en Android, el sistema puede ocultar o descartar notificaciones web en segundo plano; tu tiempo real siempre se conserva en el dispositivo.'
                             : 'Las notificaciones están activas en el sistema. Algunas acciones en barra pueden variar según el navegador.'
                           : caps.permission === 'denied'
                             ? 'El permiso fue bloqueado en este navegador. Puedes seguir usando la campana y alertas internas o habilitarlo desde la configuración del sitio en Chrome/Android.'

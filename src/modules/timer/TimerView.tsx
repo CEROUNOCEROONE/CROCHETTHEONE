@@ -66,6 +66,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
   onNavigateToProjects,
 }) => {
   const {
+    isLoading,
     projects,
     components,
     workSessions,
@@ -119,7 +120,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
   // Abrir confirmación segura si el usuario tocó "Finalizar" desde una notificación
   useEffect(() => {
-    if (!initialFinishConfirmSessionId) return;
+    if (isLoading || !initialFinishConfirmSessionId) return;
     const target = workSessions.find(
       (s) =>
         s.id === initialFinishConfirmSessionId &&
@@ -141,7 +142,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
       }
     }
     onClearFinishConfirm?.();
-  }, [initialFinishConfirmSessionId, workSessions, onClearFinishConfirm]);
+  }, [isLoading, initialFinishConfirmSessionId, workSessions, onClearFinishConfirm]);
 
   // Sincronizar selección inicial cuando el usuario llega desde Proyectos o Dock
   useEffect(() => {
@@ -864,6 +865,16 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 )}
               </div>
 
+              {/* Error inline cerca de los botones de control */}
+              {feedback && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-xs text-rose-900"
+                >
+                  {feedback.message}
+                </p>
+              )}
+
               {/* Botones de control */}
               <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                 {!selectedPieceSession ? (
@@ -920,7 +931,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
                       onClick={() =>
                         openFinishWithAdjustmentModal(selectedPieceSession)
                       }
-                      className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                     >
                       <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Ajustar al finalizar</span>
@@ -998,7 +1009,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
                               type="button"
                               disabled={busy}
                               onClick={() => void handlePause(sess)}
-                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
                             >
                               <Pause className="h-3.5 w-3.5" />
                               <span>Pausar</span>
@@ -1008,7 +1019,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
                               type="button"
                               disabled={busy}
                               onClick={() => void handleResume(sess)}
-                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800"
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-60"
                             >
                               <Play className="h-3.5 w-3.5" />
                               <span>Reanudar</span>
@@ -1019,7 +1030,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
                             type="button"
                             disabled={busy}
                             onClick={() => void handleFinishExact(sess)}
-                            className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
                           >
                             <Square className="h-3.5 w-3.5" />
                             <span>Finalizar</span>

@@ -316,11 +316,36 @@ async function ensureBootstrapRecords(db: IDBDatabase): Promise<void> {
   });
 }
 
+export function isClosedIndexedDbError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const maybeErr = err as { name?: unknown; message?: unknown };
+  const name = typeof maybeErr.name === 'string' ? maybeErr.name : '';
+  const message = typeof maybeErr.message === 'string' ? maybeErr.message : '';
+  if (name === 'InvalidStateError') return true;
+  return /database connection is closing|connection.*closed|not open/i.test(message);
+}
+
+export async function withClosedConnectionRetry<T>(
+  operation: () => Promise<T>,
+  onReset: () => void = resetCachedDbConnection,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    if (!isClosedIndexedDbError(err)) {
+      throw err;
+    }
+    onReset();
+    return operation();
+  }
+}
+
 export async function getIndexedDb(): Promise<IDBDatabase> {
   if (dbInstancePromise) return dbInstancePromise;
 
-  dbInstancePromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const openPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof window === 'undefined' || !('indexedDB' in window)) {
+      dbInstancePromise = null;
       reject(new Error('IndexedDB no está disponible en este navegador.'));
       return;
     }
@@ -342,24 +367,51 @@ export async function getIndexedDb(): Promise<IDBDatabase> {
 
     request.onsuccess = async () => {
       const db = request.result;
-      db.onversionchange = () => {
-        db.close();
-        dbInstancePromise = null;
+      const invalidateIfCurrent = () => {
+        if (dbInstancePromise === openPromise) {
+          dbInstancePromise = null;
+        }
       };
+
+      db.onversionchange = () => {
+        invalidateIfCurrent();
+        try {
+          db.close();
+        } catch {
+          // ignore close errors
+        }
+      };
+
+      // Android Chrome/PWA puede cerrar conexiones IndexedDB inactivas al suspender la app
+      db.onclose = () => {
+        invalidateIfCurrent();
+      };
+
       try {
         await ensureBootstrapRecords(db);
         resolve(db);
       } catch (err) {
+        invalidateIfCurrent();
+        try {
+          db.close();
+        } catch {
+          // ignore close errors
+        }
         reject(err);
       }
     };
 
     request.onerror = () => {
-      dbInstancePromise = null;
+      if (dbInstancePromise === openPromise) {
+        dbInstancePromise = null;
+      }
       reject(request.error ?? new Error('No fue posible abrir IndexedDB.'));
     };
 
     request.onblocked = () => {
+      if (dbInstancePromise === openPromise) {
+        dbInstancePromise = null;
+      }
       reject(
         new Error(
           'La actualización de base de datos está bloqueada por otra pestaña abierta.',
@@ -368,7 +420,19 @@ export async function getIndexedDb(): Promise<IDBDatabase> {
     };
   });
 
-  return dbInstancePromise;
+  dbInstancePromise = openPromise;
+  return openPromise;
+}
+
+export async function runReadOnlyRequest<T>(
+  storeName: WorkshopStoreName,
+  buildRequest: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return withClosedConnectionRetry(async () => {
+    const db = await getIndexedDb();
+    const tx = db.transaction(storeName, 'readonly');
+    return idbRequestToPromise<T>(buildRequest(tx.objectStore(storeName)));
+  });
 }
 
 /**
@@ -381,56 +445,65 @@ export async function runAtomicTransaction<T>(
   mode: IDBTransactionMode,
   executor: (tx: IDBTransaction, done: (value: T) => void, fail: (err: unknown) => void) => void,
 ): Promise<T> {
-  const db = await getIndexedDb();
-  return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction(storeNames, mode);
-    let resultValue: T;
-    let hasResult = false;
-    let settled = false;
+  return withClosedConnectionRetry(async () => {
+    const db = await getIndexedDb();
+    return new Promise<T>((resolve, reject) => {
+      let tx: IDBTransaction;
+      try {
+        tx = db.transaction(storeNames, mode);
+      } catch (err) {
+        reject(err);
+        return;
+      }
 
-    const done = (val: T) => {
-      resultValue = val;
-      hasResult = true;
-    };
+      let resultValue: T;
+      let hasResult = false;
+      let settled = false;
 
-    const fail = (err: unknown) => {
-      if (!settled) {
-        settled = true;
-        try {
-          tx.abort();
-        } catch {
-          // ignore if already finished
+      const done = (val: T) => {
+        resultValue = val;
+        hasResult = true;
+      };
+
+      const fail = (err: unknown) => {
+        if (!settled) {
+          settled = true;
+          try {
+            tx.abort();
+          } catch {
+            // ignore if already finished
+          }
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    };
+      };
 
-    tx.oncomplete = () => {
-      if (!settled) {
-        settled = true;
-        resolve(hasResult ? resultValue : (undefined as T));
-      }
-    };
+      tx.oncomplete = () => {
+        if (!settled) {
+          settled = true;
+          resolve(hasResult ? resultValue : (undefined as T));
+        }
+      };
 
-    tx.onerror = () => {
-      if (!settled) {
-        settled = true;
-        reject(tx.error ?? new Error('Error ejecutando transacción en IndexedDB.'));
-      }
-    };
+      tx.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(tx.error ?? new Error('Error ejecutando transacción en IndexedDB.'));
+        }
+      };
 
-    tx.onabort = () => {
-      if (!settled) {
-        settled = true;
-        reject(tx.error ?? new Error('Transacción abortada (rollback ejecutado).'));
-      }
-    };
+      tx.onabort = () => {
+        if (!settled) {
+          settled = true;
+          reject(tx.error ?? new Error('Transacción abortada (rollback ejecutado).'));
+        }
+      };
 
-    try {
-      executor(tx, done, fail);
-    } catch (err) {
-      fail(err);
-    }
+      try {
+        executor(tx, done, fail);
+      } catch (err) {
+        fail(err);
+      }
+    });
   });
 }
 

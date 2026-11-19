@@ -15,13 +15,12 @@ import type {
   WorkSession,
 } from '@/src/domain/models/index.ts';
 import {
-  buildActiveTimerNotificationPayload,
-  ACTIVE_TIMER_NOTIFICATION_TAG,
-} from '@/src/domain/services/notificationEngine.ts';
-import {
   calculateSessionDurations,
   closeOpenPauseIntervals,
+  formatClockHHMMSS,
 } from '@/src/domain/services/timerEngine.ts';
+
+const ACTIVE_TIMER_NOTIFICATION_TAG = 'crochet-active-timer';
 
 interface SWClientLike {
   url: string;
@@ -159,11 +158,73 @@ swSelf.addEventListener('message', (event) => {
   }
 });
 
+function buildSwActiveTimerPayload(
+  session: WorkSession,
+  project: Project | null,
+  component: ProjectComponent | null,
+  nowMs: number,
+) {
+  const durations = calculateSessionDurations(session, nowMs);
+  const clock = formatClockHHMMSS(durations.effectiveSeconds);
+  const projectName = project?.name?.trim() || 'Proyecto de tejido';
+  const componentName = component?.name?.trim() || 'Pieza en curso';
+  const isRunning = session.status === 'running';
+
+  return {
+    title: isRunning ? 'Cronómetro activo · Tejiendo' : 'Cronómetro en pausa',
+    body: `${projectName} · ${componentName}\n${isRunning ? 'Tiempo efectivo' : 'En pausa'}: ${clock}`,
+    tag: ACTIVE_TIMER_NOTIFICATION_TAG,
+    renotify: false,
+    requireInteraction: isRunning,
+    silent: true,
+    actions: [
+      {
+        action: isRunning ? 'pause' : 'resume',
+        title: isRunning ? 'Pausar' : 'Reanudar',
+      },
+      { action: 'finish', title: 'Finalizar' },
+    ],
+    data: {
+      kind: 'active_timer',
+      sessionId: session.id,
+      projectId: session.projectId,
+      componentId: session.componentId,
+      route: 'timer',
+      url: `/?route=timer&projectId=${encodeURIComponent(session.projectId)}&componentId=${encodeURIComponent(session.componentId)}`,
+    },
+  };
+}
+
+async function showSwNotificationSafe(
+  title: string,
+  options: NotificationOptions & {
+    actions?: Array<{ action: string; title: string }>;
+    renotify?: boolean;
+  },
+): Promise<void> {
+  try {
+    await swSelf.registration.showNotification(title, options);
+  } catch {
+    const { actions: _ignored, ...withoutActions } = options;
+    await swSelf.registration.showNotification(title, withoutActions);
+  }
+}
+
 function openWorkshopIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME);
     req.onerror = () => reject(req.error ?? new Error('No se pudo abrir IndexedDB.'));
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        try {
+          db.close();
+        } catch {
+          // ignore close errors
+        }
+      };
+      resolve(db);
+    };
   });
 }
 
@@ -178,10 +239,31 @@ async function applySwTimerMutation(
   const db = await openWorkshopIdb();
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
+  const storeNames = ['work_sessions', 'projects', 'project_components'];
+
+  if (!storeNames.every((name) => db.objectStoreNames.contains(name))) {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    return { session: null, project: null, component: null };
+  }
 
   return new Promise((resolve, reject) => {
-    const storeNames = ['work_sessions', 'projects', 'project_components'];
-    const tx = db.transaction(storeNames, 'readwrite');
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction(storeNames, 'readwrite');
+    } catch (err) {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+      reject(err);
+      return;
+    }
+
     const sessionsStore = tx.objectStore('work_sessions');
     const projectsStore = tx.objectStore('projects');
     const componentsStore = tx.objectStore('project_components');
@@ -190,8 +272,16 @@ async function applySwTimerMutation(
     let relatedProject: Project | null = null;
     let relatedComponent: ProjectComponent | null = null;
 
+    const closeSafely = () => {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+    };
+
     tx.oncomplete = () => {
-      db.close();
+      closeSafely();
       resolve({
         session: updatedSession,
         project: relatedProject,
@@ -199,11 +289,11 @@ async function applySwTimerMutation(
       });
     };
     tx.onerror = () => {
-      db.close();
+      closeSafely();
       reject(tx.error ?? new Error('Error de transacción en Service Worker.'));
     };
     tx.onabort = () => {
-      db.close();
+      closeSafely();
       reject(tx.error ?? new Error('Transacción abortada en Service Worker.'));
     };
 
@@ -355,7 +445,11 @@ swSelf.addEventListener('notificationclick', (event) => {
   const fallbackUrl =
     typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/';
 
-  notification.close();
+  const isActiveTimerBodyTap =
+    action === '' && notification.tag === ACTIVE_TIMER_NOTIFICATION_TAG;
+  if (!isActiveTimerBodyTap) {
+    notification.close();
+  }
 
   if ((action === 'pause' || action === 'resume') && sessionId) {
     event.waitUntil(
@@ -366,14 +460,13 @@ swSelf.addEventListener('notificationclick', (event) => {
             action,
           );
           if (session && (session.status === 'running' || session.status === 'paused')) {
-            const nextPayload = buildActiveTimerNotificationPayload({
+            const nextPayload = buildSwActiveTimerPayload(
               session,
               project,
               component,
-              nowMs: Date.now(),
-              renotify: false,
-            });
-            await swSelf.registration.showNotification(nextPayload.title, {
+              Date.now(),
+            );
+            await showSwNotificationSafe(nextPayload.title, {
               body: nextPayload.body,
               tag: nextPayload.tag,
               icon: '/pwa-192x192.png',
@@ -381,10 +474,7 @@ swSelf.addEventListener('notificationclick', (event) => {
               renotify: nextPayload.renotify,
               requireInteraction: nextPayload.requireInteraction,
               silent: nextPayload.silent,
-              actions: nextPayload.actions.map((a) => ({
-                action: a.action,
-                title: a.title,
-              })),
+              actions: nextPayload.actions,
               data: nextPayload.data,
             });
           }

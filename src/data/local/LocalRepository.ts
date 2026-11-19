@@ -111,10 +111,9 @@ import {
 } from '@/src/domain/services/clientPaymentService.ts';
 import {
   createDefaultWorkshopSettings,
-  getIndexedDb,
-  idbRequestToPromise,
   normalizeWorkshopSettings,
   runAtomicTransaction,
+  runReadOnlyRequest,
 } from './indexedDbClient.ts';
 import { loadDemoDataTransaction, purgeDemoDataTransaction } from './demoSeeder.ts';
 import {
@@ -148,31 +147,24 @@ class IndexedDbStoreRepository<T extends BaseEntity> implements DataStorePort<T>
   }
 
   async getById(id: string): Promise<T | null> {
-    const db = await getIndexedDb();
-    const tx = db.transaction(this.storeName, 'readonly');
-    const result = await idbRequestToPromise<T | undefined>(
-      tx.objectStore(this.storeName).get(id),
+    const result = await runReadOnlyRequest<T | undefined>(this.storeName, (store) =>
+      store.get(id),
     );
     return result ?? null;
   }
 
   async getAll(): Promise<T[]> {
-    const db = await getIndexedDb();
-    const tx = db.transaction(this.storeName, 'readonly');
-    return idbRequestToPromise<T[]>(tx.objectStore(this.storeName).getAll());
+    return runReadOnlyRequest<T[]>(this.storeName, (store) => store.getAll());
   }
 
   async queryByIndex(indexName: string, value: IDBValidKey): Promise<T[]> {
-    const db = await getIndexedDb();
-    const tx = db.transaction(this.storeName, 'readonly');
-    const index = tx.objectStore(this.storeName).index(indexName);
-    return idbRequestToPromise<T[]>(index.getAll(value));
+    return runReadOnlyRequest<T[]>(this.storeName, (store) =>
+      store.index(indexName).getAll(value),
+    );
   }
 
   async count(): Promise<number> {
-    const db = await getIndexedDb();
-    const tx = db.transaction(this.storeName, 'readonly');
-    return idbRequestToPromise<number>(tx.objectStore(this.storeName).count());
+    return runReadOnlyRequest<number>(this.storeName, (store) => store.count());
   }
 
   async upsert(entity: T): Promise<T> {
@@ -395,10 +387,9 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
   readonly reminders = new IndexedDbStoreRepository<Reminder>('reminders');
 
   async getSchemaMeta(): Promise<SchemaMeta | null> {
-    const db = await getIndexedDb();
-    const tx = db.transaction('_meta_schema', 'readonly');
-    const result = await idbRequestToPromise<SchemaMeta | undefined>(
-      tx.objectStore('_meta_schema').get('schema'),
+    const result = await runReadOnlyRequest<SchemaMeta | undefined>(
+      '_meta_schema',
+      (store) => store.get('schema'),
     );
     return result ?? null;
   }
