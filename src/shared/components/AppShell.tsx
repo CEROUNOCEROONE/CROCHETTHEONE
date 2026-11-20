@@ -62,6 +62,23 @@ export const AppShell: React.FC<AppShellProps> = ({
   const currentRoute = getRouteDefinition(activeRoute);
   const mobileBottomRoutes = MODULE_ROUTES.filter((r) => r.showInMobileBottomBar);
 
+  useEffect(() => {
+    if (isDesktopViewport && mobileDrawerOpen) {
+      setMobileDrawerOpen(false);
+    }
+  }, [isDesktopViewport, mobileDrawerOpen]);
+
+  useEffect(() => {
+    if (!mobileDrawerOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileDrawerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileDrawerOpen]);
+
   const handleNavigate = (id: ModuleRouteId) => {
     onSelectRoute(id);
     setMobileDrawerOpen(false);
@@ -152,8 +169,10 @@ export const AppShell: React.FC<AppShellProps> = ({
               <button
                 type="button"
                 onClick={() => setMobileDrawerOpen(true)}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 lg:hidden"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors duration-150 hover:bg-slate-100 active:scale-95 lg:hidden"
                 aria-label="Abrir menú de módulos"
+                aria-expanded={mobileDrawerOpen}
+                aria-controls="mobile-modules-drawer"
               >
                 <Menu className="h-5 w-5" />
               </button>
@@ -225,18 +244,33 @@ export const AppShell: React.FC<AppShellProps> = ({
       </nav>
 
       {/* Menú lateral completo para móvil (acceso a todos los módulos del taller) */}
-      {mobileDrawerOpen && (
+      <div
+        id="mobile-modules-drawer"
+        className={`fixed inset-0 z-50 flex transition-[visibility] lg:hidden ${
+          mobileDrawerOpen
+            ? 'visible pointer-events-auto duration-300'
+            : 'invisible pointer-events-none duration-250'
+        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!mobileDrawerOpen}
+        aria-label="Menú completo de módulos"
+      >
         <div
-          className="fixed inset-0 z-50 flex lg:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Menú completo de módulos"
+          className={`fixed inset-0 bg-slate-900/50 transition-opacity ease-out ${
+            mobileDrawerOpen
+              ? 'opacity-100 duration-300'
+              : 'opacity-0 duration-220'
+          }`}
+          onClick={() => setMobileDrawerOpen(false)}
+        />
+        <div
+          className={`relative z-10 flex w-72 max-w-[85vw] flex-col bg-white shadow-2xl transform-gpu will-change-transform transition-transform ${
+            mobileDrawerOpen
+              ? 'translate-x-0 duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'
+              : '-translate-x-full duration-250 ease-[cubic-bezier(0.4,0,0.2,1)]'
+          }`}
         >
-          <div
-            className="fixed inset-0 bg-slate-900/50"
-            onClick={() => setMobileDrawerOpen(false)}
-          />
-          <div className="relative z-10 flex w-72 max-w-[85vw] flex-col bg-white shadow-xl">
             <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
               <div className="flex items-center gap-2.5 min-w-0">
                 <img
@@ -308,7 +342,6 @@ export const AppShell: React.FC<AppShellProps> = ({
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 };
