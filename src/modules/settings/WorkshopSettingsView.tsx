@@ -52,6 +52,7 @@ import {
 import { PWAInstallButton } from '@/src/pwa/PWAInstallButton.tsx';
 import { useOnlineStatus } from '@/src/pwa/useOnlineStatus.ts';
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
+import { AppearanceSettingsCard } from '@/src/shared/components/AppearanceSettingsCard.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
 import {
@@ -613,6 +614,8 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
       >
         {/* VISTA 1: IDENTIDAD, TARIFA Y METAS */}
         <SnapSlide id="settings-general" label="Taller y metas">
+          <div className="space-y-4">
+          <AppearanceSettingsCard />
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6">
             <form
               onSubmit={(e) => void handleSaveSettings(e)}
@@ -829,6 +832,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
           </div>
         </SnapSlide>
 

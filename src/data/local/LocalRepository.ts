@@ -1026,6 +1026,26 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             }
 
             const nowIso = new Date().toISOString();
+            const resStore = tx.objectStore('inventory_reservations');
+            const pieceTraceNote = `Pieza eliminada: ${target.name}`;
+            for (const res of reservations) {
+              if (res.componentId === componentId) {
+                const trimmedNotes = (res.notes ?? '').trim();
+                const nextNotes = trimmedNotes.includes(pieceTraceNote)
+                  ? trimmedNotes
+                  : trimmedNotes
+                    ? `${trimmedNotes} · ${pieceTraceNote}`
+                    : pieceTraceNote;
+                resStore.put({
+                  ...res,
+                  componentId: null,
+                  notes: nextNotes,
+                  version: res.version + 1,
+                  updatedAt: nowIso,
+                });
+              }
+            }
+
             const pendStore = tx.objectStore('pending_materials');
             for (const pm of pendings) {
               if (pm.componentId === componentId) {

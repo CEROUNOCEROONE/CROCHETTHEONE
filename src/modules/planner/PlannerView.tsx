@@ -1180,7 +1180,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     >
                       <span
                         className={`text-[10px] font-medium sm:text-[11px] ${
-                          isSelected ? 'text-teal-100' : 'text-slate-500'
+                          isSelected ? 'text-white/90' : 'text-slate-500'
                         }`}
                       >
                         {getShortWeekday(dayKey)}
@@ -1193,7 +1193,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                           <span
                             className={`font-mono text-[10px] font-semibold tabular-nums ${
                               isSelected
-                                ? 'text-teal-50'
+                                ? 'text-white'
                                 : dayCap.blockedTasksCount > 0
                                   ? 'text-amber-700'
                                   : 'text-teal-700'
