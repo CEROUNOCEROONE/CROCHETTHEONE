@@ -108,13 +108,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                         type="button"
                         onClick={() => handleNavigate(route.id)}
                         aria-current={isActive ? 'page' : undefined}
-                        className={`flex w-full min-h-[40px] items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                        className={`relative flex w-full min-h-[40px] items-center justify-between gap-2 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                           isActive
-                            ? 'bg-teal-700/10 font-semibold text-teal-800'
+                            ? 'app-floral-nav-active bg-teal-700/10 font-semibold text-teal-800'
                             : 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
-                        <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="relative z-10 flex min-w-0 items-center gap-2.5">
                           <Icon
                             className={`h-4 w-4 shrink-0 ${
                               isActive ? 'text-teal-700' : 'text-slate-400'
@@ -124,7 +124,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                           <span className="truncate">{route.label}</span>
                         </span>
                         {!route.isActiveInCurrentPhase && (
-                          <span className="shrink-0 text-[11px] font-normal text-slate-400">
+                          <span className="relative z-10 shrink-0 text-[11px] font-normal text-slate-400">
                             F{route.phase}
                           </span>
                         )}
@@ -175,7 +175,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </header>
 
         {/* Escenario principal 100% libre para vistas por pantalla */}
-        <main className="relative min-h-0 w-full flex-1 overflow-hidden">
+        <main className="app-floral-screen relative min-h-0 w-full flex-1 overflow-hidden">
           {children}
         </main>
       </div>
@@ -277,18 +277,24 @@ export const AppShell: React.FC<AppShellProps> = ({
                             key={route.id}
                             type="button"
                             onClick={() => handleNavigate(route.id)}
-                            className={`flex w-full min-h-[44px] items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+                            aria-current={isActive ? 'page' : undefined}
+                            className={`relative flex w-full min-h-[44px] items-center justify-between gap-2 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                               isActive
-                                ? 'bg-teal-700/10 font-semibold text-teal-800'
+                                ? 'app-floral-nav-active bg-teal-700/10 font-semibold text-teal-800'
                                 : 'font-medium text-slate-700 hover:bg-slate-100'
                             }`}
                           >
-                            <span className="flex min-w-0 items-center gap-2.5">
-                              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span className="relative z-10 flex min-w-0 items-center gap-2.5">
+                              <Icon
+                                className={`h-4 w-4 shrink-0 ${
+                                  isActive ? 'text-teal-700' : 'text-slate-400'
+                                }`}
+                                aria-hidden="true"
+                              />
                               <span className="truncate">{route.label}</span>
                             </span>
                             {!route.isActiveInCurrentPhase && (
-                              <span className="text-[11px] text-slate-400">
+                              <span className="relative z-10 text-[11px] text-slate-400">
                                 Fase {route.phase}
                               </span>
                             )}
