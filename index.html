@@ -6,7 +6,13 @@
       (function () {
         try {
           var t = localStorage.getItem("crochet-app-theme");
-          if (t === "pastel-claro" || t === "pastel-oscuro") {
+          if (
+            t === "clasico-oscuro" ||
+            t === "pastel-claro" ||
+            t === "pastel-oscuro" ||
+            t === "halloween-claro" ||
+            t === "halloween-oscuro"
+          ) {
             document.documentElement.setAttribute("data-theme", t);
           }
         } catch (e) {}

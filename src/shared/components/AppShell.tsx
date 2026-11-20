@@ -127,7 +127,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                         aria-current={isActive ? 'page' : undefined}
                         className={`relative flex w-full min-h-[40px] items-center justify-between gap-2 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                           isActive
-                            ? 'app-floral-nav-active bg-teal-700/10 font-semibold text-teal-800'
+                            ? 'app-theme-nav-active bg-teal-700/10 font-semibold text-teal-800'
                             : 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
@@ -194,7 +194,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </header>
 
         {/* Escenario principal 100% libre para vistas por pantalla */}
-        <main className="app-floral-screen relative min-h-0 w-full flex-1 overflow-hidden">
+        <main className="app-theme-screen relative min-h-0 w-full flex-1 overflow-hidden">
           {children}
         </main>
       </div>
@@ -314,7 +314,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                             aria-current={isActive ? 'page' : undefined}
                             className={`relative flex w-full min-h-[44px] items-center justify-between gap-2 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                               isActive
-                                ? 'app-floral-nav-active bg-teal-700/10 font-semibold text-teal-800'
+                                ? 'app-theme-nav-active bg-teal-700/10 font-semibold text-teal-800'
                                 : 'font-medium text-slate-700 hover:bg-slate-100'
                             }`}
                           >

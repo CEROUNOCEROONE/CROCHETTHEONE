@@ -4,9 +4,15 @@
  * Los colores de cada tema viven en src/styles/themes.css.
  */
 
-export type AppThemeId = 'clasico' | 'pastel-claro' | 'pastel-oscuro';
+export type AppThemeId =
+  | 'clasico'
+  | 'clasico-oscuro'
+  | 'pastel-claro'
+  | 'pastel-oscuro'
+  | 'halloween-claro'
+  | 'halloween-oscuro';
 
-export type AppThemeCategoryId = 'principal' | 'pastel-floral';
+export type AppThemeCategoryId = 'principal' | 'pastel-floral' | 'halloween';
 
 export type AppThemeTone = 'light' | 'dark';
 
@@ -22,7 +28,7 @@ export interface AppThemeDefinition {
   readonly id: AppThemeId;
   readonly categoryId: AppThemeCategoryId;
   readonly label: string;
-  /** Etiqueta corta dentro de su categoría (ej. "Clásico", "Claro", "Oscuro"). */
+  /** Etiqueta corta dentro de su categoría (ej. "Claro", "Oscuro"). */
   readonly variantLabel: string;
   readonly tone: AppThemeTone;
   readonly description: string;
@@ -35,8 +41,8 @@ export interface AppThemeDefinition {
 export const APP_THEME_CATEGORIES: readonly AppThemeCategory[] = [
   {
     id: 'principal',
-    label: 'Principal',
-    description: 'Estilo base original de App Crochet.',
+    label: 'Clásico',
+    description: 'Verde azulado original de la app, en versión clara y oscura.',
     isPrimary: true,
   },
   {
@@ -44,18 +50,33 @@ export const APP_THEME_CATEGORIES: readonly AppThemeCategory[] = [
     label: 'Pastel floral',
     description: 'Crema, malva empolvado y verde salvia.',
   },
+  {
+    id: 'halloween',
+    label: 'Halloween',
+    description: 'Naranja calabaza, azul medianoche, fantasmas gatitos y calabazas.',
+  },
 ] as const;
 
 export const APP_THEMES: readonly AppThemeDefinition[] = [
   {
     id: 'clasico',
     categoryId: 'principal',
-    label: 'Clásico',
-    variantLabel: 'Clásico',
+    label: 'Clásico claro',
+    variantLabel: 'Claro',
     tone: 'light',
-    description: 'Verde azulado original de la app.',
+    description: 'Verde azulado original de la app sobre fondo claro.',
     themeColor: '#0F766E',
     swatches: ['#F8FAFC', '#0F766E', '#B91C1C'],
+  },
+  {
+    id: 'clasico-oscuro',
+    categoryId: 'principal',
+    label: 'Clásico oscuro',
+    variantLabel: 'Oscuro',
+    tone: 'dark',
+    description: 'Verde azulado clásico sobre fondo oscuro pizarra, para usar de noche.',
+    themeColor: '#0F172A',
+    swatches: ['#0F172A', '#2DD4BF', '#DC2626'],
   },
   {
     id: 'pastel-claro',
@@ -76,6 +97,26 @@ export const APP_THEMES: readonly AppThemeDefinition[] = [
     description: 'La misma familia pastel sobre fondo oscuro, para usar de noche.',
     themeColor: '#1E1A1C',
     swatches: ['#1E1A1C', '#EBB0C8', '#B01D33'],
+  },
+  {
+    id: 'halloween-claro',
+    categoryId: 'halloween',
+    label: 'Halloween claro',
+    variantLabel: 'Claro',
+    tone: 'light',
+    description: 'Naranja cálido, violeta eléctrico y fantasmas gatitos por toda la pantalla.',
+    themeColor: '#F58B16',
+    swatches: ['#FFA63E', '#5316F5', '#DC2626'],
+  },
+  {
+    id: 'halloween-oscuro',
+    categoryId: 'halloween',
+    label: 'Halloween oscuro',
+    variantLabel: 'Oscuro',
+    tone: 'dark',
+    description: 'Azul medianoche, naranja calabaza, destellos verdes y fantasmas con calabazas.',
+    themeColor: '#080E24',
+    swatches: ['#080E24', '#FF6B24', '#22E57A'],
   },
 ] as const;
 

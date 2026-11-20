@@ -61,7 +61,9 @@ export default defineConfig(() => {
           globIgnores: ['**/assets/aistudio/**', '**/*.map'],
         },
         devOptions: {
-          enabled: process.env.DISABLE_HMR !== 'true',
+          // Evita que registerDevSW llame a import.meta.hot.send antes de conectar en dev/proxy (SendBeforeConnectError en Vite 8).
+          // En producción (vite build) el Service Worker completo sigue compilándose y registrándose con normalidad.
+          enabled: process.env.ENABLE_DEV_SW === 'true',
           type: 'module',
         },
       }),

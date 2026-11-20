@@ -149,7 +149,7 @@ export const AppearanceSettingsCard: React.FC = () => {
               key={category.id}
               className={`rounded-xl border p-2.5 transition-colors ${
                 hasVariants
-                  ? 'flex-1 sm:min-w-[270px]'
+                  ? 'flex-1 sm:min-w-[245px]'
                   : 'sm:w-auto sm:min-w-[195px]'
               } ${
                 isCategorySelected
@@ -163,7 +163,9 @@ export const AppearanceSettingsCard: React.FC = () => {
                 </span>
                 <span className="text-[11px] text-slate-500">
                   {category.isPrimary
-                    ? 'Predeterminado'
+                    ? hasVariants
+                      ? 'Principal · Claro / Oscuro'
+                      : 'Predeterminado'
                     : hasVariants
                       ? 'Claro / Oscuro'
                       : null}
