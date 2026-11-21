@@ -10,9 +10,11 @@ export type AppThemeId =
   | 'pastel-claro'
   | 'pastel-oscuro'
   | 'halloween-claro'
-  | 'halloween-oscuro';
+  | 'halloween-oscuro'
+  | 'navidad-claro'
+  | 'navidad-oscuro';
 
-export type AppThemeCategoryId = 'principal' | 'pastel-floral' | 'halloween';
+export type AppThemeCategoryId = 'principal' | 'pastel-floral' | 'halloween' | 'navidad';
 
 export type AppThemeTone = 'light' | 'dark';
 
@@ -54,6 +56,11 @@ export const APP_THEME_CATEGORIES: readonly AppThemeCategory[] = [
     id: 'halloween',
     label: 'Halloween',
     description: 'Naranja calabaza, azul medianoche, fantasmas gatitos y calabazas.',
+  },
+  {
+    id: 'navidad',
+    label: 'Navidad',
+    description: 'Crema con trazos navideños y versión oscura cálida con figuras festivas.',
   },
 ] as const;
 
@@ -117,6 +124,26 @@ export const APP_THEMES: readonly AppThemeDefinition[] = [
     description: 'Azul medianoche, naranja calabaza, destellos verdes y fantasmas con calabazas.',
     themeColor: '#080E24',
     swatches: ['#080E24', '#FF6B24', '#22E57A'],
+  },
+  {
+    id: 'navidad-claro',
+    categoryId: 'navidad',
+    label: 'Navidad claro',
+    variantLabel: 'Claro',
+    tone: 'light',
+    description: 'Crema festiva con trazos rojos navideños y guirnalda de bombillas.',
+    themeColor: '#1F5E43',
+    swatches: ['#FAF3E8', '#1F5E43', '#B51C22'],
+  },
+  {
+    id: 'navidad-oscuro',
+    categoryId: 'navidad',
+    label: 'Navidad oscuro',
+    variantLabel: 'Oscuro',
+    tone: 'dark',
+    description: 'Fondo cacao nocturno con tapiz de figuras navideñas, verde hoja y acentos rosa cálido.',
+    themeColor: '#171112',
+    swatches: ['#171112', '#4E9A59', '#F2A7B3'],
   },
 ] as const;
 

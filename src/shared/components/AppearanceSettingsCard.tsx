@@ -137,7 +137,9 @@ export const AppearanceSettingsCard: React.FC = () => {
       <div
         role="radiogroup"
         aria-labelledby="appearance-settings-title"
-        className="mt-3 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap"
+        className={`mt-3 grid gap-2.5 ${
+          visibleCategories.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:max-w-md'
+        }`}
       >
         {visibleCategories.map((category) => {
           const themes = getThemesByCategory(category.id);
@@ -148,10 +150,6 @@ export const AppearanceSettingsCard: React.FC = () => {
             <div
               key={category.id}
               className={`rounded-xl border p-2.5 transition-colors ${
-                hasVariants
-                  ? 'flex-1 sm:min-w-[245px]'
-                  : 'sm:w-auto sm:min-w-[195px]'
-              } ${
                 isCategorySelected
                   ? 'border-teal-200 bg-slate-50'
                   : 'border-slate-200 bg-slate-50/70'
