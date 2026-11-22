@@ -2609,7 +2609,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
+                    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
                       {(
                         [
                           { id: 'all', label: 'Todas' },
@@ -2622,11 +2622,12 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                         <button
                           key={tab.id}
                           type="button"
+                          aria-pressed={historyStatusFilter === tab.id}
                           onClick={() => setHistoryStatusFilter(tab.id)}
                           className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
                             historyStatusFilter === tab.id
-                              ? 'bg-white text-slate-900 shadow-sm'
-                              : 'text-slate-600 hover:text-slate-900'
+                              ? 'bg-teal-700 text-white shadow-xs'
+                              : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                           }`}
                         >
                           {tab.label}
@@ -2681,7 +2682,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                           />
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
+                        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
                           {(
                             [
                               { id: 'all', label: 'Todas' },
@@ -2694,11 +2695,12 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                             <button
                               key={tab.id}
                               type="button"
+                              aria-pressed={historyStatusFilter === tab.id}
                               onClick={() => setHistoryStatusFilter(tab.id)}
                               className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap ${
                                 historyStatusFilter === tab.id
-                                  ? 'bg-white text-slate-900 shadow-sm'
-                                  : 'text-slate-600 hover:text-slate-900'
+                                  ? 'bg-teal-700 text-white shadow-xs'
+                                  : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                               }`}
                             >
                               {tab.label}

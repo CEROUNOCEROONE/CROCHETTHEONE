@@ -51,10 +51,10 @@ import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -199,25 +199,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   }, [clients, editingProject]);
 
   const hasOpenModal = Boolean(projectModalOpen || compModalOpen);
-
-  useEscapeKey(
-    hasOpenModal &&
-      !projectSaving &&
-      !compSaving &&
-      !deletingProject &&
-      !deletingComponent &&
-      !projectToDelete &&
-      !componentToDelete &&
-      !projectQuotaGateOpen,
-    () => {
-      setFeedback(null);
-      if (compModalOpen) {
-        setCompModalOpen(false);
-      } else if (projectModalOpen) {
-        setProjectModalOpen(false);
-      }
-    },
-  );
 
   const openCreateProjectModal = () => {
     const quota = canCreateOrActivateRealProject(effectiveTier, projects, {
@@ -1208,7 +1189,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     />
                   </div>
 
-                  <div className="grid w-full grid-cols-6 gap-1 rounded-lg bg-slate-100 p-1 sm:flex sm:w-fit sm:flex-nowrap sm:items-center">
+                  <div className="grid w-full grid-cols-6 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:flex sm:w-fit sm:flex-nowrap sm:items-center">
                     {(
                       [
                         { id: 'all', label: 'Todos' },
@@ -1221,6 +1202,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <button
                         key={tab.id}
                         type="button"
+                        aria-pressed={statusFilter === tab.id}
                         onClick={() => setStatusFilter(tab.id)}
                         className={`inline-flex min-h-[34px] items-center justify-center rounded-md px-2 py-1 text-center text-xs font-medium transition-colors whitespace-nowrap sm:px-3 sm:shrink-0 ${
                           index === 3
@@ -1230,8 +1212,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               : 'col-span-2'
                         } ${
                           statusFilter === tab.id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-teal-700 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                         }`}
                       >
                         {tab.label}
@@ -1282,38 +1264,42 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       )}
 
       {/* MODAL CREAR / EDITAR PROYECTO */}
-      {projectModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="project-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3
-                  id="project-modal-title"
-                  className="font-display text-lg font-semibold text-slate-900"
-                >
-                  {editingProject ? 'Editar proyecto' : 'Nuevo proyecto de crochet'}
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Registra los datos generales, metas de tiempo y estado del encargo.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setProjectModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar formulario"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={projectModalOpen && !projectQuotaGateOpen}
+        isBusy={projectSaving}
+        mobileAlign="bottom"
+        panelClassName="max-w-2xl p-6"
+        ariaLabelledBy="project-modal-title"
+        onClose={() => {
+          setProjectModalOpen(false);
+          setFeedback(null);
+        }}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3
+              id="project-modal-title"
+              className="font-display text-lg font-semibold text-slate-900"
+            >
+              {editingProject ? 'Editar proyecto' : 'Nuevo proyecto de crochet'}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Registra los datos generales, metas de tiempo y estado del encargo.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={projectSaving}
+            onClick={() => {
+              setProjectModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar formulario"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSaveProject(e)}
@@ -1641,19 +1627,22 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL CREAR / EDITAR COMPONENTE */}
-      {compModalOpen && selectedProject && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="comp-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(compModalOpen && selectedProject)}
+        isBusy={compSaving}
+        mobileAlign="bottom"
+        panelClassName="max-w-md p-6"
+        ariaLabelledBy="comp-modal-title"
+        onClose={() => {
+          setCompModalOpen(false);
+          setFeedback(null);
+        }}
+      >
+        {selectedProject && (
+          <>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3
@@ -1668,11 +1657,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </div>
               <button
                 type="button"
+                disabled={compSaving}
                 onClick={() => {
                   setCompModalOpen(false);
                   setFeedback(null);
                 }}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                 aria-label="Cerrar"
               >
                 <X className="h-5 w-5" />
@@ -1804,9 +1794,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* Confirmación de eliminación de proyecto */}
       <ConfirmModal

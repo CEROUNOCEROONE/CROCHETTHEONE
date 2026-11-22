@@ -59,6 +59,7 @@ import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -66,7 +67,6 @@ import {
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -193,28 +193,6 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const hasOpenModal = Boolean(
     clientModalOpen || planModalOpen || payModalOpen || statementText !== null,
-  );
-
-  useEscapeKey(
-    hasOpenModal && !busy && !clientToDelete && !planToDelete && !statementGateOpen,
-    () => {
-      setFeedback(null);
-      if (statementText !== null) {
-        setStatementText(null);
-        return;
-      }
-      if (payModalOpen) {
-        setPayModalOpen(false);
-        return;
-      }
-      if (planModalOpen) {
-        setPlanModalOpen(false);
-        return;
-      }
-      if (clientModalOpen) {
-        setClientModalOpen(false);
-      }
-    },
   );
 
   const clientById = useMemo(
@@ -1733,7 +1711,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                   />
                 </div>
 
-                <div className="grid w-full grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
+                <div className="grid w-full grid-cols-4 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
                   {(
                     [
                       { id: 'all', label: 'Todos' },
@@ -1745,11 +1723,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     <button
                       key={item.id}
                       type="button"
+                      aria-pressed={clientFilter === item.id}
                       onClick={() => setClientFilter(item.id)}
                       className={`inline-flex min-h-[32px] items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
                         clientFilter === item.id
-                          ? 'bg-white text-slate-900 shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-teal-700 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                       }`}
                     >
                       {item.label}
@@ -1834,7 +1813,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                       className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-teal-700 focus:outline-none"
                     />
                   </div>
-                  <div className="grid w-full grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
+                  <div className="grid w-full grid-cols-4 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
                     {(
                       [
                         { id: 'all', label: 'Todos' },
@@ -1846,11 +1825,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                       <button
                         key={item.id}
                         type="button"
+                        aria-pressed={planFilter === item.id}
                         onClick={() => setPlanFilter(item.id)}
                         className={`inline-flex min-h-[32px] items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
                           planFilter === item.id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-teal-700 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                         }`}
                       >
                         {item.label}
@@ -1915,7 +1895,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                             className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-teal-700 focus:outline-none"
                           />
                         </div>
-                        <div className="grid w-full grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
+                        <div className="grid w-full grid-cols-4 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:items-center">
                           {(
                             [
                               { id: 'all', label: 'Todos' },
@@ -1927,11 +1907,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                             <button
                               key={item.id}
                               type="button"
+                              aria-pressed={planFilter === item.id}
                               onClick={() => setPlanFilter(item.id)}
                               className={`inline-flex min-h-[32px] items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap sm:px-3 ${
                                 planFilter === item.id
-                                  ? 'bg-white text-slate-900 shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
+                                  ? 'bg-teal-700 text-white shadow-xs'
+                                  : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                               }`}
                             >
                               {item.label}
@@ -2131,36 +2112,38 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
       </SnapDeck>
 
       {/* =================== MODAL CLIENTE (CREAR / EDITAR) =================== */}
-      {clientModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="client-modal-title"
-        >
-          <form
-            onSubmit={handleSubmitClient}
-            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2
-                id="client-modal-title"
-                className="font-display text-lg font-bold text-slate-900"
-              >
-                {editingClient ? 'Editar cliente' : 'Registrar nuevo cliente'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setFeedback(null);
-                  setClientModalOpen(false);
-                }}
-                aria-label="Cerrar modal de cliente"
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={clientModalOpen}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-lg p-5 sm:p-6"
+        ariaLabelledBy="client-modal-title"
+        onClose={() => {
+          setFeedback(null);
+          setClientModalOpen(false);
+        }}
+      >
+        <form onSubmit={handleSubmitClient}>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2
+              id="client-modal-title"
+              className="font-display text-lg font-bold text-slate-900"
+            >
+              {editingClient ? 'Editar cliente' : 'Registrar nuevo cliente'}
+            </h2>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setFeedback(null);
+                setClientModalOpen(false);
+              }}
+              aria-label="Cerrar modal de cliente"
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
             <div className="mt-4 space-y-3.5">
               <InlineFeedbackAlert
@@ -2258,11 +2241,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setFeedback(null);
                   setClientModalOpen(false);
                 }}
-                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -2278,43 +2262,47 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     : 'Registrar cliente'}
               </button>
             </div>
-          </form>
-        </div>
-      )}
+        </form>
+      </ModalDialog>
 
       {/* =================== MODAL PLAN DE PAGOS (CREAR / EDITAR) =================== */}
-      {planModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3 sm:p-4 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="plan-modal-title"
+      <ModalDialog
+        isOpen={planModalOpen}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-2xl p-0"
+        ariaLabelledBy="plan-modal-title"
+        onClose={() => {
+          setFeedback(null);
+          setPlanModalOpen(false);
+        }}
+      >
+        <form
+          onSubmit={handleSubmitPlan}
+          className="flex max-h-[calc(90dvh-2px)] flex-col"
         >
-          <form
-            onSubmit={handleSubmitPlan}
-            className="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2
-                id="plan-modal-title"
-                className="font-display text-lg font-bold text-slate-900"
-              >
-                {editingPlan
-                  ? 'Editar plan de pagos y cuotas'
-                  : 'Crear plan de pagos'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setFeedback(null);
-                  setPlanModalOpen(false);
-                }}
-                aria-label="Cerrar modal de plan"
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+            <h2
+              id="plan-modal-title"
+              className="font-display text-lg font-bold text-slate-900"
+            >
+              {editingPlan
+                ? 'Editar plan de pagos y cuotas'
+                : 'Crear plan de pagos'}
+            </h2>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setFeedback(null);
+                setPlanModalOpen(false);
+              }}
+              aria-label="Cerrar modal de plan"
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
               <InlineFeedbackAlert
@@ -2745,11 +2733,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3.5">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setFeedback(null);
                   setPlanModalOpen(false);
                 }}
-                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -2765,22 +2754,23 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                     : 'Crear plan de pagos'}
               </button>
             </div>
-          </form>
-        </div>
-      )}
+        </form>
+      </ModalDialog>
 
       {/* =================== MODAL REGISTRAR ABONO INMUTABLE =================== */}
-      {payModalOpen && selectedPlanForPay && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pay-modal-title"
-        >
-          <form
-            onSubmit={handleSubmitPayment}
-            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6"
-          >
+      <ModalDialog
+        isOpen={Boolean(payModalOpen && selectedPlanForPay)}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-lg p-5 sm:p-6"
+        ariaLabelledBy="pay-modal-title"
+        onClose={() => {
+          setFeedback(null);
+          setPayModalOpen(false);
+        }}
+      >
+        {selectedPlanForPay && (
+          <form onSubmit={handleSubmitPayment}>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h2
@@ -2796,12 +2786,13 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setFeedback(null);
                   setPayModalOpen(false);
                 }}
                 aria-label="Cerrar modal de abono"
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -3002,11 +2993,12 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setFeedback(null);
                   setPayModalOpen(false);
                 }}
-                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="min-h-[42px] rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -3019,18 +3011,19 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
               </button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </ModalDialog>
 
       {/* =================== MODAL ESTADO DE CUENTA =================== */}
-      {statementText !== null && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="statement-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+      <ModalDialog
+        isOpen={statementText !== null}
+        mobileAlign="center"
+        panelClassName="max-w-lg p-5 sm:p-6"
+        ariaLabelledBy="statement-modal-title"
+        onClose={() => setStatementText(null)}
+      >
+        {statementText !== null && (
+          <>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2
                 id="statement-modal-title"
@@ -3082,9 +3075,9 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                 )}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* =================== CONFIRMACIONES DE BORRADO =================== */}
       <ConfirmModal

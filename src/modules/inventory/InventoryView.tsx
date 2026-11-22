@@ -67,9 +67,9 @@ import {
 import { canCreateMaterialReservation } from '@/src/domain/services/planCapabilities.ts';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -223,35 +223,6 @@ export const InventoryView: React.FC = () => {
       directConsumeVariant ||
       consumeResModal ||
       modifyResModal,
-  );
-
-  const closeActiveFormModal = () => {
-    setFeedback(null);
-    if (modifyResModal) {
-      setModifyResModal(null);
-    } else if (consumeResModal) {
-      setConsumeResModal(null);
-    } else if (directConsumeVariant) {
-      setDirectConsumeVariant(null);
-    } else if (reserveModalOpen) {
-      setReserveModalOpen(false);
-    } else if (adjustStockVariant) {
-      setAdjustStockVariant(null);
-    } else if (variantModalOpen) {
-      setVariantModalOpen(false);
-    } else if (materialModalOpen) {
-      setMaterialModalOpen(false);
-    }
-  };
-
-  useEscapeKey(
-    hasOpenFormModal &&
-      !busy &&
-      !reserveGateOpen &&
-      !reservationToRelease &&
-      !variantToDelete &&
-      !materialToDelete,
-    closeActiveFormModal,
   );
 
   const materialMap = useMemo(
@@ -1934,25 +1905,27 @@ export const InventoryView: React.FC = () => {
               <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+                    <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
                       <button
                         type="button"
+                        aria-pressed={reservationStatusFilter === 'active'}
                         onClick={() => setReservationStatusFilter('active')}
-                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium transition-colors ${
                           reservationStatusFilter === 'active'
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600'
+                            ? 'bg-teal-700 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                         }`}
                       >
                         Activas
                       </button>
                       <button
                         type="button"
+                        aria-pressed={reservationStatusFilter === 'all'}
                         onClick={() => setReservationStatusFilter('all')}
-                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                        className={`min-h-[34px] rounded-md px-3 text-xs font-medium transition-colors ${
                           reservationStatusFilter === 'all'
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600'
+                            ? 'bg-teal-700 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                         }`}
                       >
                         Todas
@@ -2018,25 +1991,27 @@ export const InventoryView: React.FC = () => {
                   <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+                        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
                           <button
                             type="button"
+                            aria-pressed={reservationStatusFilter === 'active'}
                             onClick={() => setReservationStatusFilter('active')}
-                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium transition-colors ${
                               reservationStatusFilter === 'active'
-                                ? 'bg-white text-slate-900 shadow-xs'
-                                : 'text-slate-600'
+                                ? 'bg-teal-700 text-white shadow-xs'
+                                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                             }`}
                           >
                             Activas
                           </button>
                           <button
                             type="button"
+                            aria-pressed={reservationStatusFilter === 'all'}
                             onClick={() => setReservationStatusFilter('all')}
-                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium ${
+                            className={`min-h-[34px] rounded-md px-3 text-xs font-medium transition-colors ${
                               reservationStatusFilter === 'all'
-                                ? 'bg-white text-slate-900 shadow-xs'
-                                : 'text-slate-600'
+                                ? 'bg-teal-700 text-white shadow-xs'
+                                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                             }`}
                           >
                             Todas
@@ -2337,42 +2312,46 @@ export const InventoryView: React.FC = () => {
       </SnapDeck>
 
       {/* MODAL CREAR / EDITAR MATERIAL (+ PRIMER COLOR) */}
-      {materialModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="material-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3
-                  id="material-modal-title"
-                  className="font-display text-lg font-semibold text-slate-900"
-                >
-                  {editingMaterial
-                    ? 'Editar material'
-                    : 'Nuevo material y primer color'}
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {editingMaterial
-                    ? 'Actualiza los datos base del material.'
-                    : 'Cada hilo, lana o insumo se controla por color independiente.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setMaterialModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar formulario"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={materialModalOpen}
+        onClose={() => {
+          setMaterialModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="material-modal-title"
+        panelClassName="max-w-xl p-6"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3
+              id="material-modal-title"
+              className="font-display text-lg font-semibold text-slate-900"
+            >
+              {editingMaterial
+                ? 'Editar material'
+                : 'Nuevo material y primer color'}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {editingMaterial
+                ? 'Actualiza los datos base del material.'
+                : 'Cada hilo, lana o insumo se controla por color independiente.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setMaterialModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar formulario"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSaveMaterial(e)}
@@ -2951,11 +2930,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setMaterialModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -2976,19 +2956,22 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL AGREGAR / EDITAR VARIANTE DE COLOR */}
-      {variantModalOpen && variantParentMaterial && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="variant-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(variantModalOpen && variantParentMaterial)}
+        onClose={() => {
+          setVariantModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="variant-modal-title"
+        panelClassName="max-w-lg p-6"
+      >
+        {variantParentMaterial && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -3007,11 +2990,12 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setVariantModalOpen(false);
                   setFeedback(null);
                 }}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                 aria-label="Cerrar formulario"
               >
                 <X className="h-5 w-5" />
@@ -3347,11 +3331,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setVariantModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3368,19 +3353,24 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* MODAL AJUSTE MANUAL DE STOCK */}
-      {adjustStockVariant && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="adjust-stock-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(adjustStockVariant)}
+        onClose={() => {
+          setAdjustStockVariant(null);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="adjust-stock-title"
+        panelClassName="max-w-md p-6"
+      >
+        {adjustStockVariant && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -3401,12 +3391,13 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setAdjustStockVariant(null);
                   setFeedback(null);
                 }}
                 aria-label="Cerrar ajuste de stock"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3488,11 +3479,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setAdjustStockVariant(null);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3505,44 +3497,48 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* MODAL RESERVAR MATERIAL PARA PROYECTO */}
-      {reserveModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reserve-modal-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3
-                  id="reserve-modal-title"
-                  className="font-display text-lg font-semibold text-slate-900"
-                >
-                  Reservar material para proyecto
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Aparta stock disponible sin descontar aún del físico hasta que
-                  se consuma en el tejido.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setReserveModalOpen(false);
-                  setFeedback(null);
-                }}
-                aria-label="Cerrar reserva de material"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={reserveModalOpen}
+        onClose={() => {
+          setReserveModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="reserve-modal-title"
+        panelClassName="max-w-md p-6"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3
+              id="reserve-modal-title"
+              className="font-display text-lg font-semibold text-slate-900"
+            >
+              Reservar material para proyecto
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Aparta stock disponible sin descontar aún del físico hasta que
+              se consuma en el tejido.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setReserveModalOpen(false);
+              setFeedback(null);
+            }}
+            aria-label="Cerrar reserva de material"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleConfirmReserve(e)}
@@ -3668,11 +3664,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setReserveModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3685,19 +3682,22 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL CONSUMO DIRECTO SIN RESERVA */}
-      {directConsumeVariant && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="direct-consume-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(directConsumeVariant)}
+        onClose={() => {
+          setDirectConsumeVariant(null);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="direct-consume-title"
+        panelClassName="max-w-md p-6"
+      >
+        {directConsumeVariant && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -3714,12 +3714,13 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setDirectConsumeVariant(null);
                   setFeedback(null);
                 }}
                 aria-label="Cerrar consumo directo"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3796,11 +3797,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setDirectConsumeVariant(null);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3813,19 +3815,24 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* MODAL CONSUMIR DESDE RESERVA */}
-      {consumeResModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="consume-res-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(consumeResModal)}
+        onClose={() => {
+          setConsumeResModal(null);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="consume-res-title"
+        panelClassName="max-w-md p-6"
+      >
+        {consumeResModal && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -3841,12 +3848,13 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setConsumeResModal(null);
                   setFeedback(null);
                 }}
                 aria-label="Cerrar consumo de reserva"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3899,11 +3907,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setConsumeResModal(null);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3916,19 +3925,24 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* MODAL MODIFICAR RESERVA */}
-      {modifyResModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modify-res-title"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(modifyResModal)}
+        onClose={() => {
+          setModifyResModal(null);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="modify-res-title"
+        panelClassName="max-w-md p-6"
+      >
+        {modifyResModal && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -3944,12 +3958,13 @@ export const InventoryView: React.FC = () => {
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setModifyResModal(null);
                   setFeedback(null);
                 }}
                 aria-label="Cerrar ajuste de reserva"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3999,11 +4014,12 @@ export const InventoryView: React.FC = () => {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setModifyResModal(null);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -4016,9 +4032,9 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* CONFIRMACIONES */}
       <ConfirmModal

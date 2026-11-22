@@ -96,7 +96,7 @@ export const AppearanceSettingsCard: React.FC = () => {
         <div
           role="tablist"
           aria-label="Categorías de temas"
-          className="no-scrollbar inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+          className="no-scrollbar inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-1"
         >
           <button
             type="button"
@@ -105,8 +105,8 @@ export const AppearanceSettingsCard: React.FC = () => {
             onClick={() => setActiveCategory('all')}
             className={`min-h-[32px] shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
               activeCategory === 'all'
-                ? 'bg-white text-slate-900 shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-teal-700 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
             }`}
           >
             Todas
@@ -122,8 +122,8 @@ export const AppearanceSettingsCard: React.FC = () => {
                 onClick={() => setActiveCategory(category.id)}
                 className={`min-h-[32px] shrink-0 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors ${
                   isTabActive
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-teal-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                 }`}
               >
                 {category.label}

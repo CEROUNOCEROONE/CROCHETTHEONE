@@ -55,6 +55,7 @@ import {
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import {
   SnapDeck,
   SnapSlide,
@@ -62,7 +63,6 @@ import {
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -226,26 +226,6 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       noteModalOpen ||
       itemModalOpen ||
       receiptModalOpen,
-  );
-
-  const closeActiveFormModal = () => {
-    setFeedback(null);
-    if (receiptModalOpen) {
-      setReceiptModalOpen(false);
-    } else if (itemModalOpen) {
-      setItemModalOpen(false);
-    } else if (noteModalOpen) {
-      setNoteModalOpen(false);
-    } else if (sendToListPending) {
-      setSendToListPending(null);
-    } else if (pendingModalOpen) {
-      setPendingModalOpen(false);
-    }
-  };
-
-  useEscapeKey(
-    hasOpenFormModal && !busy && !pendingToDelete && !noteToDelete && !itemToDelete,
-    closeActiveFormModal,
   );
 
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -2253,29 +2233,37 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       </SnapDeck>
 
       {/* MODAL 1: CREAR / EDITAR MATERIAL PENDIENTE */}
-      {pendingModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-display text-lg font-semibold text-slate-900">
-                {editingPending ? 'Editar material pendiente' : 'Registrar material pendiente'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={pendingModalOpen}
+        onClose={() => {
+          setPendingModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="pending-material-modal-title"
+        panelClassName="max-w-lg p-5 sm:p-6"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2
+            id="pending-material-modal-title"
+            className="font-display text-lg font-semibold text-slate-900"
+          >
+            {editingPending ? 'Editar material pendiente' : 'Registrar material pendiente'}
+          </h2>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setPendingModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSavePendingMaterial(e)}
@@ -2554,11 +2542,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setPendingModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -2571,29 +2560,37 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL 2: ENVIAR PENDIENTE A LISTA DE COMPRAS */}
-      {sendToListPending && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+      <ModalDialog
+        isOpen={Boolean(sendToListPending)}
+        onClose={() => {
+          setSendToListPending(null);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="send-to-list-modal-title"
+        panelClassName="max-w-md p-5 sm:p-6"
+      >
+        {sendToListPending && (
+          <>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-display text-lg font-semibold text-slate-900">
+              <h2
+                id="send-to-list-modal-title"
+                className="font-display text-lg font-semibold text-slate-900"
+              >
                 Enviar a lista de compras
               </h2>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setSendToListPending(null);
                   setFeedback(null);
                 }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                 aria-label="Cerrar"
               >
                 <X className="h-5 w-5" />
@@ -2647,11 +2644,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setSendToListPending(null);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -2664,40 +2662,48 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* MODAL 3: CREAR / EDITAR LISTA DE COMPRAS O NOTA / IDEA */}
-      {noteModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-display text-lg font-semibold text-slate-900">
-                {editingNote
-                  ? editingNote.type === 'shopping_list'
-                    ? 'Editar lista de compras'
-                    : 'Editar nota'
-                  : noteType === 'shopping_list'
-                    ? 'Nueva lista de compras'
-                    : 'Nueva nota o idea'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setNoteModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={noteModalOpen}
+        onClose={() => {
+          setNoteModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="note-or-list-modal-title"
+        panelClassName="max-w-lg p-5 sm:p-6"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2
+            id="note-or-list-modal-title"
+            className="font-display text-lg font-semibold text-slate-900"
+          >
+            {editingNote
+              ? editingNote.type === 'shopping_list'
+                ? 'Editar lista de compras'
+                : 'Editar nota'
+              : noteType === 'shopping_list'
+                ? 'Nueva lista de compras'
+                : 'Nueva nota o idea'}
+          </h2>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setNoteModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSaveNoteOrList(e)}
@@ -2780,11 +2786,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setNoteModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -2797,34 +2804,40 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL 4: AGREGAR / EDITAR ÍTEM DE LISTA DE COMPRAS */}
-      {itemModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="font-display text-lg font-semibold text-slate-900">
-                {editingItem ? 'Editar ítem de compra' : 'Agregar ítem a lista'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setItemModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={itemModalOpen}
+        onClose={() => {
+          setItemModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="shopping-item-modal-title"
+        panelClassName="max-w-lg p-5 sm:p-6"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2
+            id="shopping-item-modal-title"
+            className="font-display text-lg font-semibold text-slate-900"
+          >
+            {editingItem ? 'Editar ítem de compra' : 'Agregar ítem a lista'}
+          </h2>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setItemModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSaveShoppingItem(e)}
@@ -3029,11 +3042,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setItemModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3046,39 +3060,45 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL 5: RECEPCIÓN DE COMPRA (PARCIAL O TOTAL -> SUMA A INVENTARIO + KARDEX) */}
-      {receiptModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-slate-900">
-                  Registrar recepción en inventario
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Puedes recibir cantidades parciales o totales. Se sumará automáticamente al stock físico y quedará en el Kardex.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setReceiptModalOpen(false);
-                  setFeedback(null);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={receiptModalOpen}
+        onClose={() => {
+          setReceiptModalOpen(false);
+          setFeedback(null);
+        }}
+        isBusy={busy}
+        mobileAlign="bottom"
+        ariaLabelledBy="purchase-receipt-modal-title"
+        panelClassName="max-w-2xl p-5 sm:p-6"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div>
+            <h2
+              id="purchase-receipt-modal-title"
+              className="font-display text-lg font-semibold text-slate-900"
+            >
+              Registrar recepción en inventario
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Puedes recibir cantidades parciales o totales. Se sumará automáticamente al stock físico y quedará en el Kardex.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setReceiptModalOpen(false);
+              setFeedback(null);
+            }}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleConfirmReceipt(e)}
@@ -3334,11 +3354,12 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => {
                     setReceiptModalOpen(false);
                     setFeedback(null);
                   }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -3351,9 +3372,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODALES DE CONFIRMACIÓN DE ELIMINACIÓN */}
       <ConfirmModal

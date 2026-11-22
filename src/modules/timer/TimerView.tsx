@@ -25,6 +25,7 @@ import {
 import { ConfirmModal } from '@/src/shared/components/ConfirmModal.tsx';
 import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import { SnapDeck, SnapSlide } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { useLiveNowMs } from '@/src/shared/hooks/useLiveNowMs.ts';
@@ -1063,25 +1064,27 @@ export const TimerView: React.FC<TimerViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
+                <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 self-start sm:self-auto">
                   <button
                     type="button"
+                    aria-pressed={historyFilterMode === 'all'}
                     onClick={() => setHistoryFilterMode('all')}
                     className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                       historyFilterMode === 'all'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-teal-700 text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                     }`}
                   >
                     Todo el taller
                   </button>
                   <button
                     type="button"
+                    aria-pressed={historyFilterMode === 'project'}
                     onClick={() => setHistoryFilterMode('project')}
                     className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                       historyFilterMode === 'project'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-teal-700 text-white shadow-xs'
+                        : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                     }`}
                   >
                     Solo proyecto actual
@@ -1122,25 +1125,27 @@ export const TimerView: React.FC<TimerViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
+                  <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 self-start sm:self-auto">
                     <button
                       type="button"
+                      aria-pressed={historyFilterMode === 'all'}
                       onClick={() => setHistoryFilterMode('all')}
                       className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                         historyFilterMode === 'all'
-                          ? 'bg-white text-slate-900 shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-teal-700 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                       }`}
                     >
                       Todo el taller
                     </button>
                     <button
                       type="button"
+                      aria-pressed={historyFilterMode === 'project'}
                       onClick={() => setHistoryFilterMode('project')}
                       className={`min-h-[34px] rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                         historyFilterMode === 'project'
-                          ? 'bg-white text-slate-900 shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-teal-700 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                       }`}
                     >
                       Solo proyecto actual
@@ -1223,36 +1228,39 @@ export const TimerView: React.FC<TimerViewProps> = ({
       </SnapDeck>
 
       {/* MODAL REGISTRO MANUAL */}
-      {manualModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="manual-timer-modal-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3
-                  id="manual-timer-modal-title"
-                  className="font-display text-lg font-semibold text-slate-900"
-                >
-                  Registrar tiempo manual
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Útil si tejiste sin el teléfono cerca y quieres mantener
-                  cuadrado el avance real.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setManualModalOpen(false)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
-                aria-label="Cerrar formulario"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <ModalDialog
+        isOpen={manualModalOpen}
+        isBusy={busy}
+        onClose={() => {
+          if (!busy) setManualModalOpen(false);
+        }}
+        ariaLabelledBy="manual-timer-modal-title"
+        mobileAlign="bottom"
+        panelClassName="max-w-md p-6"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3
+              id="manual-timer-modal-title"
+              className="font-display text-lg font-semibold text-slate-900"
+            >
+              Registrar tiempo manual
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Útil si tejiste sin el teléfono cerca y quieres mantener cuadrado el
+              avance real.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setManualModalOpen(false)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            aria-label="Cerrar formulario"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
 
             <form
               onSubmit={(e) => void handleSaveManualSession(e)}
@@ -1368,8 +1376,9 @@ export const TimerView: React.FC<TimerViewProps> = ({
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => setManualModalOpen(false)}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -1382,19 +1391,21 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </ModalDialog>
 
       {/* MODAL AJUSTE DE TIEMPO AUDITABLE */}
-      {adjustModalState && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="adjust-timer-modal-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+      <ModalDialog
+        isOpen={Boolean(adjustModalState)}
+        isBusy={busy}
+        onClose={() => {
+          if (!busy) setAdjustModalState(null);
+        }}
+        ariaLabelledBy="adjust-timer-modal-title"
+        mobileAlign="bottom"
+        panelClassName="max-w-md p-6"
+      >
+        {adjustModalState && (
+          <>
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h3
@@ -1417,11 +1428,12 @@ export const TimerView: React.FC<TimerViewProps> = ({
               </div>
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => setAdjustModalState(null)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                 aria-label="Cerrar ajuste"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -1479,8 +1491,9 @@ export const TimerView: React.FC<TimerViewProps> = ({
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={() => setAdjustModalState(null)}
-                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -1493,9 +1506,9 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
       {/* Modal confirmar finalización disparada desde notificación externa */}
       <ConfirmModal
         isOpen={Boolean(finishConfirmSession)}

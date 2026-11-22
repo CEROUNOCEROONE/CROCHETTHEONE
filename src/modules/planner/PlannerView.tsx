@@ -53,13 +53,13 @@ import { DurationInput } from '@/src/shared/components/DurationInput.tsx';
 import { EmptyState } from '@/src/shared/components/EmptyState.tsx';
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { InlineFeedbackAlert } from '@/src/shared/components/InlineFeedbackAlert.tsx';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import {
   SnapDeck,
   SnapSlide,
   type SnapDeckHandle,
 } from '@/src/shared/components/SnapDeck.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -224,20 +224,6 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
   const [reminderToDelete, setReminderToDelete] = useState<Reminder | null>(null);
 
   const hasOpenFormModal = Boolean(taskFormOpen || rulesPanelOpen || reminderFormOpen);
-
-  useEscapeKey(
-    hasOpenFormModal && !busy && !taskToDelete && !reminderToDelete,
-    () => {
-      setFeedback(null);
-      if (taskFormOpen) {
-        setTaskFormOpen(false);
-      } else if (rulesPanelOpen) {
-        setRulesPanelOpen(false);
-      } else if (reminderFormOpen) {
-        setReminderFormOpen(false);
-      }
-    },
-  );
 
   const projectMap = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -1722,36 +1708,41 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
       </SnapDeck>
 
       {/* Modal: Formulario de creación/edición de tarea */}
-      {taskFormOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="task-modal-title"
+      <ModalDialog
+        isOpen={taskFormOpen}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-2xl p-5"
+        ariaLabelledBy="task-modal-title"
+        onClose={() => {
+          setTaskFormOpen(false);
+          setFeedback(null);
+        }}
+      >
+        <form
+          onSubmit={(e) => void handleSaveTask(e)}
+          className="space-y-4"
         >
-          <form
-            onSubmit={(e) => void handleSaveTask(e)}
-            className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3
-                id="task-modal-title"
-                className="font-display text-base font-semibold text-slate-900"
-              >
-                {editingTaskId ? 'Editar tarea planificada' : 'Nueva tarea en la agenda'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setTaskFormOpen(false);
-                  setFeedback(null);
-                }}
-                aria-label="Cerrar formulario de tarea"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3
+              id="task-modal-title"
+              className="font-display text-base font-semibold text-slate-900"
+            >
+              {editingTaskId ? 'Editar tarea planificada' : 'Nueva tarea en la agenda'}
+            </h3>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setTaskFormOpen(false);
+                setFeedback(null);
+              }}
+              aria-label="Cerrar formulario de tarea"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
             <InlineFeedbackAlert
               feedback={feedback}
@@ -1941,11 +1932,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setTaskFormOpen(false);
                   setFeedback(null);
                 }}
-                className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -1957,46 +1949,50 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                 {busy ? 'Guardando...' : editingTaskId ? 'Guardar cambios' : 'Agendar tarea'}
               </button>
             </div>
-          </form>
-        </div>
-      )}
+        </form>
+      </ModalDialog>
 
       {/* Modal: Configuración de anticipación */}
-      {rulesPanelOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rules-modal-title"
+      <ModalDialog
+        isOpen={rulesPanelOpen}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-2xl p-5"
+        ariaLabelledBy="rules-modal-title"
+        onClose={() => {
+          setRulesPanelOpen(false);
+          setFeedback(null);
+        }}
+      >
+        <form
+          onSubmit={(e) => void handleSaveReminderRules(e)}
+          className="space-y-4"
         >
-          <form
-            onSubmit={(e) => void handleSaveReminderRules(e)}
-            className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
-          >
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
-              <div>
-                <h3
-                  id="rules-modal-title"
-                  className="font-display text-base font-semibold text-slate-900"
-                >
-                  Reglas automáticas de recordatorios
-                </h3>
-                <p className="mt-0.5 text-xs text-slate-600">
-                  Define con cuántos días de anticipación quieres recibir alertas automáticas.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setRulesPanelOpen(false);
-                  setFeedback(null);
-                }}
-                aria-label="Cerrar reglas de anticipación"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <h3
+                id="rules-modal-title"
+                className="font-display text-base font-semibold text-slate-900"
               >
-                <X className="h-4 w-4" />
-              </button>
+                Reglas automáticas de recordatorios
+              </h3>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Define con cuántos días de anticipación quieres recibir alertas automáticas.
+              </p>
             </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setRulesPanelOpen(false);
+                setFeedback(null);
+              }}
+              aria-label="Cerrar reglas de anticipación"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
             <InlineFeedbackAlert
               feedback={feedback}
@@ -2129,11 +2125,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setRulesPanelOpen(false);
                   setFeedback(null);
                 }}
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cerrar
               </button>
@@ -2147,41 +2144,45 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                 </button>
               )}
             </div>
-          </form>
-        </div>
-      )}
+        </form>
+      </ModalDialog>
 
       {/* Modal: Formulario de recordatorio manual */}
-      {reminderFormOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rem-modal-title"
+      <ModalDialog
+        isOpen={reminderFormOpen}
+        isBusy={busy}
+        mobileAlign="center"
+        panelClassName="max-w-xl p-5"
+        ariaLabelledBy="rem-modal-title"
+        onClose={() => {
+          setReminderFormOpen(false);
+          setFeedback(null);
+        }}
+      >
+        <form
+          onSubmit={(e) => void handleSaveReminder(e)}
+          className="space-y-4"
         >
-          <form
-            onSubmit={(e) => void handleSaveReminder(e)}
-            className="max-h-[90dvh] w-full max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3
-                id="rem-modal-title"
-                className="font-display text-base font-semibold text-slate-900"
-              >
-                {editingReminderId ? 'Editar recordatorio' : 'Crear recordatorio personalizado'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setReminderFormOpen(false);
-                  setFeedback(null);
-                }}
-                aria-label="Cerrar formulario de recordatorio"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3
+              id="rem-modal-title"
+              className="font-display text-base font-semibold text-slate-900"
+            >
+              {editingReminderId ? 'Editar recordatorio' : 'Crear recordatorio personalizado'}
+            </h3>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setReminderFormOpen(false);
+                setFeedback(null);
+              }}
+              aria-label="Cerrar formulario de recordatorio"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
 
             <InlineFeedbackAlert
               feedback={feedback}
@@ -2296,11 +2297,12 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => {
                   setReminderFormOpen(false);
                   setFeedback(null);
                 }}
-                className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -2316,9 +2318,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                     : 'Guardar recordatorio'}
               </button>
             </div>
-          </form>
-        </div>
-      )}
+        </form>
+      </ModalDialog>
 
       {/* Modal confirmar borrado de tarea */}
       <ConfirmModal

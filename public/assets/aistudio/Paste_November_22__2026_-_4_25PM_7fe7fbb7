@@ -1,0 +1,1177 @@
+TEXTO-BLOQUE-COPIA
+
+================================================================================
+CROCHETTHEONE — AUDITORÍA TÉCNICA INTEGRAL
+FASE 3 — DIAGNÓSTICO GLOBAL DE CALIDAD, SEGURIDAD Y ESTABILIDAD
+================================================================================
+
+ROL:
+Actúa como auditor senior de software, arquitecto de aplicaciones web,
+especialista en React, TypeScript, IndexedDB, PWAs, seguridad, UX/UI,
+accesibilidad, rendimiento y pruebas automatizadas.
+
+PROYECTO:
+CROCHETTHEONE
+
+ESTADO DE REFERENCIA:
+- Rama esperada: master
+- Commit estable de referencia: 8825d3b
+- Commit base de la Fase 2: f407d2a
+- Fase 2.8 completada.
+- 25 modales migrados a ModalDialog basado en <dialog> nativo.
+- ConfirmModal y FeatureGate también utilizan dialog nativo.
+- Aplicación orientada a dispositivos móviles, especialmente Android.
+- Aplicación PWA con persistencia local y funcionamiento offline.
+- Datos almacenados principalmente en IndexedDB.
+- Se han realizado validaciones previas con build, TypeScript, unit tests y Playwright.
+
+================================================================================
+1. OBJETIVO PRINCIPAL
+================================================================================
+
+Realizar una AUDITORÍA TÉCNICA INTEGRAL, PROFUNDA Y OBJETIVA de todo el
+repositorio CROCHETTHEONE.
+
+El objetivo es determinar el estado REAL del proyecto:
+
+- Qué está correctamente implementado.
+- Qué funcionalidades funcionan realmente.
+- Qué funcionalidades podrían fallar bajo determinadas condiciones.
+- Qué riesgos existen.
+- Qué errores están presentes.
+- Qué inconsistencias arquitectónicas existen.
+- Qué problemas de seguridad, privacidad o integridad de datos podrían existir.
+- Qué áreas requieren pruebas adicionales.
+- Qué problemas podrían afectar especialmente a Android y dispositivos móviles.
+- Qué mejoras serían necesarias para alcanzar una aplicación robusta,
+  confiable y preparada para un uso real.
+
+Esta auditoría debe ser lo más exhaustiva posible.
+
+NO quiero una revisión superficial.
+NO quiero únicamente observaciones estéticas.
+NO quiero que te limites a leer los README.
+NO quiero que asumas que algo funciona porque está implementado.
+NO quiero que inventes errores.
+NO quiero que propongas refactorizaciones innecesarias.
+
+Quiero un diagnóstico basado en evidencias reales del código y, cuando sea
+seguro, pruebas reproducibles.
+
+================================================================================
+2. RESTRICCIÓN ABSOLUTA: SOLO LECTURA
+================================================================================
+
+ESTA AUDITORÍA ES EXCLUSIVAMENTE DIAGNÓSTICA.
+
+NO ESTÁS AUTORIZADO A MODIFICAR NINGÚN ARCHIVO.
+
+Queda expresamente prohibido:
+
+- Modificar archivos fuente.
+- Modificar estilos.
+- Modificar configuraciones.
+- Modificar package.json o lockfiles.
+- Modificar dependencias.
+- Instalar paquetes.
+- Actualizar paquetes.
+- Ejecutar migraciones.
+- Modificar IndexedDB.
+- Crear, modificar o eliminar registros reales.
+- Modificar datos de usuarios.
+- Modificar service workers.
+- Modificar manifiestos PWA.
+- Crear commits.
+- Cambiar de rama.
+- Ejecutar git reset.
+- Ejecutar git checkout para alterar archivos.
+- Ejecutar git clean.
+- Eliminar respaldos.
+- Eliminar archivos.
+- Refactorizar.
+- Aplicar correcciones automáticas.
+- Ejecutar herramientas que escriban o formateen código.
+- Alterar configuraciones del entorno.
+- Modificar variables de entorno.
+- Realizar acciones contra servicios externos reales.
+- Enviar notificaciones reales.
+- Ejecutar operaciones reales de compra, pago o consumo.
+- Utilizar datos reales de usuarios durante pruebas destructivas.
+
+No aproveches la auditoría para corregir problemas encontrados.
+
+No crees archivos de informes dentro del repositorio.
+
+El informe debe entregarse en la respuesta del agente o en un directorio externo
+de artefactos previamente disponible, sin modificar el repositorio.
+
+Si una prueba requiere modificaciones, datos reales, migraciones, instalación de
+dependencias o cualquier operación destructiva, NO la ejecutes.
+
+Documenta la prueba pendiente y explica cómo podría ejecutarse posteriormente
+en un entorno aislado.
+
+================================================================================
+3. FASE PREVIA: VERIFICACIÓN DE INTEGRIDAD Y SEGURIDAD
+================================================================================
+
+Antes de comenzar el análisis:
+
+3.1. Inspecciona:
+
+- Ruta del proyecto.
+- Rama Git actual.
+- Commit HEAD.
+- Estado completo de git status.
+- Archivos staged.
+- Archivos unstaged.
+- Archivos untracked.
+- Existencia de respaldos.
+- Existencia de artefactos de fases anteriores.
+- Diferencias entre HEAD y el checkpoint 8825d3b, si corresponde.
+- Estructura general del repositorio.
+
+3.2. Confirma si HEAD corresponde exactamente al commit 8825d3b.
+
+Si HEAD es posterior:
+- Identifica los commits adicionales.
+- Determina qué archivos cambiaron.
+- Incluye esos cambios en el alcance si son parte del proyecto.
+- No asumas que el estado posterior conserva todas las validaciones del
+  checkpoint.
+
+Si HEAD es anterior:
+- Identifica qué falta respecto al checkpoint.
+- No alteres el repositorio para actualizarlo.
+
+3.3. Registra el estado inicial de Git como evidencia.
+
+3.4. Verifica que las herramientas de diagnóstico que planeas ejecutar no
+modifiquen archivos versionados ni datos reales.
+
+Si detectas modificaciones preexistentes del usuario:
+- No las sobrescribas.
+- No las reviertas.
+- No las limpies.
+- Identifícalas en el informe.
+
+Si el entorno presenta un riesgo de pérdida de información, detén las pruebas
+que puedan afectar ese estado.
+
+================================================================================
+4. ALCANCE DE LA AUDITORÍA
+================================================================================
+
+Examina todo el proyecto, incluyendo los archivos relevantes de:
+
+- src/
+- public/
+- tests/
+- Configuración de TypeScript.
+- Configuración de Vite.
+- Configuración PWA.
+- Dependencias.
+- Scripts de package.json.
+- Manifiestos.
+- Service Worker.
+- Repositorios de datos.
+- Contextos.
+- Hooks.
+- Servicios.
+- Componentes compartidos.
+- Módulos funcionales.
+- Estilos globales y específicos.
+- Sistema de temas.
+- Gestión de errores.
+- Persistencia.
+- Lógica de límites y planes.
+- Notificaciones.
+- Documentación existente.
+
+No ignores archivos solo porque sean grandes.
+
+No des por auditado un módulo que únicamente hayas revisado parcialmente.
+
+Si por limitaciones de tiempo o contexto no puedes revisar todo, declara
+exactamente qué archivos, módulos o áreas quedaron sin inspeccionar.
+
+================================================================================
+5. AUDITORÍA ARQUITECTÓNICA
+================================================================================
+
+Analiza:
+
+5.1. Organización general
+
+- ¿La estructura de carpetas es coherente?
+- ¿Los módulos están correctamente separados?
+- ¿Hay responsabilidades mezcladas?
+- ¿Existe acoplamiento excesivo?
+- ¿Se respetan las capas de arquitectura?
+- ¿Hay componentes que contienen demasiada lógica?
+- ¿Existen archivos excesivamente grandes?
+- ¿Hay dependencias circulares?
+- ¿Hay lógica de negocio dentro de componentes de presentación?
+- ¿Hay duplicación de lógica?
+
+5.2. React
+
+- Uso correcto de hooks.
+- Dependencias de useEffect.
+- Riesgos de renders innecesarios.
+- Estado duplicado o contradictorio.
+- Problemas de sincronización.
+- Actualizaciones de estado después del desmontaje.
+- Eventos y listeners sin limpiar.
+- Suscripciones.
+- Memoización innecesaria o incorrecta.
+- Claves de listas.
+- Gestión de formularios.
+- Condiciones de carrera.
+
+5.3. TypeScript
+
+- Uso de any.
+- Tipos excesivamente permisivos.
+- Castings inseguros.
+- Non-null assertions.
+- Interfaces contradictorias.
+- Tipos duplicados.
+- Datos no validados.
+- Errores de tipado ocultos.
+- Desajustes entre tipos y datos reales.
+
+5.4. Mantenibilidad
+
+- Código muerto.
+- Funciones sin uso.
+- Hooks sin uso.
+- Imports innecesarios.
+- Componentes duplicados.
+- Dependencias innecesarias.
+- Responsabilidades confusas.
+- Complejidad innecesaria.
+- Código difícil de probar.
+- Puntos que puedan generar regresiones futuras.
+
+================================================================================
+6. AUDITORÍA FUNCIONAL COMPLETA
+================================================================================
+
+Examina individualmente los módulos existentes de la aplicación.
+
+Identifica primero todos los módulos reales que existen en el repositorio.
+
+Para cada módulo, analiza:
+
+- Funcionalidades existentes.
+- Flujos principales.
+- Flujos alternativos.
+- Validaciones.
+- Estados vacíos.
+- Errores.
+- Casos límite.
+- Interacciones entre módulos.
+- Persistencia.
+- Posibles pérdidas de datos.
+- Consistencia de información.
+- Problemas de UX.
+- Posibles fallos en móvil.
+
+Incluye, cuando existan:
+
+A. Dashboard e inicio.
+B. Proyectos.
+C. Componentes o piezas.
+D. Cotizador.
+E. Clientes.
+F. Pagos y abonos.
+G. Planes de pago.
+H. Estados de cuenta.
+I. Inventario.
+J. Variantes y colores.
+K. Reservas de materiales.
+L. Consumo de materiales.
+M. Kardex.
+N. Compras.
+O. Lista de compras.
+P. Notas.
+Q. Comprobantes.
+R. Cronómetro.
+S. Registro manual de sesiones.
+T. Ajustes de tiempo.
+U. Planificación.
+V. Tareas.
+W. Recordatorios.
+X. Notificaciones.
+Y. Configuración.
+Z. Temas.
+AA. Funcionalidades FREE/PRO.
+AB. Backup y restauración.
+AC. Instalación PWA.
+AD. Funcionamiento offline.
+AE. Navegación móvil.
+
+No asumas que esta lista es exhaustiva. Incluye cualquier otro módulo
+encontrado.
+
+================================================================================
+7. AUDITORÍA DE INTEGRIDAD DE DATOS
+================================================================================
+
+ESTA ES UNA DE LAS ÁREAS MÁS IMPORTANTES.
+
+Analiza detalladamente IndexedDB y toda la capa de persistencia.
+
+Examina:
+
+- LocalRepository.
+- DataContext.
+- backupService.
+- Versionado de base de datos.
+- Migraciones.
+- Seeder.
+- Relaciones entre entidades.
+- Identificadores.
+- Eliminaciones.
+- Actualizaciones.
+- Transacciones.
+- Manejo de errores.
+- Recuperación ante interrupciones.
+- Consistencia entre módulos.
+
+Busca riesgos de:
+
+- Pérdida de registros.
+- Duplicación de registros.
+- Datos huérfanos.
+- Reservas inconsistentes.
+- Stock negativo inesperado.
+- Consumo duplicado.
+- Pagos duplicados.
+- Saldos incorrectos.
+- Cotizaciones inconsistentes.
+- Proyectos incompletos.
+- Relaciones rotas.
+- Restauraciones parciales.
+- Backups incompletos.
+- Sobrescritura de datos.
+- Errores durante operaciones simultáneas.
+- Escrituras que no son atómicas.
+- Fallos al cerrar o suspender la aplicación.
+- Corrupción lógica de datos.
+
+Analiza específicamente los siguientes escenarios:
+
+1. Crear un registro y cerrar la aplicación inmediatamente.
+2. Editar un registro y cancelar.
+3. Eliminar un registro que tiene relaciones.
+4. Restaurar un backup antiguo.
+5. Restaurar un backup incompleto o inválido.
+6. Interrumpir una operación.
+7. Crear registros duplicados rápidamente.
+8. Ejecutar operaciones simultáneas.
+9. Cambiar de módulo mientras se guarda.
+10. Actualizar la aplicación con datos preexistentes.
+11. Abrir la aplicación en dos pestañas.
+12. Perder temporalmente el contexto o conexión de almacenamiento.
+
+No ejecutes escenarios destructivos contra datos reales.
+
+================================================================================
+8. AUDITORÍA DEL INVENTARIO Y KARDEX
+================================================================================
+
+Examina a profundidad:
+
+- Cálculo de existencias.
+- Existencias físicas.
+- Reservas.
+- Consumo directo.
+- Consumo desde reservas.
+- Modificación de reservas.
+- Liberación de reservas.
+- Compras.
+- Ajustes manuales.
+- Movimientos del Kardex.
+- Relaciones entre movimientos y materiales.
+- Relaciones entre materiales y proyectos.
+- Unidades de medida.
+- Variantes de color.
+- Materiales duplicados.
+- Stock disponible.
+- Stock reservado.
+- Stock consumido.
+
+Verifica conceptualmente la consistencia de las fórmulas.
+
+Busca escenarios en los que:
+
+- Una reserva pueda descontarse dos veces.
+- El consumo de una reserva también descuente incorrectamente stock.
+- El consumo directo no genere el movimiento esperado.
+- Se pueda consumir más de lo disponible.
+- Una edición altere el Kardex incorrectamente.
+- Un ajuste de stock no genere trazabilidad.
+- La eliminación de un proyecto deje reservas huérfanas.
+- La modificación de una variante altere registros históricos.
+- El stock disponible sea diferente entre módulos.
+
+Documenta las reglas de negocio reales encontradas antes de emitir observaciones.
+
+================================================================================
+9. AUDITORÍA FINANCIERA Y COTIZACIONES
+================================================================================
+
+Analiza:
+
+- Cotizaciones.
+- Cálculo de costos.
+- Materiales.
+- Mano de obra.
+- Gastos.
+- Márgenes.
+- Precios.
+- Totales.
+- Redondeos.
+- Descuentos.
+- Anticipos.
+- Abonos.
+- Saldos.
+- Planes de pago.
+- Estados de cuenta.
+- Relación cliente-proyecto.
+- Relación cotización-proyecto.
+- Conversión de cotización a proyecto, si existe.
+
+Busca:
+
+- Errores aritméticos.
+- Redondeos inconsistentes.
+- Totales desactualizados.
+- Doble contabilización.
+- Saldos negativos inesperados.
+- Pagos superiores al valor del proyecto.
+- Fechas inconsistentes.
+- Estados de pago incorrectos.
+- Modificaciones retroactivas que alteren cálculos.
+- Pérdida de precisión decimal.
+- Diferencias entre lo mostrado y lo persistido.
+
+Verifica si las fórmulas son coherentes en todos los puntos donde se utilizan.
+
+================================================================================
+10. AUDITORÍA DE LOS 25 MODALES Y DIÁLOGOS
+================================================================================
+
+Verifica la implementación real de ModalDialog y todos sus usos.
+
+Analiza:
+
+- Uso de <dialog> nativo.
+- showModal().
+- Cierre.
+- Escape.
+- Backdrop.
+- Gestión de foco.
+- Focus trap cuando corresponda.
+- Restauración del foco.
+- Accesibilidad.
+- aria-labelledby.
+- aria-describedby.
+- IDs duplicados.
+- Formularios.
+- Estados busy.
+- Loading.
+- Prevención de doble envío.
+- Errores de validación.
+- Scroll interno.
+- Scroll del fondo.
+- Altura en móviles.
+- Safe areas.
+- Teclado virtual.
+- Comportamiento en Android.
+- Compatibilidad con los ocho temas.
+- Apilamiento de diálogos.
+- Interacción con FeatureGate.
+- Interacción con ConfirmModal.
+- Interacción con SmartAutocompleteInput.
+
+Verifica también:
+
+- El drawer móvil de AppShell.
+- El uso restante de role="dialog".
+- Los selectores CSS asociados.
+- useEscapeKey.ts.
+- Eventuales listeners manuales de Escape que hayan quedado.
+
+No elimines ni modifiques código durante esta revisión.
+
+================================================================================
+11. AUDITORÍA DE UX/UI
+================================================================================
+
+Analiza la aplicación desde la perspectiva de un usuario real que utiliza
+principalmente un teléfono Android.
+
+Evalúa:
+
+- Navegación.
+- Jerarquía visual.
+- Claridad.
+- Consistencia.
+- Botones.
+- Acciones primarias y secundarias.
+- Formularios.
+- Validaciones.
+- Feedback.
+- Mensajes de error.
+- Confirmaciones.
+- Estados vacíos.
+- Loading.
+- Transiciones.
+- Scroll.
+- Modales.
+- Listas.
+- Tablas.
+- Filtros.
+- Búsquedas.
+- Autocompletado.
+- Contraste.
+- Tamaños de toque.
+- Densidad de información.
+- Legibilidad.
+- Uso con una sola mano.
+- Adaptación a pantallas pequeñas.
+- Teclado virtual.
+- Safe areas.
+- Orientación.
+- Temas claros y oscuros.
+
+Busca problemas concretos, no opiniones vagas.
+
+Cuando identifiques un problema visual, describe:
+
+- Ubicación.
+- Situación en la que aparece.
+- Qué ve el usuario.
+- Qué dificultad genera.
+- Cómo podría mejorarse.
+
+Si puedes ejecutar el proyecto y realizar inspecciones visuales sin modificar
+archivos ni datos reales, hazlo.
+
+Si no puedes ejecutar la aplicación, diferencia claramente la inspección de
+código de la validación visual real.
+
+================================================================================
+12. AUDITORÍA DE LOS OCHO TEMAS
+================================================================================
+
+Identifica los ocho temas existentes y verifica:
+
+- Contraste.
+- Texto.
+- Fondos.
+- Bordes.
+- Botones.
+- Estados seleccionados.
+- Hover.
+- Focus.
+- Inputs.
+- Selects.
+- Dialogs.
+- Alertas.
+- Mensajes.
+- Tarjetas.
+- Estados deshabilitados.
+- Elementos con colores hardcoded.
+- Variables CSS.
+- Inconsistencias entre temas.
+
+Busca elementos que no respeten el tema activo.
+
+No te limites a comprobar que el tema cambia: verifica que los componentes
+mantengan legibilidad y funcionalidad.
+
+================================================================================
+13. AUDITORÍA DE ACCESIBILIDAD
+================================================================================
+
+Examina:
+
+- Navegación por teclado.
+- Focus visible.
+- Orden del foco.
+- Labels.
+- Inputs.
+- Botones.
+- Iconos sin etiquetas.
+- aria-label.
+- aria-labelledby.
+- aria-describedby.
+- Semántica HTML.
+- Dialogs.
+- Escape.
+- Tabulación.
+- Contraste.
+- Lectores de pantalla.
+- Estados dinámicos.
+- Mensajes de validación.
+- Elementos interactivos no semánticos.
+- Tamaños de toque.
+- Dependencia exclusiva de colores.
+- Movimiento y animaciones.
+
+Clasifica los hallazgos según WCAG 2.2 cuando sea posible.
+
+No afirmes cumplimiento WCAG sin evidencia suficiente.
+
+================================================================================
+14. AUDITORÍA DE SEGURIDAD Y PRIVACIDAD
+================================================================================
+
+Revisa:
+
+- Dependencias.
+- Vulnerabilidades conocidas, si se pueden comprobar sin instalar ni actualizar.
+- Uso de npm audit en modo estrictamente no modificador, solo si el entorno
+  permite hacerlo sin cambios y sin afectar configuraciones.
+- Exposición de información.
+- Secrets.
+- Variables de entorno.
+- Tokens.
+- Datos sensibles.
+- LocalStorage.
+- IndexedDB.
+- Importación de archivos.
+- Exportación de archivos.
+- Validación de datos.
+- Sanitización.
+- XSS.
+- HTML dinámico.
+- URLs.
+- Navegación externa.
+- CSP.
+- Permisos.
+- Notificaciones.
+- Service Worker.
+- Dependencias de terceros.
+- Riesgos de backups.
+- Privacidad de datos almacenados localmente.
+
+No muestres valores de secretos encontrados.
+
+Si encuentras credenciales, informa únicamente:
+
+- Archivo afectado.
+- Tipo de secreto.
+- Riesgo.
+- Recomendación de manejo.
+
+No copies el valor de la credencial en el informe.
+
+================================================================================
+15. AUDITORÍA PWA Y FUNCIONAMIENTO OFFLINE
+================================================================================
+
+Examina:
+
+- Manifest.
+- Service Worker.
+- Registro.
+- Instalación.
+- Actualizaciones.
+- Cache.
+- Estrategias de caching.
+- Cache invalidation.
+- Assets.
+- Offline fallback.
+- Conectividad.
+- Recuperación.
+- Versiones antiguas.
+- Actualizaciones de la aplicación.
+- Riesgo de cachear contenido obsoleto.
+- Posibles conflictos entre versiones.
+- Persistencia de datos durante actualizaciones.
+- Notificaciones.
+- Ciclo de vida.
+- Comportamiento al cerrar y reabrir.
+- Compatibilidad móvil.
+
+Evalúa especialmente los escenarios:
+
+- Primera instalación.
+- Actualización.
+- Instalación desde navegador.
+- Aplicación instalada.
+- Modo offline.
+- Regreso a conexión.
+- Service Worker antiguo.
+- Cache antiguo.
+- Actualización interrumpida.
+- Cierre forzado.
+- Cambio de versión.
+
+================================================================================
+16. AUDITORÍA DE NOTIFICACIONES
+================================================================================
+
+Examina todo el sistema de notificaciones.
+
+Verifica:
+
+- Permisos.
+- Solicitud de permisos.
+- Registro.
+- Programación.
+- Cancelación.
+- Reprogramación.
+- Duplicados.
+- Recordatorios vencidos.
+- Zona horaria.
+- Fechas.
+- Ciclo de vida.
+- Service Worker.
+- Puentes entre componentes.
+- Persistencia.
+- Comportamiento offline.
+- Manejo de errores.
+- Comportamiento Android.
+- Notificaciones al reinstalar o actualizar.
+
+Identifica escenarios donde una notificación:
+
+- Nunca llegue.
+- Llegue duplicada.
+- Llegue a destiempo.
+- No se pueda cancelar.
+- Se programe incorrectamente.
+- Se pierda después de actualizar.
+
+No envíes notificaciones reales durante esta auditoría.
+
+================================================================================
+17. AUDITORÍA DE RENDIMIENTO
+================================================================================
+
+Analiza:
+
+- Bundle.
+- Tamaño de assets.
+- Imports.
+- Dependencias.
+- Carga inicial.
+- Lazy loading.
+- Renderizado.
+- Listas grandes.
+- Consultas IndexedDB.
+- Repetición de consultas.
+- Cálculos.
+- Contextos globales.
+- Re-renders.
+- Imágenes.
+- Memoria.
+- Animaciones.
+- Uso en teléfonos de recursos limitados.
+- Consumo de batería potencial.
+
+Busca posibles problemas al aumentar los datos:
+
+- 100 proyectos.
+- 500 proyectos.
+- 1.000 materiales.
+- 5.000 movimientos de Kardex.
+- 1.000 clientes.
+- Grandes historiales de pagos.
+- Muchas notas y registros.
+
+Diferencia claramente problemas demostrados de riesgos teóricos.
+
+================================================================================
+18. AUDITORÍA DE PRUEBAS
+================================================================================
+
+Examina el sistema actual de pruebas.
+
+Inventaría:
+
+- Tests unitarios.
+- Tests de integración.
+- Playwright.
+- Tests de componentes.
+- Scripts.
+- Cobertura, si está disponible.
+- Fixtures.
+- Datos de prueba.
+- Herramientas.
+
+Identifica:
+
+- Funcionalidades sin pruebas.
+- Pruebas insuficientes.
+- Pruebas frágiles.
+- Pruebas que no verifican resultados reales.
+- Assertions insuficientes.
+- Pruebas duplicadas.
+- Casos límite ausentes.
+- Casos de regresión importantes.
+- Dependencia de entornos específicos.
+
+Construye una matriz:
+
+Módulo | Cobertura actual encontrada | Riesgo | Pruebas recomendadas
+
+No inventes porcentajes de cobertura.
+
+No afirmes que una prueba se ejecutó si solo inspeccionaste el archivo.
+
+================================================================================
+19. AUDITORÍA DE ERRORES Y CASOS LÍMITE
+================================================================================
+
+Busca sistemáticamente:
+
+- Campos vacíos.
+- Valores nulos.
+- undefined.
+- Valores extremos.
+- Números negativos.
+- Decimales.
+- Fechas inválidas.
+- Fechas pasadas.
+- Cambios de año.
+- Diferencias de zona horaria.
+- Registros duplicados.
+- Formularios enviados varias veces.
+- Operaciones interrumpidas.
+- Errores de almacenamiento.
+- Falta de permisos.
+- Archivos inválidos.
+- Errores de importación.
+- Errores de exportación.
+- Fallos de navegación.
+- Estados inconsistentes.
+- Errores silenciosos.
+
+Busca también:
+
+- console.error.
+- console.warn relevantes.
+- TODO.
+- FIXME.
+- HACK.
+- Código temporal.
+- Comentarios que contradigan la implementación.
+- Manejo de errores incompleto.
+
+================================================================================
+20. PRUEBAS DE EJECUCIÓN PERMITIDAS
+================================================================================
+
+Puedes ejecutar pruebas técnicas existentes SOLO si:
+
+- No modifican código.
+- No modifican archivos de usuario.
+- No alteran datos reales.
+- No ejecutan migraciones.
+- No requieren instalar dependencias.
+- No generan cambios persistentes dentro del repositorio.
+- No afectan servicios externos.
+
+Puedes considerar, cuando sea seguro:
+
+- npm run build.
+- tsc --noEmit.
+- Tests unitarios existentes.
+- Tests Playwright existentes, únicamente si usan datos aislados.
+- Análisis estático.
+- Inspección de dependencias.
+- Inspección de bundle.
+- Inspección del navegador.
+- Verificaciones de accesibilidad no modificadoras.
+
+Antes de ejecutar una prueba, inspecciona el script y determina si es seguro.
+
+Si existe riesgo de modificación de datos, NO la ejecutes.
+
+Si necesitas levantar un servidor, verifica primero cómo funciona el script y
+asegúrate de no alterar el entorno ni el estado del proyecto.
+
+Registra:
+
+- Comando ejecutado.
+- Resultado.
+- Duración, si disponible.
+- Errores.
+- Advertencias.
+- Limitaciones.
+
+================================================================================
+21. CLASIFICACIÓN DE HALLAZGOS
+================================================================================
+
+Cada hallazgo debe clasificarse:
+
+CRÍTICO:
+Puede ocasionar pérdida de datos, vulnerabilidad grave, corrupción, fallo
+generalizado o consecuencias severas.
+
+ALTO:
+Problema importante que afecta funciones centrales, seguridad, integridad,
+operaciones financieras o una parte considerable de la experiencia.
+
+MEDIO:
+Problema real con impacto moderado, funcionalidad degradada o riesgo
+significativo en escenarios particulares.
+
+BAJO:
+Problema menor, inconsistencia, inconveniente limitado o defecto de calidad.
+
+MEJORA:
+Oportunidad de mejora sin defecto funcional demostrado.
+
+No inflar severidades.
+
+No clasificar como bug algo que sea únicamente preferencia personal.
+
+================================================================================
+22. EVIDENCIA OBLIGATORIA
+================================================================================
+
+Cada hallazgo debe incluir:
+
+ID:
+Título:
+
+Severidad:
+
+Categoría:
+
+Archivo:
+Ruta exacta.
+
+Línea o rango:
+Si puede identificarse.
+
+EVIDENCIA:
+Fragmento relevante, comportamiento observado o resultado verificable.
+
+PROBLEMA:
+Explicación clara.
+
+IMPACTO:
+Qué puede ocurrir al usuario.
+
+CONDICIONES:
+Cuándo ocurre.
+
+REPRODUCCIÓN:
+Pasos concretos, si es reproducible.
+
+ESTADO DE VERIFICACIÓN:
+- Confirmado mediante ejecución.
+- Confirmado mediante inspección del código.
+- Riesgo potencial no reproducido.
+- No verificable en el entorno actual.
+
+RECOMENDACIÓN:
+Solución sugerida sin ejecutarla.
+
+CONFIANZA:
+Alta, media o baja.
+
+No inventes números de líneas.
+
+No inventes resultados.
+
+No uses lenguaje alarmista.
+
+================================================================================
+23. PRIORIZACIÓN
+================================================================================
+
+Al finalizar, organiza los hallazgos en:
+
+P0 — Resolver inmediatamente.
+P1 — Resolver antes de continuar agregando funcionalidades importantes.
+P2 — Resolver en próximas etapas.
+P3 — Mejoras y limpieza opcional.
+
+Para cada prioridad explica por qué.
+
+Identifica dependencias entre correcciones.
+
+No recomiendes cambiar diez archivos si un ajuste aislado resuelve el problema.
+
+Busca el enfoque más conservador y seguro.
+
+================================================================================
+24. INFORME FINAL OBLIGATORIO
+================================================================================
+
+Entrega un informe organizado con las siguientes secciones:
+
+1. RESUMEN EJECUTIVO.
+
+2. ESTADO DE INTEGRIDAD DEL REPOSITORIO.
+   - Rama.
+   - HEAD.
+   - Checkpoint.
+   - Estado Git.
+   - Modificaciones preexistentes.
+   - Confirmación de que no modificaste archivos.
+
+3. ALCANCE REAL DE LA AUDITORÍA.
+   - Qué revisaste.
+   - Qué archivos.
+   - Qué módulos.
+   - Qué no pudiste revisar.
+
+4. RESULTADOS DE PRUEBAS EJECUTADAS.
+
+5. TABLA GLOBAL DE HALLAZGOS.
+
+   ID | Severidad | Categoría | Módulo | Problema | Estado
+
+6. HALLAZGOS CRÍTICOS Y ALTOS.
+   Explicación detallada y evidencia.
+
+7. HALLAZGOS MEDIOS.
+
+8. HALLAZGOS BAJOS Y MEJORAS OPCIONALES.
+
+9. AUDITORÍA POR MÓDULO.
+   Cada módulo con:
+   - Estado.
+   - Fortalezas.
+   - Problemas.
+   - Riesgos.
+   - Pruebas faltantes.
+
+10. AUDITORÍA DE INTEGRIDAD DE DATOS.
+
+11. AUDITORÍA DE SEGURIDAD Y PRIVACIDAD.
+
+12. AUDITORÍA UX/UI Y MÓVIL.
+
+13. AUDITORÍA PWA Y OFFLINE.
+
+14. AUDITORÍA DE ACCESIBILIDAD.
+
+15. AUDITORÍA DE RENDIMIENTO.
+
+16. MATRIZ DE COBERTURA DE PRUEBAS.
+
+17. DEUDA TÉCNICA.
+
+18. PLAN DE CORRECCIÓN PROPUESTO.
+    Orden recomendado.
+    Dependencias.
+    Riesgos.
+    Qué debería resolverse primero.
+
+19. ELEMENTOS QUE NO DEBEN TOCARSE SIN AUTORIZACIÓN ESPECIAL.
+    Identifica capas críticas y riesgos de modificación.
+
+20. DICTAMEN FINAL.
+
+================================================================================
+25. PLAN DE CORRECCIÓN FUTURO
+================================================================================
+
+NO IMPLEMENTES EL PLAN.
+
+Diseña una hoja de ruta en fases pequeñas, independientes y verificables.
+
+Cada fase futura debe incluir:
+
+- Nombre.
+- Objetivo.
+- Hallazgos que resuelve.
+- Archivos potencialmente afectados.
+- Riesgo.
+- Dependencias.
+- Pruebas obligatorias.
+- Criterio de aceptación.
+- Estrategia de respaldo.
+- Método de rollback.
+
+Prioriza preservar el funcionamiento existente.
+
+Evita refactorizaciones masivas.
+
+Evita modificar múltiples módulos simultáneamente cuando no sea necesario.
+
+Propón fases pequeñas y atómicas.
+
+================================================================================
+26. CRITERIOS DE CALIDAD DEL AUDITOR
+================================================================================
+
+La calidad de esta auditoría se medirá por:
+
+- Profundidad.
+- Evidencia.
+- Precisión.
+- Honestidad.
+- Capacidad de encontrar problemas reales.
+- Capacidad de diferenciar defectos de mejoras.
+- Análisis de consecuencias.
+- Comprensión de las reglas de negocio.
+- Atención a la integridad de datos.
+- Atención a Android.
+- Atención al funcionamiento offline.
+- Atención a la experiencia real de usuario.
+
+NO busques cantidad artificial de hallazgos.
+
+Es preferible encontrar 3 problemas reales bien documentados que 30
+observaciones genéricas.
+
+NO conviertas la auditoría en una propuesta de reescritura del proyecto.
+
+NO propongas migrar de framework sin una justificación técnica contundente.
+
+NO confundas preferencias de diseño con errores funcionales.
+
+================================================================================
+27. CIERRE Y AUTORIZACIÓN
+================================================================================
+
+Al terminar:
+
+- No realices cambios.
+- No crees commits.
+- No limpies archivos.
+- No instales dependencias.
+- No corrijas hallazgos.
+- No ejecutes acciones adicionales.
+
+Entrega el informe completo.
+
+Finaliza indicando claramente:
+
+A. ¿La aplicación está estable según la evidencia disponible?
+
+B. ¿Existe algún problema crítico o alto?
+
+C. ¿Se recomienda detener el desarrollo de nuevas funciones temporalmente?
+
+D. ¿Cuál es la primera fase de corrección recomendada?
+
+E. ¿Qué archivos deberían modificarse en esa primera fase?
+
+F. ¿Cuáles son las pruebas que deberán ejecutarse antes de autorizar cambios?
+
+G. Confirmación explícita:
+   "AUDITORÍA COMPLETADA EN MODO SOLO LECTURA.
+    NO SE MODIFICÓ NINGÚN ARCHIVO.
+    NO SE REALIZARON COMMITS.
+    NO SE ALTERARON DATOS DEL USUARIO."
+
+Si no puedes confirmar alguna de estas afirmaciones, indícalo con precisión.
+
+================================================================================
+FIN DEL PROMPT
+================================================================================
