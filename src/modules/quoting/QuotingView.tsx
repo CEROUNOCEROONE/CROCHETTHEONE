@@ -118,6 +118,8 @@ function roundSuggestedForCurrency(
 }
 
 const MARKUP_PRESETS = [20, 30, 40, 50];
+const TITLE_REQUIRED_MESSAGE =
+  'Ingresa un título o referencia para guardar la cotización.';
 
 export const QuotingView: React.FC<QuotingViewProps> = ({
   initialProjectId = null,
@@ -146,10 +148,18 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   } = useWorkshopData();
 
   const snapDeckRef = useRef<SnapDeckHandle | null>(null);
+  const detailsSectionRef = useRef<HTMLElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const activeSlideIdRef = useRef<string>('quote-overview');
+  const pendingFocusCleanupRef = useRef<(() => void) | null>(null);
+  const readyNoticeTimerRef = useRef<number | null>(null);
   const viewportProfile = useViewportProfile();
 
   const [activeTab, setActiveTab] = useState<QuotingTab>('simulator');
   const [quoteQuotaGateOpen, setQuoteQuotaGateOpen] = useState(false);
+  const [confirmNewQuoteOpen, setConfirmNewQuoteOpen] = useState(false);
+  const [newQuoteReadyNotice, setNewQuoteReadyNotice] = useState(false);
+  const [titleResetKey, setTitleResetKey] = useState(0);
   const realSavedQuotesCount = useMemo(
     () => countRealSavedQuotes(quotes),
     [quotes],
@@ -158,7 +168,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   // Estado del editor / simulador
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
   const [editingIsDemo, setEditingIsDemo] = useState<boolean | null>(null);
-  const [title, setTitle] = useState('Nueva cotización de taller');
+  const [title, setTitle] = useState('');
   const [projectId, setProjectId] = useState<string>('');
   const [clientId, setClientId] = useState<string>('');
   const [status, setStatus] = useState<QuoteStatus>('draft');
@@ -381,11 +391,147 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialProjectId, projects]);
 
+  useEffect(() => {
+    return () => {
+      pendingFocusCleanupRef.current?.();
+      pendingFocusCleanupRef.current = null;
+      if (readyNoticeTimerRef.current !== null) {
+        window.clearTimeout(readyNoticeTimerRef.current);
+        readyNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const clearReadyNotice = () => {
+    if (readyNoticeTimerRef.current !== null) {
+      window.clearTimeout(readyNoticeTimerRef.current);
+      readyNoticeTimerRef.current = null;
+    }
+    setNewQuoteReadyNotice(false);
+  };
+
+  const triggerReadyNotice = () => {
+    if (readyNoticeTimerRef.current !== null) {
+      window.clearTimeout(readyNoticeTimerRef.current);
+    }
+    setNewQuoteReadyNotice(true);
+    readyNoticeTimerRef.current = window.setTimeout(() => {
+      setNewQuoteReadyNotice(false);
+      readyNoticeTimerRef.current = null;
+    }, 2600);
+  };
+
+  const scrollAndFocusQuoteTitle = (wasDifferentSlide: boolean) => {
+    pendingFocusCleanupRef.current?.();
+    pendingFocusCleanupRef.current = null;
+
+    let cancelled = false;
+    let rafId: number | null = null;
+    let innerTimerId: number | null = null;
+
+    const cleanup = () => {
+      cancelled = true;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (innerTimerId !== null) {
+        window.clearTimeout(innerTimerId);
+        innerTimerId = null;
+      }
+    };
+    pendingFocusCleanupRef.current = cleanup;
+
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const runInternalScrollAndFocus = () => {
+      if (cancelled) return;
+      const sectionEl = detailsSectionRef.current;
+      const inputEl = titleInputRef.current;
+      const slideContainer = sectionEl?.closest(
+        '[data-snap-slide-id="quote-overview"]',
+      ) as HTMLElement | null;
+
+      let needsScrollWait = false;
+      if (slideContainer && sectionEl) {
+        const containerRect = slideContainer.getBoundingClientRect();
+        const sectionRect = sectionEl.getBoundingClientRect();
+        const rawTargetTop =
+          slideContainer.scrollTop + (sectionRect.top - containerRect.top) - 12;
+        const maxScrollTop = Math.max(
+          0,
+          slideContainer.scrollHeight - slideContainer.clientHeight,
+        );
+        const targetTop = Math.max(0, Math.min(rawTargetTop, maxScrollTop));
+        const delta = Math.abs(targetTop - slideContainer.scrollTop);
+        if (delta > 2) {
+          slideContainer.scrollTo({
+            top: targetTop,
+            behavior: reducedMotion ? 'auto' : 'smooth',
+          });
+          needsScrollWait = !reducedMotion && delta > 6;
+        }
+      }
+
+      const focusInput = () => {
+        if (cancelled) return;
+        const targetInput = titleInputRef.current ?? inputEl;
+        if (targetInput) {
+          try {
+            targetInput.focus({ preventScroll: true });
+          } catch {
+            targetInput.focus();
+          }
+        }
+        pendingFocusCleanupRef.current = null;
+      };
+
+      if (needsScrollWait) {
+        innerTimerId = window.setTimeout(focusInput, 240);
+      } else {
+        focusInput();
+      }
+    };
+
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const waitForDeckTransition = () => {
+      if (cancelled) return;
+      if (!wasDifferentSlide || reducedMotion) {
+        runInternalScrollAndFocus();
+        return;
+      }
+      const slideContainer = detailsSectionRef.current?.closest(
+        '[data-snap-slide-id="quote-overview"]',
+      ) as HTMLElement | null;
+      const track = slideContainer?.parentElement ?? null;
+      const elapsed =
+        (typeof performance !== 'undefined' ? performance.now() : Date.now()) -
+        startTime;
+
+      const settled =
+        !track ||
+        (Math.abs(track.scrollLeft) <= 2 && Math.abs(track.scrollTop) <= 2) ||
+        elapsed >= 420;
+
+      if (settled) {
+        runInternalScrollAndFocus();
+      } else {
+        rafId = window.requestAnimationFrame(waitForDeckTransition);
+      }
+    };
+
+    rafId = window.requestAnimationFrame(waitForDeckTransition);
+  };
+
   const resetSimulatorToNew = () => {
     const defaults = buildWorkshopDefaultPercents(settings);
     setEditingQuoteId(null);
     setEditingIsDemo(null);
-    setTitle('Nueva cotización de taller');
+    setTitle('');
+    setTitleResetKey((k) => k + 1);
     setProjectId('');
     setClientId('');
     setStatus('draft');
@@ -406,9 +552,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   };
 
   const handleLoadQuoteIntoEditor = (quote: Quote, asDuplicate = false) => {
+    clearReadyNotice();
     setActiveTab('simulator');
     setFeedback(null);
     setSharePreviewText(null);
+    activeSlideIdRef.current = 'quote-overview';
     snapDeckRef.current?.goToSlide('quote-overview');
     if (asDuplicate) {
       setEditingQuoteId(null);
@@ -653,10 +801,14 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
     const cleanTitle = title.trim();
     if (!cleanTitle) {
+      const wasDifferentSlide =
+        activeSlideIdRef.current !== 'quote-overview' || activeTab !== 'simulator';
       setFeedback({
         type: 'error',
-        message: 'Ingresa un título o referencia para guardar la cotización.',
+        message: TITLE_REQUIRED_MESSAGE,
       });
+      handleTabJump('simulator');
+      scrollAndFocusQuoteTitle(wasDifferentSlide);
       return;
     }
 
@@ -926,6 +1078,111 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
     ? quotes.find((q) => q.id === editingQuoteId) ?? null
     : null;
 
+  const hasUnsavedChanges = useMemo(() => {
+    if (editingQuoteId && editingQuoteObj) {
+      const baseMinutes =
+        editingQuoteObj.effectiveMinutesUsed ??
+        Math.round(editingQuoteObj.effectiveHoursUsed * 60);
+      const baseRent = editingQuoteObj.rentPercent ?? settings.rentCostPercent;
+      const baseElec =
+        editingQuoteObj.electricityPercent ?? settings.electricityCostPercent;
+      const baseInet =
+        editingQuoteObj.internetPercent ?? settings.internetCostPercent;
+      const baseWaste =
+        editingQuoteObj.wasteContingencyPercent ??
+        settings.wasteAndContingencyPercent;
+      const baseManualIndirect =
+        editingQuoteObj.manualIndirectCostsCOP ??
+        Math.max(
+          0,
+          editingQuoteObj.indirectCostsCOP -
+            (editingQuoteObj.fixedServicesIndirectCOP ?? 0) -
+            (editingQuoteObj.wasteContingencyCOP ?? 0),
+        );
+      const baseAgreed =
+        editingQuoteObj.finalAgreedPriceCOP !== null
+          ? String(editingQuoteObj.finalAgreedPriceCOP)
+          : '';
+
+      if (
+        title !== editingQuoteObj.title ||
+        (projectId || null) !== editingQuoteObj.projectId ||
+        (clientId || null) !== editingQuoteObj.clientId ||
+        status !== editingQuoteObj.status ||
+        effectiveMinutes !== baseMinutes ||
+        hourlyRateRaw !== String(editingQuoteObj.hourlyRateCOP) ||
+        rentPercentRaw !== String(baseRent) ||
+        electricityPercentRaw !== String(baseElec) ||
+        internetPercentRaw !== String(baseInet) ||
+        wastePercentRaw !== String(baseWaste) ||
+        manualIndirectRaw !== String(baseManualIndirect) ||
+        packagingRaw !== String(editingQuoteObj.packagingCostCOP) ||
+        shippingRaw !== String(editingQuoteObj.shippingOrOtherCOP) ||
+        markupPercentRaw !== String(editingQuoteObj.markupPercent) ||
+        finalAgreedPriceRaw !== baseAgreed ||
+        notes !== editingQuoteObj.notes ||
+        materialLines.length !== editingQuoteObj.materialsSnapshot.length
+      ) {
+        return true;
+      }
+
+      return materialLines.some((line, idx) => {
+        const orig = editingQuoteObj.materialsSnapshot[idx];
+        if (!orig) return true;
+        return (
+          line.variantId !== orig.variantId ||
+          line.label !== orig.label ||
+          line.colorName !== orig.colorName ||
+          line.unit !== (orig.unit ?? 'unit') ||
+          line.quantity !== String(orig.quantity) ||
+          line.unitCostCOP !== String(orig.unitCostCOP)
+        );
+      });
+    }
+
+    const defaults = buildWorkshopDefaultPercents(settings);
+    return (
+      title.trim() !== '' ||
+      projectId !== '' ||
+      clientId !== '' ||
+      status !== 'draft' ||
+      effectiveMinutes !== 120 ||
+      hourlyRateRaw !== String(defaults.hourlyRateCOP) ||
+      rentPercentRaw !== String(defaults.rentPercent) ||
+      electricityPercentRaw !== String(defaults.electricityPercent) ||
+      internetPercentRaw !== String(defaults.internetPercent) ||
+      wastePercentRaw !== String(defaults.wasteContingencyPercent) ||
+      manualIndirectRaw !== '0' ||
+      packagingRaw !== '0' ||
+      shippingRaw !== '0' ||
+      markupPercentRaw !== String(defaults.markupPercent) ||
+      finalAgreedPriceRaw.trim() !== '' ||
+      notes.trim() !== '' ||
+      materialLines.length > 0
+    );
+  }, [
+    editingQuoteId,
+    editingQuoteObj,
+    settings,
+    title,
+    projectId,
+    clientId,
+    status,
+    effectiveMinutes,
+    hourlyRateRaw,
+    rentPercentRaw,
+    electricityPercentRaw,
+    internetPercentRaw,
+    wastePercentRaw,
+    manualIndirectRaw,
+    packagingRaw,
+    shippingRaw,
+    markupPercentRaw,
+    finalAgreedPriceRaw,
+    notes,
+    materialLines,
+  ]);
+
   // Paginación adaptativa de líneas de material e historial de cotizaciones
   const materialLinesPageSize = pickPageSize(viewportProfile, {
     mobileCompact: 2,
@@ -956,13 +1213,33 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   const handleTabJump = (tab: QuotingTab) => {
     setActiveTab(tab);
     if (tab === 'simulator') {
+      activeSlideIdRef.current = 'quote-overview';
       snapDeckRef.current?.goToSlide('quote-overview');
     } else {
+      activeSlideIdRef.current = 'quote-history-0';
       snapDeckRef.current?.goToSlide('quote-history-0');
     }
   };
 
+  const startNewQuoteAndFocus = () => {
+    const wasDifferentSlide =
+      activeSlideIdRef.current !== 'quote-overview' || activeTab !== 'simulator';
+    resetSimulatorToNew();
+    handleTabJump('simulator');
+    triggerReadyNotice();
+    scrollAndFocusQuoteTitle(wasDifferentSlide);
+  };
+
+  const handleRequestNewQuote = () => {
+    if (editingQuoteId !== null || hasUnsavedChanges) {
+      setConfirmNewQuoteOpen(true);
+      return;
+    }
+    startNewQuoteAndFocus();
+  };
+
   const handleSlideChange = (slideId: string) => {
+    activeSlideIdRef.current = slideId;
     if (slideId.startsWith('quote-history')) {
       setActiveTab('history');
     } else {
@@ -1037,10 +1314,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      resetSimulatorToNew();
-                      handleTabJump('simulator');
-                    }}
+                    onClick={handleRequestNewQuote}
                     className="inline-flex min-h-[38px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white hover:bg-teal-800 whitespace-nowrap sm:w-auto"
                   >
                     <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -1073,7 +1347,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
         >
           {/* PANTALLA 1: RESUMEN Y DATOS PRINCIPALES DE LA COTIZACIÓN */}
           <SnapSlide id="quote-overview" label="Resumen y datos">
-            <div className="space-y-4">
+            <div className="space-y-4 pb-36 lg:pb-0">
               <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1138,7 +1412,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={resetSimulatorToNew}
+                    onClick={handleRequestNewQuote}
                     className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap"
                   >
                     <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1162,10 +1436,38 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                 </div>
               )}
 
-              <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-                <h3 className="font-display text-base font-semibold text-slate-900">
-                  1. Datos de la cotización
-                </h3>
+              <section
+                ref={detailsSectionRef}
+                className={`rounded-xl border bg-white p-4 transition-colors sm:p-5 ${
+                  newQuoteReadyNotice
+                    ? 'border-teal-400 ring-2 ring-teal-500/20'
+                    : 'border-slate-200'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-display text-base font-semibold text-slate-900">
+                    1. Datos de la cotización
+                  </h3>
+                  {editingQuoteId ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                      <Edit3 className="h-3 w-3 text-teal-700" aria-hidden="true" />
+                      <span>Editando guardada</span>
+                    </span>
+                  ) : newQuoteReadyNotice ? (
+                    <span
+                      role="status"
+                      aria-live="polite"
+                      className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-800"
+                    >
+                      <Check className="h-3 w-3" aria-hidden="true" />
+                      <span>Nueva cotización lista</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-slate-500">
+                      Nueva cotización
+                    </span>
+                  )}
+                </div>
                 <p className="mt-0.5 text-xs text-slate-500">
                   Simula un diseño libre o importa tiempos y materiales desde un proyecto existente.
                 </p>
@@ -1179,13 +1481,36 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                       Título o nombre de la pieza
                     </label>
                     <input
+                      key={titleResetKey}
+                      ref={titleInputRef}
                       id="quote-title"
                       type="text"
                       required
                       value={title}
-                      onChange={(e) => setTitle(e.target.value)}
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setTitle(nextVal);
+                        if (
+                          nextVal.trim().length > 0 &&
+                          feedback?.message === TITLE_REQUIRED_MESSAGE
+                        ) {
+                          setFeedback(null);
+                        }
+                      }}
+                      onInvalid={(e) => {
+                        e.preventDefault();
+                        const wasDifferentSlide =
+                          activeSlideIdRef.current !== 'quote-overview' ||
+                          activeTab !== 'simulator';
+                        setFeedback({
+                          type: 'error',
+                          message: TITLE_REQUIRED_MESSAGE,
+                        });
+                        handleTabJump('simulator');
+                        scrollAndFocusQuoteTitle(wasDifferentSlide);
+                      }}
                       placeholder="Ej. Amigurumi Personalizado — Conejo 25 cm"
-                      className="mt-1 min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                      className="mt-1 min-h-[42px] w-full scroll-mt-4 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                     />
                   </div>
 
@@ -2682,6 +3007,35 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
           </>
         )}
       </ModalDialog>
+
+      {/* Modal de confirmación para descartar borrador o salir del modo edición */}
+      <ConfirmModal
+        isOpen={confirmNewQuoteOpen}
+        title={
+          editingQuoteId
+            ? hasUnsavedChanges
+              ? '¿Descartar cambios de la edición?'
+              : '¿Salir del modo edición?'
+            : '¿Descartar cotización en curso?'
+        }
+        description={
+          editingQuoteId
+            ? hasUnsavedChanges
+              ? `Estás editando "${editingQuoteObj?.title ?? (title.trim() || 'esta cotización')}". La cotización guardada no se alterará, pero perderás los cambios sin guardar si inicias una nueva cotización.`
+              : `Estás editando "${editingQuoteObj?.title ?? (title.trim() || 'esta cotización')}". La cotización guardada permanecerá intacta y abrirás una nueva cotización en blanco.`
+            : 'Tienes datos ingresados en el simulador que aún no se han guardado. Si inicias una nueva cotización, estos cambios se perderán.'
+        }
+        confirmLabel={
+          hasUnsavedChanges ? 'Descartar y crear nueva' : 'Iniciar nueva cotización'
+        }
+        cancelLabel="Seguir editando"
+        variant={hasUnsavedChanges ? 'danger' : 'default'}
+        onConfirm={() => {
+          setConfirmNewQuoteOpen(false);
+          startNewQuoteAndFocus();
+        }}
+        onCancel={() => setConfirmNewQuoteOpen(false)}
+      />
 
       {/* Modal de confirmación para eliminar cotización */}
       <ConfirmModal
