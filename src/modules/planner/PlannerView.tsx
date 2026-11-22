@@ -1917,7 +1917,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                   value={taskNotes}
                   onChange={(e) => setTaskNotes(e.target.value)}
                   placeholder="Detalles de ganchillo, punto o verificación..."
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  className="textarea-autogrow mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             </div>
@@ -2288,7 +2288,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({
                   value={remMessage}
                   onChange={(e) => setRemMessage(e.target.value)}
                   placeholder="Qué verificar o a quién escribir cuando llegue la fecha..."
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  className="textarea-autogrow mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             </div>

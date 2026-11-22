@@ -2250,7 +2250,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                   value={clientNotes}
                   onChange={(e) => setClientNotes(e.target.value)}
                   placeholder="Ej. Prefiere tonos pastel, empaque para regalo..."
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  className="textarea-autogrow mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             </div>
@@ -2737,7 +2737,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
                   value={planNotes}
                   onChange={(e) => setPlanNotes(e.target.value)}
                   placeholder="Condiciones de entrega, envío o acuerdos especiales..."
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  className="textarea-autogrow mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             </div>
@@ -3051,6 +3051,7 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
             <textarea
               readOnly
               rows={11}
+              aria-label="Resumen de estado de cuenta para cliente"
               value={statementText}
               className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-relaxed text-slate-800 focus:outline-none"
             />

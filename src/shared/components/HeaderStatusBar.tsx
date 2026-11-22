@@ -591,7 +591,7 @@ export const HeaderStatusBar: React.FC<HeaderStatusBarProps> = ({
 
             {/* PESTAÑA 1: PENDIENTES */}
             {activeTab === 'pending' && (
-              <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-100">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-slate-100">
                 {caps.supported && caps.permission === 'default' && (
                     <div className="flex items-center justify-between gap-2 bg-teal-50/70 px-4 py-2.5 text-[11px]">
                       <span className="text-teal-950">
@@ -749,7 +749,7 @@ export const HeaderStatusBar: React.FC<HeaderStatusBarProps> = ({
 
             {/* PESTAÑA 2: HISTORIAL */}
             {activeTab === 'history' && (
-              <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-100">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-slate-100">
                 {centerState.history.length === 0 ? (
                   <div className="px-4 py-8 text-center">
                     <History
@@ -824,7 +824,7 @@ export const HeaderStatusBar: React.FC<HeaderStatusBarProps> = ({
 
             {/* PESTAÑA 3: PERMISOS Y PREFERENCIAS RÁPIDAS */}
             {activeTab === 'prefs' && (
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-3 text-xs">
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2">
                   <div className="flex items-start gap-2.5">
                     {caps.permission === 'granted' ? (

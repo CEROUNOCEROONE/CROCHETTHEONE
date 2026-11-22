@@ -2535,15 +2535,19 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">
+                <label
+                  htmlFor="pending-material-notes"
+                  className="block text-xs font-semibold text-slate-700"
+                >
                   Notas
                 </label>
                 <textarea
+                  id="pending-material-notes"
                   rows={2}
                   value={pendNotes}
                   onChange={(e) => setPendNotes(e.target.value)}
                   placeholder="Referencia, lote de color o detalle de entrega..."
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900"
+                  className="textarea-autogrow mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900"
                 />
               </div>
 
@@ -2757,15 +2761,19 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">
+                <label
+                  htmlFor="workshop-note-content"
+                  className="block text-xs font-semibold text-slate-700"
+                >
                   {noteType === 'shopping_list' ? 'Descripción / observaciones' : 'Contenido'}
                 </label>
                 <textarea
+                  id="workshop-note-content"
                   rows={4}
                   value={noteContent}
                   onChange={(e) => setNoteContent(e.target.value)}
                   placeholder="Escribe aquí los detalles..."
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900"
+                  className="textarea-autogrow-lg mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900"
                 />
               </div>
 

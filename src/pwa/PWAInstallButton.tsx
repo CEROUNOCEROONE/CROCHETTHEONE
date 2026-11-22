@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Share, X } from 'lucide-react';
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
+import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
 import { usePWAInstall } from './usePWAInstall.ts';
 
 interface PWAInstallButtonProps {
@@ -10,8 +11,10 @@ interface PWAInstallButtonProps {
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   compact = false,
 }) => {
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const { isInstallable, isInstalled, isIOS, isPrompting, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
+
+  useEscapeKey(showIOSGuide, () => setShowIOSGuide(false));
 
   if (isInstalled) {
     return null;
@@ -21,7 +24,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
     return (
       <button
         type="button"
-        onClick={() => void install()}
+        aria-disabled={isPrompting || undefined}
+        onClick={() => {
+          if (!isPrompting) {
+            void install();
+          }
+        }}
         className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 whitespace-nowrap shrink-0"
       >
         <Download className="h-4 w-4 shrink-0" aria-hidden="true" />

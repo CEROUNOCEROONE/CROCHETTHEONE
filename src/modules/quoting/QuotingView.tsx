@@ -68,7 +68,7 @@ import {
 import { FeatureGate } from '@/src/shared/components/FeatureGate.tsx';
 import { StatusBadge } from '@/src/shared/components/StatusBadge.tsx';
 import { UsdEquiv } from '@/src/shared/components/UsdEquiv.tsx';
-import { useEscapeKey } from '@/src/shared/hooks/useEscapeKey.ts';
+import { ModalDialog } from '@/src/shared/components/ModalDialog.tsx';
 import {
   chunkIntoPages,
   pickPageSize,
@@ -209,10 +209,6 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
   const [quoteToDelete, setQuoteToDelete] = useState<Quote | null>(null);
   const [busyQuoteId, setBusyQuoteId] = useState<string | null>(null);
 
-  useEscapeKey(
-    sharePreviewText !== null && !quoteToDelete && !quoteQuotaGateOpen,
-    () => setSharePreviewText(null),
-  );
 
   const projectById = useMemo(
     () => new Map(projects.map((p) => [p.id, p])),
@@ -1913,7 +1909,7 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Ej. Tiempo de entrega estimado: 8 días hábiles. Requiere 50% de anticipo."
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                  className="textarea-autogrow mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                 />
               </div>
             </section>
@@ -2623,14 +2619,14 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       </form>
 
       {/* Modal con texto compartible para cliente */}
-      {sharePreviewText !== null && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Resumen listo para enviar al cliente"
-        >
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-xl sm:p-6">
+      <ModalDialog
+        isOpen={sharePreviewText !== null}
+        onClose={() => setSharePreviewText(null)}
+        ariaLabel="Resumen listo para enviar al cliente"
+        panelClassName="max-w-lg p-5 sm:p-6"
+      >
+        {sharePreviewText !== null && (
+          <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Copy className="h-4 w-4 text-teal-700" aria-hidden="true" />
@@ -2683,9 +2679,9 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
                 <span>Copiar texto</span>
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </ModalDialog>
 
       {/* Modal de confirmación para eliminar cotización */}
       <ConfirmModal

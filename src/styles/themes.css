@@ -74,6 +74,11 @@
   --color-rose-800: #fecdd3;
   --color-rose-900: #ffe4e6;
 
+  --app-accent-color: var(--color-teal-600);
+  --app-invalid-border: var(--color-rose-700);
+  --app-scrollbar-thumb: #64748b;
+  --app-scrollbar-track: var(--color-slate-100);
+
   background-color: var(--color-slate-50);
 }
 
@@ -135,6 +140,11 @@
   --color-rose-700: #b01d33;
   --color-rose-800: #921a2d;
   --color-rose-900: #741625;
+
+  --app-accent-color: var(--color-teal-700);
+  --app-invalid-border: var(--color-rose-600);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
 
   background-color: var(--color-slate-50);
 }
@@ -198,6 +208,11 @@
   --color-rose-800: #fdc3cd;
   --color-rose-900: #feddE3;
 
+  --app-accent-color: var(--color-teal-600);
+  --app-invalid-border: var(--color-rose-700);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
+
   background-color: var(--color-slate-50);
 }
 
@@ -259,6 +274,11 @@
   --color-rose-700: #b91c1c;
   --color-rose-800: #991b1b;
   --color-rose-900: #7f1d1d;
+
+  --app-accent-color: var(--color-teal-700);
+  --app-invalid-border: var(--color-rose-600);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
 
   background-color: var(--color-slate-50);
 }
@@ -322,6 +342,11 @@
   --color-rose-800: #fecdd3;
   --color-rose-900: #ffe4e6;
 
+  --app-accent-color: var(--color-teal-600);
+  --app-invalid-border: var(--color-rose-700);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
+
   background-color: var(--color-slate-50);
 }
 
@@ -383,6 +408,11 @@
   --color-rose-700: #a51820;
   --color-rose-800: #87141b;
   --color-rose-900: #6b1117;
+
+  --app-accent-color: var(--color-teal-700);
+  --app-invalid-border: var(--color-rose-600);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
 
   background-color: var(--color-slate-50);
 }
@@ -446,6 +476,11 @@
   --color-rose-800: #ffb4ad;
   --color-rose-900: #ffe4e2;
 
+  --app-accent-color: var(--color-teal-600);
+  --app-invalid-border: var(--color-rose-700);
+  --app-scrollbar-thumb: var(--color-slate-400);
+  --app-scrollbar-track: var(--color-slate-100);
+
   background-color: var(--color-slate-50);
 }
 
@@ -485,7 +520,8 @@
   }
 
   /* Fondos de superposición (modales): oscuros, no claros */
-  :where(:root[data-theme="pastel-oscuro"]) .bg-slate-900\/50 {
+  :where(:root[data-theme="pastel-oscuro"]) .bg-slate-900\/50,
+  :where(:root[data-theme="pastel-oscuro"]) dialog.app-modal-dialog::backdrop {
     background-color: rgb(0 0 0 / 0.6);
   }
   :where(:root[data-theme="pastel-oscuro"]) .bg-slate-950\/40 {
@@ -601,7 +637,8 @@
     background-color: rgb(30 41 59 / 0.7);
   }
 
-  :where(:root[data-theme="clasico-oscuro"]) .bg-slate-900\/50 {
+  :where(:root[data-theme="clasico-oscuro"]) .bg-slate-900\/50,
+  :where(:root[data-theme="clasico-oscuro"]) dialog.app-modal-dialog::backdrop {
     background-color: rgb(2 6 23 / 0.65);
   }
   :where(:root[data-theme="clasico-oscuro"]) .bg-slate-950\/40 {
@@ -742,7 +779,8 @@
     background-color: rgb(19 28 61 / 0.7);
   }
 
-  :where(:root[data-theme="halloween-oscuro"]) .bg-slate-900\/50 {
+  :where(:root[data-theme="halloween-oscuro"]) .bg-slate-900\/50,
+  :where(:root[data-theme="halloween-oscuro"]) dialog.app-modal-dialog::backdrop {
     background-color: rgb(4 7 20 / 0.7);
   }
   :where(:root[data-theme="halloween-oscuro"]) .bg-slate-950\/40 {
@@ -967,7 +1005,8 @@
     background-color: rgb(34 25 26 / 0.7);
   }
 
-  :where(:root[data-theme="navidad-oscuro"]) .bg-slate-900\/50 {
+  :where(:root[data-theme="navidad-oscuro"]) .bg-slate-900\/50,
+  :where(:root[data-theme="navidad-oscuro"]) dialog.app-modal-dialog::backdrop {
     background-color: rgb(10 6 7 / 0.72);
   }
   :where(:root[data-theme="navidad-oscuro"]) .bg-slate-950\/40 {

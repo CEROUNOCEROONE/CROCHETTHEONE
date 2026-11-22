@@ -678,6 +678,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                     </label>
                     <select
                       id="workshopCurrency"
+                      aria-describedby={currency !== 'USD' ? 'workshopCurrency-hint' : undefined}
                       value={currency}
                       onChange={(e) => {
                         const next = e.target.value as WorkshopCurrencyCode;
@@ -708,7 +709,10 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                       </optgroup>
                     </select>
                     {currency !== 'USD' && (
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 tabular-nums">
+                      <p
+                        id="workshopCurrency-hint"
+                        className="mt-1.5 text-[11px] leading-relaxed text-slate-500 tabular-nums"
+                      >
                         {usdRatesStatus === 'loading' && !usdRates
                           ? 'Consultando tasa de referencia USD del día...'
                           : formatUsdRatePerUnit(currency, usdRates)
@@ -1637,7 +1641,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               name="importStrategy"
                               checked={selectedStrategy === 'replace_all'}
                               onChange={() => setSelectedStrategy('replace_all')}
-                              className="mt-0.5 text-rose-700"
+                              className="mt-0.5 text-rose-700 accent-rose-700"
                             />
                             <span>
                               <strong className="text-rose-800">

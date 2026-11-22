@@ -11,10 +11,38 @@
   html {
     font-family: var(--font-sans);
     -webkit-tap-highlight-color: transparent;
+    accent-color: var(--app-accent-color, var(--color-teal-700));
+    scrollbar-color: var(--app-scrollbar-thumb, #64748b) var(--app-scrollbar-track, #f1f5f9);
   }
 
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme="pastel-claro"],
+  :root[data-theme="halloween-claro"],
+  :root[data-theme="navidad-claro"] {
+    --app-scrollbar-thumb: #000000;
+    --app-scrollbar-track: #ffffff;
+  }
+
+  :root[data-theme="clasico-oscuro"],
+  :root[data-theme="pastel-oscuro"],
+  :root[data-theme="halloween-oscuro"],
+  :root[data-theme="navidad-oscuro"] {
+    --app-scrollbar-thumb: #ffffff;
+    --app-scrollbar-track: #000000;
   }
 }
 
@@ -110,8 +138,10 @@
   }
 }
 
-/* Modal <dialog> top-layer scroll containment */
-dialog:modal {
+/* Modal <dialog> and overlay dialog scroll containment */
+dialog:modal,
+[role="dialog"][aria-modal="true"],
+[role="dialog"][aria-modal="true"] .overflow-y-auto {
   overscroll-behavior: contain;
 }
 
@@ -119,3 +149,37 @@ dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
 }
+
+/* Progressive post-interaction validation feedback (:user-invalid) */
+form :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),
+  select,
+  textarea
+):not(:disabled):not([readonly]):user-invalid {
+  border-color: var(--app-invalid-border, var(--color-rose-600));
+}
+
+form :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),
+  select,
+  textarea
+):not(:disabled):not([readonly]):user-invalid:focus {
+  border-color: var(--app-invalid-border, var(--color-rose-600));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-invalid-border, var(--color-rose-600)) 25%, transparent);
+}
+
+/* Progressive auto-growing textareas for notes and descriptions */
+@supports (field-sizing: content) {
+  .textarea-autogrow {
+    field-sizing: content;
+    min-block-size: 4.5rem;
+    max-block-size: 11rem;
+  }
+
+  .textarea-autogrow-lg {
+    field-sizing: content;
+    min-block-size: 7rem;
+    max-block-size: 14rem;
+  }
+}
+

@@ -7,6 +7,7 @@ import type { SettingsStepId } from '@/src/modules/settings/WorkshopSettingsView
 import { FloatingTimerDock } from '@/src/modules/timer/FloatingTimerDock.tsx';
 import { AppShell } from '@/src/shared/components/AppShell.tsx';
 import { HeaderStatusBar } from '@/src/shared/components/HeaderStatusBar.tsx';
+import { useFormAriaInvalidSync } from '@/src/shared/hooks/useFormAriaInvalidSync.ts';
 import {
   getRouteDefinition,
   type ModuleRouteId,
@@ -120,6 +121,8 @@ function AppWorkspace() {
   );
   const { settings, activeTimerSession, error: dataError, refresh } =
     useWorkshopData();
+
+  useFormAriaInvalidSync();
 
   // Resolver deep-links al abrir desde notificaciones Android/PWA
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import { OfflineIndicator } from '@/src/pwa/OfflineIndicator.tsx';
@@ -59,6 +59,9 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const isDesktopViewport = useIsDesktopViewport();
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const drawerCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasDrawerOpenRef = useRef(false);
   const currentRoute = getRouteDefinition(activeRoute);
   const mobileBottomRoutes = MODULE_ROUTES.filter((r) => r.showInMobileBottomBar);
 
@@ -72,6 +75,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     if (!mobileDrawerOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         setMobileDrawerOpen(false);
       }
     };
@@ -79,9 +83,28 @@ export const AppShell: React.FC<AppShellProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mobileDrawerOpen]);
 
+  useEffect(() => {
+    if (mobileDrawerOpen && !wasDrawerOpenRef.current) {
+      const frameId = window.requestAnimationFrame(() => {
+        drawerCloseButtonRef.current?.focus({ preventScroll: true });
+      });
+      wasDrawerOpenRef.current = true;
+      return () => window.cancelAnimationFrame(frameId);
+    }
+
+    if (!mobileDrawerOpen && wasDrawerOpenRef.current) {
+      wasDrawerOpenRef.current = false;
+      if (!isDesktopViewport) {
+        menuTriggerRef.current?.focus({ preventScroll: true });
+      }
+    }
+  }, [mobileDrawerOpen, isDesktopViewport]);
+
   const handleNavigate = (id: ModuleRouteId) => {
     onSelectRoute(id);
-    setMobileDrawerOpen(false);
+    if (mobileDrawerOpen) {
+      setMobileDrawerOpen(false);
+    }
   };
 
   return (
@@ -161,12 +184,16 @@ export const AppShell: React.FC<AppShellProps> = ({
       </aside>
 
       {/* Columna principal bloqueada al viewport */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        inert={mobileDrawerOpen}
+      >
         {/* Barra superior fija sin solapamiento */}
         <header className="z-30 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 lg:h-16">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <button
+                ref={menuTriggerRef}
                 type="button"
                 onClick={() => setMobileDrawerOpen(true)}
                 className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors duration-150 hover:bg-slate-100 active:scale-95 lg:hidden"
@@ -204,6 +231,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         <div
           data-slot="timer-dock-mobile"
           className="z-30 shrink-0 border-t border-slate-200/80 bg-slate-50 px-3 py-1.5 lg:hidden"
+          inert={mobileDrawerOpen}
         >
           {timerDockSlot}
         </div>
@@ -213,6 +241,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       <nav
         aria-label="Accesos principales móviles"
         className="z-40 shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md pb-safe lg:hidden"
+        inert={mobileDrawerOpen}
       >
         <div className="grid h-16 grid-cols-5 items-center">
           {mobileBottomRoutes.map((route) => {
@@ -248,13 +277,14 @@ export const AppShell: React.FC<AppShellProps> = ({
         id="mobile-modules-drawer"
         className={`fixed inset-0 z-50 flex transition-[visibility] lg:hidden ${
           mobileDrawerOpen
-            ? 'visible pointer-events-auto duration-300'
+            ? 'visible pointer-events-auto duration-0'
             : 'invisible pointer-events-none duration-250'
         }`}
         role="dialog"
         aria-modal="true"
         aria-hidden={!mobileDrawerOpen}
         aria-label="Menú completo de módulos"
+        inert={!mobileDrawerOpen}
       >
         <div
           className={`fixed inset-0 bg-slate-900/50 transition-opacity ease-out ${
@@ -285,6 +315,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                 </span>
               </div>
               <button
+                ref={drawerCloseButtonRef}
                 type="button"
                 onClick={() => setMobileDrawerOpen(false)}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"

@@ -1355,7 +1355,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     placeholder="Detalles de tamaño, colores o personalización..."
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
+                    className="textarea-autogrow mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-teal-700 focus:outline-none"
                   />
                 </div>
 

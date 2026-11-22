@@ -207,7 +207,7 @@ export function SmartAutocompleteInput<T = unknown>({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (disabled) return;
+    if (disabled || e.nativeEvent.isComposing || e.keyCode === 229) return;
 
     if (e.key === 'ArrowDown') {
       if (!isOpen) {
