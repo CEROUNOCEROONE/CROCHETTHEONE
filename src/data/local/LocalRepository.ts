@@ -606,6 +606,15 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               fail(new Error('La moneda del taller cambió en otra pestaña. Actualiza la pantalla antes de guardar.'));
               return;
             }
+            // The hourly rate lives in workshop_settings, which is excluded
+            // from the record-count guard below. It is a monetary amount too:
+            // changing COP to VES without conversion must not relabel it.
+            if (Number(latest.hourlyRateCOP) > 0) {
+              fail(new Error(
+                'No se puede cambiar la moneda mientras exista una tarifa por hora mayor que cero. La tarifa actual no se convierte automáticamente. Conserva la moneda o establece primero la tarifa en cero y guárdala antes de cambiar de moneda.',
+              ));
+              return;
+            }
             const storesToCheck = DATA_STORES_TOPOLOGICAL_ORDER.filter(
               (storeName) => storeName !== 'workshop_settings',
             );
