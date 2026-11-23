@@ -390,11 +390,36 @@ export async function applyBackupImport(
 
   const { envelope } = inspection;
 
+  // R-02 containment: do not attempt to reconcile financial/inventory ledgers
+  // through an ID-based overwrite. They require domain-specific replay rules.
+  if (strategy === 'merge_overwrite') {
+    const sensitiveStores: WorkshopStoreName[] = [
+      'material_variants',
+      'inventory_reservations',
+      'inventory_movements',
+      'purchase_receipts',
+      'pending_materials',
+      'shopping_list_items',
+      'payment_plans',
+      'payment_installments',
+      'financial_transactions',
+    ];
+    const affected = sensitiveStores.filter((name) => (envelope.data[name]?.length ?? 0) > 0);
+    if (affected.length > 0) {
+      throw new Error(
+        'Por seguridad, la fusión de respaldos con inventario o pagos está temporalmente bloqueada. ' +
+        'No se modificó ningún dato. Utiliza un respaldo completo y la opción de reemplazo protegido ' +
+        'solo si deseas restaurar el taller entero.',
+      );
+    }
+  }
+
   return runAtomicTransaction<BackupImportOutcome>(
     DATA_STORES_TOPOLOGICAL_ORDER,
     'readwrite',
     (tx, done, fail) => {
       const existingByStore = new Map<WorkshopStoreName, Set<string>>();
+      const localRecordsByStore = new Map<WorkshopStoreName, BaseEntity[]>();
       let existingLocalSettings: WorkshopSettings | null = null;
       let pending = DATA_STORES_TOPOLOGICAL_ORDER.length + 1;
       let aborted = false;
@@ -417,7 +442,7 @@ export async function applyBackupImport(
       };
 
       for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
-        const req = tx.objectStore(storeName).getAllKeys();
+        const req = tx.objectStore(storeName).getAll();
         req.onerror = () => {
           if (!aborted) {
             aborted = true;
@@ -426,11 +451,9 @@ export async function applyBackupImport(
         };
         req.onsuccess = () => {
           if (aborted) return;
-          const keys = (req.result as IDBValidKey[]) ?? [];
-          existingByStore.set(
-            storeName,
-            new Set(keys.map((k) => String(k))),
-          );
+          const rows = (req.result as BaseEntity[]) ?? [];
+          localRecordsByStore.set(storeName, rows);
+          existingByStore.set(storeName, new Set(rows.map((row) => row.id)));
           pending -= 1;
           if (pending === 0) {
             executeWrite();
@@ -439,6 +462,37 @@ export async function applyBackupImport(
       }
 
       function executeWrite() {
+        if (strategy === 'merge_overwrite') {
+          // Validate against the actual transactional snapshot, not the earlier inspection.
+          const proposed: Partial<Record<WorkshopStoreName, BaseEntity[]>> = {};
+          for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
+            const local = localRecordsByStore.get(storeName) ?? [];
+            const incoming = envelope.data[storeName] ?? [];
+            const merged = new Map(local.map((row) => [row.id, row]));
+            for (const record of incoming) {
+              const current = merged.get(record.id);
+              if (current) {
+                const currentTime = Date.parse(current.updatedAt);
+                const incomingTime = Date.parse(record.updatedAt);
+                if (!Number.isFinite(currentTime) || !Number.isFinite(incomingTime) ||
+                    incomingTime <= currentTime) {
+                  fail(new Error(
+                    `Fusión detenida: el registro "${record.id}" de "${storeName}" no es más reciente que el dato local. No se modificó ningún dato.`,
+                  ));
+                  return;
+                }
+              }
+              merged.set(record.id, record);
+            }
+            proposed[storeName] = [...merged.values()];
+          }
+          const errors = validateCrossRecordIntegrity(proposed);
+          if (errors.length > 0) {
+            fail(new Error(`Fusión detenida por integridad: ${errors[0]}. No se modificó ningún dato.`));
+            return;
+          }
+        }
+
         let insertedCount = 0;
         let updatedCount = 0;
         let skippedCount = 0;
