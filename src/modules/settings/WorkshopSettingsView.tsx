@@ -224,6 +224,11 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     useState<BackupImportStrategy>('append_new');
   const [confirmImportOpen, setConfirmImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [safetyBackupBusy, setSafetyBackupBusy] = useState(false);
+  const [safetyBackupGenerated, setSafetyBackupGenerated] = useState(false);
+  const [safetyBackupSaved, setSafetyBackupSaved] = useState(false);
+  const [safetyBackupRecordCount, setSafetyBackupRecordCount] = useState<number | null>(null);
+  const [safetyBackupError, setSafetyBackupError] = useState<string | null>(null);
 
   useEffect(() => {
     setWorkshopName(settings.workshopName);
@@ -406,6 +411,48 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     }
   };
 
+  const resetSafetyBackupConfirmation = () => {
+    setSafetyBackupGenerated(false);
+    setSafetyBackupSaved(false);
+    setSafetyBackupRecordCount(null);
+    setSafetyBackupError(null);
+  };
+
+  const handleDownloadSafetyBackup = async () => {
+    setSafetyBackupBusy(true);
+    setSafetyBackupSaved(false);
+    setSafetyBackupGenerated(false);
+    setSafetyBackupError(null);
+    try {
+      // A complete snapshot includes demo records; never rely on the optional export filter.
+      const envelope = await exportBackup(true);
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `crochettheone-antes-de-reemplazar-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+        }
+      } finally {
+        // Give the browser time to process the initiated download.
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      setSafetyBackupRecordCount(Object.values(envelope.recordCounts ?? {}).reduce<number>((sum, count) => sum + (count ?? 0), 0));
+      setSafetyBackupGenerated(true);
+    } catch (err) {
+      setSafetyBackupError(err instanceof Error ? err.message : 'No se pudo preparar el respaldo de seguridad.');
+    } finally {
+      setSafetyBackupBusy(false);
+    }
+  };
+
   const handleBackupFileSelected = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -414,6 +461,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     if (!file) return;
 
     setFeedback(null);
+    resetSafetyBackupConfirmation();
     try {
       const rawText = await file.text();
       const result = await inspectBackup(rawText);
@@ -432,12 +480,14 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
 
   const handleExecuteImport = async () => {
     if (!inspection || !inspection.isValid) return;
+    if (selectedStrategy === 'replace_all' && (!safetyBackupGenerated || !safetyBackupSaved || safetyBackupBusy)) return;
     setImportBusy(true);
     setFeedback(null);
     try {
       await importBackup(inspection, selectedStrategy);
       setConfirmImportOpen(false);
       setInspection(null);
+      resetSafetyBackupConfirmation();
     } catch (err) {
       setConfirmImportOpen(false);
       setFeedback({
@@ -1533,7 +1583,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                         </ul>
                         <button
                           type="button"
-                          onClick={() => setInspection(null)}
+                          onClick={() => { setInspection(null); resetSafetyBackupConfirmation(); }}
                           className="mt-3 inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
                         >
                           Cerrar aviso
@@ -1608,7 +1658,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'append_new'}
-                              onChange={() => setSelectedStrategy('append_new')}
+                              onChange={() => { setSelectedStrategy('append_new'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-teal-700"
                             />
                             <span>
@@ -1624,7 +1674,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'merge_overwrite'}
-                              onChange={() => setSelectedStrategy('merge_overwrite')}
+                              onChange={() => { setSelectedStrategy('merge_overwrite'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-teal-700"
                             />
                             <span>
@@ -1640,7 +1690,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'replace_all'}
-                              onChange={() => setSelectedStrategy('replace_all')}
+                              onChange={() => { setSelectedStrategy('replace_all'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-rose-700 accent-rose-700"
                             />
                             <span>
@@ -1959,10 +2009,43 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
         }
         confirmLabel="Confirmar importación"
         variant={selectedStrategy === 'replace_all' ? 'danger' : 'default'}
-        isBusy={importBusy}
+        isBusy={importBusy || safetyBackupBusy}
+        confirmDisabled={selectedStrategy === 'replace_all' && (!safetyBackupGenerated || !safetyBackupSaved)}
         onConfirm={() => void handleExecuteImport()}
-        onCancel={() => setConfirmImportOpen(false)}
-      />
+        onCancel={() => { setConfirmImportOpen(false); resetSafetyBackupConfirmation(); }}
+      >
+        {selectedStrategy === 'replace_all' && (
+          <div className="space-y-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-slate-800">
+            <p>Se reemplazarán los datos de este dispositivo por los {inspection?.totalRecordsInFile ?? 0} registros del archivo. Los registros locales que no estén en él se eliminarán.</p>
+            <p className="font-semibold">Antes de continuar, guarda una copia completa del taller actual.</p>
+            <button
+              type="button"
+              disabled={safetyBackupBusy || importBusy}
+              onClick={() => void handleDownloadSafetyBackup()}
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-rose-300 bg-white px-3 py-2 font-medium text-rose-800 disabled:opacity-50"
+            >
+              {safetyBackupBusy ? 'Preparando respaldo...' : 'Descargar respaldo de seguridad'}
+            </button>
+            {safetyBackupError && <p role="alert" className="text-rose-800">{safetyBackupError}</p>}
+            {safetyBackupGenerated && (
+              <div className="space-y-2">
+                <p>Descarga solicitada: {safetyBackupRecordCount ?? 0} registros del taller actual. Comprueba que el archivo JSON se haya guardado correctamente.</p>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={safetyBackupSaved}
+                    onChange={(event) => setSafetyBackupSaved(event.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>He comprobado que el respaldo está guardado fuera de la aplicación y puedo recuperarlo.</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmModal>
+      {/* end protected import confirmation */}
+
     </>
   );
 };
