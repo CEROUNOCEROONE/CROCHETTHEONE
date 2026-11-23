@@ -5681,6 +5681,81 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     return purgeDemoDataTransaction();
   }
 
+  async inspectWorkshopReset(): Promise<Record<string, number>> {
+    return runAtomicTransaction<Record<string, number>>(
+      DATA_STORES_TOPOLOGICAL_ORDER,
+      'readonly',
+      (tx, done, fail) => {
+        const counts: Record<string, number> = {};
+        const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter((name) => name !== 'workshop_settings');
+        let remaining = stores.length;
+        for (const storeName of stores) {
+          const req = tx.objectStore(storeName).count();
+          req.onerror = () => fail(req.error);
+          req.onsuccess = () => {
+            counts[storeName] = req.result;
+            remaining -= 1;
+            if (remaining === 0) done(counts);
+          };
+        }
+      },
+    );
+  }
+
+  async resetWorkshop(expectedCounts: Record<string, number>, expectedInstanceId: string): Promise<void> {
+    const saved = await runAtomicTransaction<WorkshopSettings>(
+      DATA_STORES_TOPOLOGICAL_ORDER,
+      'readwrite',
+      (tx, done, fail) => {
+        const settingsReq = tx.objectStore('workshop_settings').get('default');
+        settingsReq.onerror = () => fail(settingsReq.error);
+        settingsReq.onsuccess = () => {
+          const current = settingsReq.result as WorkshopSettings | undefined;
+          if (!current || current.workshopInstanceId !== expectedInstanceId) {
+            fail(new Error('La identidad del taller cambió. Actualiza la pantalla antes de restablecer.'));
+            return;
+          }
+          const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter((name) => name !== 'workshop_settings');
+          let remaining = stores.length;
+          let invalid = false;
+          for (const storeName of stores) {
+            const req = tx.objectStore(storeName).count();
+            req.onerror = () => { if (!invalid) { invalid = true; fail(req.error); } };
+            req.onsuccess = () => {
+              if (invalid) return;
+              if (req.result !== expectedCounts[storeName]) {
+                invalid = true;
+                fail(new Error('Los datos del taller cambiaron después del resumen. Revisa los registros y descarga un nuevo respaldo.'));
+                return;
+              }
+              remaining -= 1;
+              if (remaining !== 0) return;
+              // A single readwrite transaction serializes all local writes.
+              for (const name of stores) tx.objectStore(name).clear();
+              const defaults = createDefaultWorkshopSettings();
+              const updated: WorkshopSettings = {
+                ...defaults,
+                id: current.id,
+                ownerId: current.ownerId,
+                syncStatus: current.syncStatus,
+                workshopInstanceId: current.workshopInstanceId,
+                plan: current.plan,
+                createdAt: current.createdAt,
+                version: current.version + 1,
+                updatedAt: new Date().toISOString(),
+                currency: 'COP',
+                hourlyRateCOP: 0,
+              };
+              tx.objectStore('workshop_settings').put(updated);
+              done(updated);
+            };
+          }
+        };
+      },
+    );
+    setActiveCurrency(saved.currency);
+  }
+
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope> {
     return exportWorkshopBackup(options);
   }
