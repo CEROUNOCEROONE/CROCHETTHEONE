@@ -5761,8 +5761,8 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               tx.objectStore('workshop_settings').put(updated);
               done(updated);
             };
-          };
           }
+          };
         };
       },
     );
