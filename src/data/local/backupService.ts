@@ -390,29 +390,20 @@ export async function applyBackupImport(
 
   const { envelope } = inspection;
 
-  // R-02 containment: do not attempt to reconcile financial/inventory ledgers
-  // through an ID-based overwrite. They require domain-specific replay rules.
-  if (strategy === 'merge_overwrite') {
-    const sensitiveStores: WorkshopStoreName[] = [
-      'material_variants',
-      'inventory_reservations',
-      'inventory_movements',
-      'purchase_receipts',
-      'pending_materials',
-      'shopping_list_items',
-      'payment_plans',
-      'payment_installments',
-      'financial_transactions',
-    ];
-    const affected = sensitiveStores.filter((name) => (envelope.data[name]?.length ?? 0) > 0);
-    if (affected.length > 0) {
-      throw new Error(
-        'Por seguridad, la fusión de respaldos con inventario o pagos está temporalmente bloqueada. ' +
-        'No se modificó ningún dato. Utiliza un respaldo completo y la opción de reemplazo protegido ' +
-        'solo si deseas restaurar el taller entero.',
-      );
-    }
-  }
+  // Sensitive ledgers can only be carried through a merge unchanged.
+  // Any addition or modification needs a separate domain-aware reconciliation.
+  const sensitiveStores: WorkshopStoreName[] = [
+    'material_variants',
+    'inventory_reservations',
+    'inventory_movements',
+    'purchase_receipts',
+    'pending_materials',
+    'shopping_list_items',
+    'payment_plans',
+    'payment_installments',
+    'financial_transactions',
+  ];
+  const sensitiveSet = new Set<WorkshopStoreName>(sensitiveStores);
 
   return runAtomicTransaction<BackupImportOutcome>(
     DATA_STORES_TOPOLOGICAL_ORDER,
@@ -471,7 +462,18 @@ export async function applyBackupImport(
             const merged = new Map(local.map((row) => [row.id, row]));
             for (const record of incoming) {
               const current = merged.get(record.id);
+              if (sensitiveSet.has(storeName)) {
+                if (!current || JSON.stringify(current) !== JSON.stringify(record)) {
+                  fail(new Error(
+                    `Fusión detenida: el inventario o los pagos contienen cambios en "${storeName}" (${record.id}). No se modificó ningún dato.`,
+                  ));
+                  return;
+                }
+                continue;
+              }
               if (current) {
+                // Identical records are harmless and should not block other updates.
+                if (JSON.stringify(current) === JSON.stringify(record)) continue;
                 const currentTime = Date.parse(current.updatedAt);
                 const incomingTime = Date.parse(record.updatedAt);
                 if (!Number.isFinite(currentTime) || !Number.isFinite(incomingTime) ||
@@ -537,6 +539,11 @@ export async function applyBackupImport(
               skippedCount += 1;
               continue;
             }
+            if (strategy === 'merge_overwrite' && exists &&
+                JSON.stringify(localRecordsByStore.get(storeName)?.find((row) => row.id === record.id)) === JSON.stringify(record)) {
+              skippedCount += 1;
+              continue;
+            }
 
             if (exists) {
               updatedCount += 1;
@@ -577,6 +584,16 @@ export async function applyBackupImport(
             incomingId ?? localId ?? createWorkshopInstanceUuid();
 
           if (incomingRawSettings) {
+            if (existingLocalSettings &&
+                JSON.stringify(existingLocalSettings) === JSON.stringify(incomingRawSettings)) {
+              skippedCount += 1;
+            } else if (existingLocalSettings &&
+                (!Number.isFinite(Date.parse(existingLocalSettings.updatedAt)) ||
+                 !Number.isFinite(Date.parse(incomingRawSettings.updatedAt ?? '')) ||
+                 Date.parse(incomingRawSettings.updatedAt ?? '') <= Date.parse(existingLocalSettings.updatedAt))) {
+              fail(new Error('Fusión detenida: la configuración del taller del respaldo no es más reciente. No se modificó ningún dato.'));
+              return;
+            } else {
             const mergedSettings = normalizeWorkshopSettings({
               ...incomingRawSettings,
               id: 'default',
@@ -589,6 +606,7 @@ export async function applyBackupImport(
               updatedCount += 1;
             } else {
               insertedCount += 1;
+            }
             }
           } else if (
             !existingLocalSettings ||
