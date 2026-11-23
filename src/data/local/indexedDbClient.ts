@@ -344,6 +344,9 @@ export async function getIndexedDb(): Promise<IDBDatabase> {
   if (dbInstancePromise) return dbInstancePromise;
 
   const openPromise = new Promise<IDBDatabase>((resolve, reject) => {
+    // A blocked open can later succeed after the caller has already received an error.
+    // Never bootstrap or expose a connection from that abandoned request.
+    let abandoned = false;
     if (typeof window === 'undefined' || !('indexedDB' in window)) {
       dbInstancePromise = null;
       reject(new Error('IndexedDB no está disponible en este navegador.'));
@@ -367,6 +370,10 @@ export async function getIndexedDb(): Promise<IDBDatabase> {
 
     request.onsuccess = async () => {
       const db = request.result;
+      if (abandoned) {
+        db.close();
+        return;
+      }
       const invalidateIfCurrent = () => {
         if (dbInstancePromise === openPromise) {
           dbInstancePromise = null;
@@ -409,6 +416,7 @@ export async function getIndexedDb(): Promise<IDBDatabase> {
     };
 
     request.onblocked = () => {
+      abandoned = true;
       if (dbInstancePromise === openPromise) {
         dbInstancePromise = null;
       }
