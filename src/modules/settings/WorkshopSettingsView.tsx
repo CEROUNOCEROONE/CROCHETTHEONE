@@ -2107,10 +2107,10 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
         <div className="space-y-3 text-sm text-slate-800">
           <p className="font-semibold">Registros que se eliminarán:</p>
           <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-3">
-            {Object.entries(resetCounts ?? {}).filter(([, count]) => count > 0).map(([store, count]) => (
+            {Object.entries(resetCounts ?? {}).filter(([store, count]) => !store.startsWith('__fingerprint_') && count > 0).map(([store, count]) => (
               <li key={store}>{STORE_LABELS[store] ?? store}: {count}</li>
             ))}
-            {resetCounts && Object.values(resetCounts).every(count => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
+            {resetCounts && Object.entries(resetCounts).filter(([store]) => !store.startsWith('__fingerprint_')).every(([, count]) => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
           </ul>
           <button type="button" disabled={resetBusy} onClick={() => void downloadResetBackup()} className="min-h-[44px] rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-800 disabled:opacity-50">
             {resetBusy ? 'Preparando...' : 'Descargar respaldo JSON completo'}
