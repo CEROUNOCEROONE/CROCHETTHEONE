@@ -161,6 +161,8 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     updateSettings,
     loadDemoData,
     purgeDemoData,
+    inspectWorkshopReset,
+    resetWorkshop,
     exportBackup,
     inspectBackup,
     importBackup,
@@ -214,6 +216,86 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
 
   const [demoBusy, setDemoBusy] = useState(false);
   const [confirmPurgeDemoOpen, setConfirmPurgeDemoOpen] = useState(false);
+
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetCounts, setResetCounts] = useState<Record<string, number> | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetBackupReady, setResetBackupReady] = useState(false);
+  const [resetBackupConfirmed, setResetBackupConfirmed] = useState(false);
+  const [resetPhrase, setResetPhrase] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const resetInFlight = useRef(false);
+
+  const openWorkshopReset = async () => {
+    setResetBusy(true);
+    setResetError(null);
+    setResetCounts(null);
+    setResetBackupReady(false);
+    setResetBackupConfirmed(false);
+    setResetPhrase('');
+    try {
+      setResetCounts(await inspectWorkshopReset());
+      setResetOpen(true);
+    } catch (err) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'No se pudo inspeccionar el taller.' });
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const downloadResetBackup = async () => {
+    setResetBusy(true);
+    setResetBackupReady(false);
+    setResetBackupConfirmed(false);
+    setResetError(null);
+    try {
+      const envelope = await exportBackup(true);
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `crochettheone-antes-de-restablecer-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(link);
+        try { link.click(); } finally { link.remove(); }
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      // The backup itself must cover the exact snapshot being confirmed.
+      const currentCounts = await inspectWorkshopReset();
+      if (!resetCounts || Object.keys(currentCounts).some(key => currentCounts[key] !== resetCounts[key])) {
+        setResetCounts(currentCounts);
+        throw new Error('Los registros cambiaron mientras se generaba el respaldo. Revisa el nuevo resumen y vuelve a descargarlo.');
+      }
+      setResetBackupReady(true);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'No se pudo descargar el respaldo.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const executeWorkshopReset = async () => {
+    if (resetInFlight.current || resetBusy || !resetCounts || !resetBackupReady || !resetBackupConfirmed || resetPhrase !== 'RESTABLECER') return;
+    resetInFlight.current = true;
+    setResetBusy(true);
+    setResetError(null);
+    try {
+      await resetWorkshop(resetCounts, settings.workshopInstanceId);
+      setResetOpen(false);
+      setResetCounts(null);
+      setResetBackupReady(false);
+      setResetBackupConfirmed(false);
+      setResetPhrase('');
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'No se pudo restablecer el taller.');
+      setResetBackupReady(false);
+      setResetBackupConfirmed(false);
+    } finally {
+      resetInFlight.current = false;
+      setResetBusy(false);
+    }
+  };
 
   const [includeDemoInExport, setIncludeDemoInExport] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -1828,6 +1910,14 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                   </div>
                 </div>
 
+                <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 sm:p-5">
+                  <h4 className="text-sm font-semibold text-rose-900">Restablecer taller desde cero</h4>
+                  <p className="mt-2 text-xs text-slate-700">Borra todos los registros operativos, incluidos movimientos del Kardex y pagos. Es irreversible sin un respaldo. Disponible en FREE y PRO.</p>
+                  <button type="button" disabled={resetBusy || demoBusy} onClick={() => void openWorkshopReset()} className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-rose-400 bg-white px-4 py-2 text-sm font-semibold text-rose-800 disabled:opacity-50">
+                    <Trash2 className="h-4 w-4" aria-hidden="true" /> Restablecer taller
+                  </button>
+                </div>
+
                 {/* Estado técnico IndexedDB y PWA */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -2002,6 +2092,40 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
           </div>
         </SnapSlide>
       </SnapDeck>
+
+      <ConfirmModal
+        isOpen={resetOpen}
+        title="Restablecer taller desde cero"
+        description="Se eliminarán permanentemente todos los registros operativos de este dispositivo. Se conservarán la identidad técnica y el plan de suscripción. La moneda volverá a COP y la tarifa a cero."
+        confirmLabel="Restablecer definitivamente"
+        variant="danger"
+        isBusy={resetBusy}
+        confirmDisabled={!resetCounts || !resetBackupReady || !resetBackupConfirmed || resetPhrase !== 'RESTABLECER'}
+        onConfirm={() => void executeWorkshopReset()}
+        onCancel={() => { if (!resetBusy) { setResetOpen(false); setResetBackupReady(false); setResetBackupConfirmed(false); setResetPhrase(''); } }}
+      >
+        <div className="space-y-3 text-sm text-slate-800">
+          <p className="font-semibold">Registros que se eliminarán:</p>
+          <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-3">
+            {Object.entries(resetCounts ?? {}).filter(([, count]) => count > 0).map(([store, count]) => (
+              <li key={store}>{STORE_LABELS[store] ?? store}: {count}</li>
+            ))}
+            {resetCounts && Object.values(resetCounts).every(count => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
+          </ul>
+          <button type="button" disabled={resetBusy} onClick={() => void downloadResetBackup()} className="min-h-[44px] rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-800 disabled:opacity-50">
+            {resetBusy ? 'Preparando...' : 'Descargar respaldo JSON completo'}
+          </button>
+          {resetBackupReady && <label className="flex items-start gap-2">
+            <input type="checkbox" checked={resetBackupConfirmed} onChange={e => setResetBackupConfirmed(e.target.checked)} className="mt-1" />
+            <span>He comprobado que el respaldo JSON se guardó fuera de la aplicación.</span>
+          </label>}
+          <label className="block space-y-1">
+            <span>Escribe RESTABLECER para confirmar:</span>
+            <input type="text" value={resetPhrase} onChange={e => setResetPhrase(e.target.value)} autoComplete="off" className="w-full rounded-lg border border-slate-300 p-2" />
+          </label>
+          {resetError && <p role="alert" className="text-rose-800">{resetError}</p>}
+        </div>
+      </ConfirmModal>
 
       {/* Modal de confirmación para eliminar ejemplos */}
       <ConfirmModal
