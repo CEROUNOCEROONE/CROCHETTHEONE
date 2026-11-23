@@ -302,6 +302,8 @@ interface DataContextValue {
   deleteReminder(reminderId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
+  inspectWorkshopReset(): Promise<Record<string, number>>;
+  resetWorkshop(expectedCounts: Record<string, number>, expectedInstanceId: string): Promise<void>;
   exportBackup(includeDemo: boolean): Promise<BackupEnvelope>;
   inspectBackup(rawJson: string): Promise<BackupInspectionResult>;
   importBackup(
@@ -1197,6 +1199,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   }, [refresh, markSaved]);
 
+  const inspectWorkshopReset = useCallback(() => localWorkshopEngine.inspectWorkshopReset(), []);
+  const resetWorkshop = useCallback(async (counts: Record<string, number>, instanceId: string) => {
+    await localWorkshopEngine.resetWorkshop(counts, instanceId);
+    await refresh();
+    markSaved('Taller restablecido desde cero');
+  }, [refresh, markSaved]);
+
   const exportBackup = useCallback(
     async (includeDemo: boolean) => {
       const envelope = await localWorkshopEngine.exportBackup({ includeDemo });
@@ -1314,6 +1323,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteReminder,
       loadDemoData,
       purgeDemoData,
+      inspectWorkshopReset,
+      resetWorkshop,
       exportBackup,
       inspectBackup,
       importBackup,
@@ -1409,6 +1420,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteReminder,
       loadDemoData,
       purgeDemoData,
+      inspectWorkshopReset,
+      resetWorkshop,
       exportBackup,
       inspectBackup,
       importBackup,
