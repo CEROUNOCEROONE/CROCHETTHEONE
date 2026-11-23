@@ -453,6 +453,30 @@ export async function applyBackupImport(
       }
 
       function executeWrite() {
+        if (strategy === 'append_new') {
+          // IDs alone cannot prove that two financial or stock ledger entries
+          // represent different real-world operations. Refuse potentially
+          // duplicating sensitive entries when the destination has user data.
+          // A completely empty workshop can still receive an initial import.
+          const hasExistingWorkshopData = DATA_STORES_TOPOLOGICAL_ORDER.some(
+            (storeName) =>
+              storeName !== 'workshop_settings' &&
+              (localRecordsByStore.get(storeName)?.length ?? 0) > 0,
+          );
+          if (hasExistingWorkshopData) {
+            for (const storeName of sensitiveStores) {
+              const existingIds = existingByStore.get(storeName) ?? new Set<string>();
+              const incoming = envelope.data[storeName] ?? [];
+              if (incoming.some((record) => !existingIds.has(record.id))) {
+                fail(new Error(
+                  `Importación detenida: «Agregar solo nuevos» no puede incorporar operaciones de inventario o pagos de "${storeName}" a un taller con datos existentes sin conciliación de operaciones. No se modificó ningún dato. Para restaurar íntegramente un respaldo, utiliza «Reemplazar todos» después de exportar una copia de seguridad de los datos actuales.`,
+                ));
+                return;
+              }
+            }
+          }
+        }
+
         if (strategy === 'merge_overwrite') {
           // Validate against the actual transactional snapshot, not the earlier inspection.
           const proposed: Partial<Record<WorkshopStoreName, BaseEntity[]>> = {};
