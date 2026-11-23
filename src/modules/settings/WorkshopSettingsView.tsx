@@ -462,12 +462,26 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
 
     setFeedback(null);
     resetSafetyBackupConfirmation();
+    const inspectionStarted = performance.now();
+    let fileReadMs: number | null = null;
     try {
       const rawText = await file.text();
+      fileReadMs = Math.round(performance.now() - inspectionStarted);
       const result = await inspectBackup(rawText);
+      console.info('[CrochetTheOne perf] backup.inspect', {
+        fileReadMs,
+        inspectionMs: Math.round(performance.now() - inspectionStarted - fileReadMs),
+        totalMs: Math.round(performance.now() - inspectionStarted),
+        fileBytes: file.size,
+        valid: result.isValid,
+      });
       setInspection(result);
       setSelectedStrategy('append_new');
     } catch (err) {
+      console.warn('[CrochetTheOne perf] backup.inspect failed', {
+        totalMs: Math.round(performance.now() - inspectionStarted),
+        fileReadMs,
+      });
       setFeedback({
         type: 'error',
         message:
@@ -483,12 +497,21 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     if (selectedStrategy === 'replace_all' && (!safetyBackupGenerated || !safetyBackupSaved || safetyBackupBusy)) return;
     setImportBusy(true);
     setFeedback(null);
+    const importStarted = performance.now();
     try {
       await importBackup(inspection, selectedStrategy);
+      console.info('[CrochetTheOne perf] backup.import completed', {
+        strategy: selectedStrategy,
+        totalMs: Math.round(performance.now() - importStarted),
+      });
       setConfirmImportOpen(false);
       setInspection(null);
       resetSafetyBackupConfirmation();
     } catch (err) {
+      console.warn('[CrochetTheOne perf] backup.import failed', {
+        strategy: selectedStrategy,
+        totalMs: Math.round(performance.now() - importStarted),
+      });
       setConfirmImportOpen(false);
       setFeedback({
         type: 'error',
