@@ -25,6 +25,7 @@ import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import type {
   BackupImportStrategy,
   BackupInspectionResult,
+  WorkshopResetInspection,
 } from '@/src/data/ports/DataStorePort.ts';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
 import {
@@ -218,7 +219,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
   const [confirmPurgeDemoOpen, setConfirmPurgeDemoOpen] = useState(false);
 
   const [resetOpen, setResetOpen] = useState(false);
-  const [resetCounts, setResetCounts] = useState<Record<string, number> | null>(null);
+  const [resetCounts, setResetCounts] = useState<WorkshopResetInspection | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
   const [resetBackupReady, setResetBackupReady] = useState(false);
   const [resetBackupConfirmed, setResetBackupConfirmed] = useState(false);
@@ -263,7 +264,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
       }
       // The backup itself must cover the exact snapshot being confirmed.
       const currentCounts = await inspectWorkshopReset();
-      if (!resetCounts || Object.keys(currentCounts).some(key => currentCounts[key] !== resetCounts[key])) {
+      if (!resetCounts || Object.keys(currentCounts.signatures).some(key => currentCounts.signatures[key] !== resetCounts.signatures[key])) {
         setResetCounts(currentCounts);
         throw new Error('Los registros cambiaron mientras se generaba el respaldo. Revisa el nuevo resumen y vuelve a descargarlo.');
       }
@@ -2107,10 +2108,10 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
         <div className="space-y-3 text-sm text-slate-800">
           <p className="font-semibold">Registros que se eliminarán:</p>
           <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-3">
-            {Object.entries(resetCounts ?? {}).filter(([store, count]) => !store.startsWith('__fingerprint_') && count > 0).map(([store, count]) => (
+            {Object.entries(resetCounts?.counts ?? {}).filter(([, count]) => count > 0).map(([store, count]) => (
               <li key={store}>{STORE_LABELS[store] ?? store}: {count}</li>
             ))}
-            {resetCounts && Object.entries(resetCounts).filter(([store]) => !store.startsWith('__fingerprint_')).every(([, count]) => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
+            {resetCounts && Object.values(resetCounts.counts).every(count => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
           </ul>
           <button type="button" disabled={resetBusy} onClick={() => void downloadResetBackup()} className="min-h-[44px] rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-800 disabled:opacity-50">
             {resetBusy ? 'Preparando...' : 'Descargar respaldo JSON completo'}
