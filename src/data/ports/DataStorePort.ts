@@ -70,6 +70,12 @@ export interface BackupImportOutcome {
   readonly skippedCount: number;
 }
 
+/** Snapshot guard for a destructive workshop reset; signatures are exact serialized store contents. */
+export interface WorkshopResetInspection {
+  readonly counts: Record<string, number>;
+  readonly signatures: Record<string, string>;
+}
+
 export interface DemoPurgeOutcome {
   readonly deletedCount: number;
   readonly preservedRealCount: number;
