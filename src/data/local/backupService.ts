@@ -462,6 +462,8 @@ export async function applyBackupImport(
             const merged = new Map(local.map((row) => [row.id, row]));
             for (const record of incoming) {
               const current = merged.get(record.id);
+              // Settings have separate merge rules and are changed by backup export itself.
+              if (storeName === 'workshop_settings') continue;
               if (sensitiveSet.has(storeName)) {
                 if (!current || JSON.stringify(current) !== JSON.stringify(record)) {
                   fail(new Error(
@@ -591,8 +593,8 @@ export async function applyBackupImport(
                 (!Number.isFinite(Date.parse(existingLocalSettings.updatedAt)) ||
                  !Number.isFinite(Date.parse(incomingRawSettings.updatedAt ?? '')) ||
                  Date.parse(incomingRawSettings.updatedAt ?? '') <= Date.parse(existingLocalSettings.updatedAt))) {
-              fail(new Error('Fusión detenida: la configuración del taller del respaldo no es más reciente. No se modificó ningún dato.'));
-              return;
+              // Preserve newer local settings instead of rejecting an otherwise safe merge.
+              skippedCount += 1;
             } else {
             const mergedSettings = normalizeWorkshopSettings({
               ...incomingRawSettings,
