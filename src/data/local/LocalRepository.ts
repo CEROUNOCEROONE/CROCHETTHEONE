@@ -586,6 +586,67 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           : (current.quietHoursEnd ?? '07:00'),
       customMaterialCategories: nextCustomCategories,
     };
+    if (nextCurrency !== current.currency) {
+      // Changing the unit of account without converting historical amounts
+      // would silently reinterpret prices, inventory valuation and payments.
+      // Check and write within one transaction so another tab cannot insert
+      // workshop data between the safety check and the currency change.
+      const saved = await runAtomicTransaction<WorkshopSettings>(
+        DATA_STORES_TOPOLOGICAL_ORDER,
+        'readwrite',
+        (tx, done, fail) => {
+          const settingsStore = tx.objectStore('workshop_settings');
+          const settingsReq = settingsStore.get('default');
+          settingsReq.onerror = () => fail(settingsReq.error);
+          settingsReq.onsuccess = () => {
+            const latest = normalizeWorkshopSettings(
+              settingsReq.result as WorkshopSettings | undefined,
+            );
+            if (latest.currency !== current.currency) {
+              fail(new Error('La moneda del taller cambió en otra pestaña. Actualiza la pantalla antes de guardar.'));
+              return;
+            }
+            const storesToCheck = DATA_STORES_TOPOLOGICAL_ORDER.filter(
+              (storeName) => storeName !== 'workshop_settings',
+            );
+            let pending = storesToCheck.length;
+            let blocked = false;
+            if (pending === 0) {
+              settingsStore.put(updated);
+              done(updated);
+              return;
+            }
+            for (const storeName of storesToCheck) {
+              const req = tx.objectStore(storeName).count();
+              req.onerror = () => {
+                if (!blocked) {
+                  blocked = true;
+                  fail(req.error);
+                }
+              };
+              req.onsuccess = () => {
+                if (blocked) return;
+                if (req.result > 0) {
+                  blocked = true;
+                  fail(new Error(
+                    'No se puede cambiar la moneda de un taller que ya contiene registros. Los importes existentes no se convierten automáticamente. Conserva la moneda actual para proteger inventario, cotizaciones y pagos.',
+                  ));
+                  return;
+                }
+                pending -= 1;
+                if (pending === 0) {
+                  settingsStore.put(updated);
+                  done(updated);
+                }
+              };
+            }
+          };
+        },
+      );
+      setActiveCurrency(saved.currency);
+      return saved;
+    }
+
     const saved = await this.settings.upsert(updated);
     setActiveCurrency(saved.currency);
     return saved;
