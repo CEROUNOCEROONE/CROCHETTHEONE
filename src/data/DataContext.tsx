@@ -82,6 +82,7 @@ import type {
   BackupImportStrategy,
   BackupInspectionResult,
   DemoPurgeOutcome,
+  WorkshopResetInspection,
   FinishTimerSessionOptions,
   ManualWorkSessionInput,
   WorkshopDataEngine,
@@ -302,8 +303,8 @@ interface DataContextValue {
   deleteReminder(reminderId: string): Promise<void>;
   loadDemoData(): Promise<{ insertedCount: number }>;
   purgeDemoData(): Promise<DemoPurgeOutcome>;
-  inspectWorkshopReset(): Promise<Record<string, number>>;
-  resetWorkshop(expectedCounts: Record<string, number>, expectedInstanceId: string): Promise<void>;
+  inspectWorkshopReset(): Promise<WorkshopResetInspection>;
+  resetWorkshop(expected: WorkshopResetInspection, expectedInstanceId: string): Promise<void>;
   exportBackup(includeDemo: boolean): Promise<BackupEnvelope>;
   inspectBackup(rawJson: string): Promise<BackupInspectionResult>;
   importBackup(
@@ -1200,8 +1201,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refresh, markSaved]);
 
   const inspectWorkshopReset = useCallback(() => localWorkshopEngine.inspectWorkshopReset(), []);
-  const resetWorkshop = useCallback(async (counts: Record<string, number>, instanceId: string) => {
-    await localWorkshopEngine.resetWorkshop(counts, instanceId);
+  const resetWorkshop = useCallback(async (inspection: WorkshopResetInspection, instanceId: string) => {
+    await localWorkshopEngine.resetWorkshop(inspection, instanceId);
     await refresh();
     markSaved('Taller restablecido desde cero');
   }, [refresh, markSaved]);
