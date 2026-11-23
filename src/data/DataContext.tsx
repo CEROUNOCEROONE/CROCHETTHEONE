@@ -328,6 +328,27 @@ const EMPTY_STATS = computeWorkshopStats({
   installments: [],
 });
 
+// Diagnostic-only timings: no IDs, record contents or personal information are logged.
+async function traceWorkshopOperation<T>(label: string, task: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  let finished = false;
+  const slowNotice = window.setTimeout(() => {
+    if (!finished) console.warn('[CrochetTheOne perf] Pending operation', label, 'over 8s');
+  }, 8000);
+  try {
+    const result = await task();
+    const elapsed = Math.round(performance.now() - started);
+    if (elapsed > 1500) console.warn('[CrochetTheOne perf] Slow operation', label, elapsed, 'ms');
+    return result;
+  } catch (err) {
+    console.warn('[CrochetTheOne perf] Failed operation', label, Math.round(performance.now() - started), 'ms');
+    throw err;
+  } finally {
+    finished = true;
+    window.clearTimeout(slowNotice);
+  }
+}
+
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -420,10 +441,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const run = (async () => {
       try {
         setError(null);
-        const [snapshot, meta] = await Promise.all([
+        const [snapshot, meta] = await traceWorkshopOperation('refresh.read', () => Promise.all([
           localWorkshopEngine.loadWorkshopSnapshot(),
           localWorkshopEngine.getSchemaMeta(),
-        ]);
+        ]));
         setActiveCurrency(snapshot.settings.currency);
         setSettings(snapshot.settings);
         setProjects(snapshot.projects);
@@ -444,7 +465,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTransactions(snapshot.transactions ?? []);
         setPlannedTasks(snapshot.plannedTasks ?? []);
         setReminders(snapshot.reminders ?? []);
-        setStats(computeWorkshopStats(snapshot));
+        const statsStart = performance.now();
+        const computedStats = computeWorkshopStats(snapshot);
+        const statsMs = Math.round(performance.now() - statsStart);
+        if (statsMs > 150) console.warn('[CrochetTheOne perf] Slow calculation refresh.stats', statsMs, 'ms');
+        setStats(computedStats);
         setSchemaMeta(meta);
       } catch (err) {
         setError(
@@ -1159,8 +1184,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const loadDemoData = useCallback(async () => {
-    const res = await localWorkshopEngine.loadDemoData();
-    await refresh();
+    const res = await traceWorkshopOperation('demo.write', () => localWorkshopEngine.loadDemoData());
+    await traceWorkshopOperation('demo.refresh', refresh);
     markSaved('Ejemplos del taller cargados');
     return res;
   }, [refresh, markSaved]);
@@ -1188,8 +1213,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const importBackup = useCallback(
     async (inspection: BackupInspectionResult, strategy: BackupImportStrategy) => {
-      const outcome = await localWorkshopEngine.importBackup(inspection, strategy);
-      await refresh();
+      const outcome = await traceWorkshopOperation('backup.write', () => localWorkshopEngine.importBackup(inspection, strategy));
+      await traceWorkshopOperation('backup.refresh', refresh);
       markSaved('Respaldo restaurado');
       return outcome;
     },
