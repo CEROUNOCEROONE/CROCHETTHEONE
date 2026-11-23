@@ -620,7 +620,8 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               (storeName) => storeName !== 'workshop_settings',
             );
             let pending = storesToCheck.length;
-            let blocked = false;
+            let failed = false;
+            const occupiedStores: Array<{ storeName: WorkshopStoreName; count: number }> = [];
             if (pending === 0) {
               settingsStore.put(updated);
               done(updated);
@@ -629,22 +630,27 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             for (const storeName of storesToCheck) {
               const req = tx.objectStore(storeName).count();
               req.onerror = () => {
-                if (!blocked) {
-                  blocked = true;
+                if (!failed) {
+                  failed = true;
                   fail(req.error);
                 }
               };
               req.onsuccess = () => {
-                if (blocked) return;
+                if (failed) return;
                 if (req.result > 0) {
-                  blocked = true;
-                  fail(new Error(
-                    'No se puede cambiar la moneda de un taller que ya contiene registros. Los importes existentes no se convierten automáticamente. Conserva la moneda actual para proteger inventario, cotizaciones y pagos.',
-                  ));
-                  return;
+                  occupiedStores.push({ storeName, count: req.result });
                 }
                 pending -= 1;
                 if (pending === 0) {
+                  if (occupiedStores.length > 0) {
+                    const details = occupiedStores
+                      .map(({ storeName, count }) => `${storeName}: ${count}`)
+                      .join('; ');
+                    fail(new Error(
+                      `No se puede cambiar la moneda porque quedan registros guardados (${details}). No se modificó ningún dato. La eliminación de ejemplos solo borra registros de demostración; no borres información adicional para superar esta protección.`,
+                    ));
+                    return;
+                  }
                   settingsStore.put(updated);
                   done(updated);
                 }
