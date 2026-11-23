@@ -3,9 +3,8 @@
   publish = "dist"
 
 [build.environment]
-  # Habilita el simulador en memoria FREE/PRO para pruebas privadas en Netlify.
-  # Cámbialo a "false" o elimina esta sección antes de abrir el sitio al público.
-  VITE_ENABLE_PLAN_SIMULATOR = "true"
+  # El simulador FREE/PRO debe permanecer deshabilitado en builds públicos.
+  VITE_ENABLE_PLAN_SIMULATOR = "false"
 
 [[headers]]
   for = "/*"
