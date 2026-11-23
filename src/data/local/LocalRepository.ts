@@ -5716,6 +5716,15 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             return;
           }
           const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter((name) => name !== 'workshop_settings');
+          // Never destroy a running or paused timer session without an explicit stop.
+          const sessionsReq = tx.objectStore('work_sessions').getAll();
+          sessionsReq.onerror = () => fail(sessionsReq.error);
+          sessionsReq.onsuccess = () => {
+            const sessions = sessionsReq.result as WorkSession[];
+            if (sessions.some(session => session.status === 'running' || session.status === 'paused')) {
+              fail(new Error('Hay sesiones del cronómetro activas o pausadas. Finalízalas antes de restablecer el taller.'));
+            }
+          };
           let remaining = stores.length;
           let invalid = false;
           for (const storeName of stores) {
