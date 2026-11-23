@@ -351,6 +351,17 @@ class IndexedDbStoreRepository<T extends BaseEntity> implements DataStorePort<T>
   }
 }
 
+function fingerprintWorkshopRecords(records: BaseEntity[]): number {
+  // Deterministic 32-bit FNV-1a over all serialized record fields.
+  // This is a stale-snapshot detector, not a cryptographic integrity proof.
+  const value = JSON.stringify(records);
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  }
+  return hash >>> 0;
+}
+
 export class LocalWorkshopEngine implements WorkshopDataEngine {
   readonly settings = new IndexedDbStoreRepository<WorkshopSettings>('workshop_settings');
   readonly projects = new IndexedDbStoreRepository<Project>('projects');
@@ -5681,28 +5692,33 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
     return purgeDemoDataTransaction();
   }
 
+  /**
+   * Read-only snapshot for destructive reset. Fingerprints include the complete
+   * serialized contents, so same-count edits cannot bypass the guard.
+   */
   async inspectWorkshopReset(): Promise<Record<string, number>> {
     return runAtomicTransaction<Record<string, number>>(
       DATA_STORES_TOPOLOGICAL_ORDER,
       'readonly',
       (tx, done, fail) => {
-        const counts: Record<string, number> = {};
-        const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter((name) => name !== 'workshop_settings');
+        const snapshot: Record<string, number> = {};
+        const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter(name => name !== 'workshop_settings');
         let remaining = stores.length;
-        for (const storeName of stores) {
-          const req = tx.objectStore(storeName).count();
+        for (const name of stores) {
+          const req = tx.objectStore(name).getAll();
           req.onerror = () => fail(req.error);
           req.onsuccess = () => {
-            counts[storeName] = req.result;
-            remaining -= 1;
-            if (remaining === 0) done(counts);
+            const rows = req.result as BaseEntity[];
+            snapshot[name] = rows.length;
+            snapshot[`__fingerprint_${name}`] = fingerprintWorkshopRecords(rows);
+            if (--remaining === 0) done(snapshot);
           };
         }
       },
     );
   }
 
-  async resetWorkshop(expectedCounts: Record<string, number>, expectedInstanceId: string): Promise<void> {
+  async resetWorkshop(expectedSnapshot: Record<string, number>, expectedInstanceId: string): Promise<void> {
     const saved = await runAtomicTransaction<WorkshopSettings>(
       DATA_STORES_TOPOLOGICAL_ORDER,
       'readwrite',
@@ -5715,35 +5731,34 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
             fail(new Error('La identidad del taller cambió. Actualiza la pantalla antes de restablecer.'));
             return;
           }
-          const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter((name) => name !== 'workshop_settings');
-          // Check active sessions before queuing destructive requests.
-          const sessionsReq = tx.objectStore('work_sessions').getAll();
-          sessionsReq.onerror = () => fail(sessionsReq.error);
-          sessionsReq.onsuccess = () => {
-            const sessions = sessionsReq.result as WorkSession[];
-            if (sessions.some(session => session.status === 'running' || session.status === 'paused')) {
-              fail(new Error('Hay sesiones del cronómetro activas o pausadas. Finalízalas antes de restablecer el taller.'));
-              return;
-            }
-            verifyCountsAndReset();
-          };
-          const verifyCountsAndReset = () => {
+          const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter(name => name !== 'workshop_settings');
           let remaining = stores.length;
           let invalid = false;
-          for (const storeName of stores) {
-            const req = tx.objectStore(storeName).count();
-            req.onerror = () => { if (!invalid) { invalid = true; fail(req.error); } };
+          for (const name of stores) {
+            const req = tx.objectStore(name).getAll();
+            req.onerror = () => {
+              if (!invalid) { invalid = true; fail(req.error); }
+            };
             req.onsuccess = () => {
               if (invalid) return;
-              if (req.result !== expectedCounts[storeName]) {
+              const rows = req.result as BaseEntity[];
+              if (name === 'work_sessions' && rows.some(row => {
+                const session = row as WorkSession;
+                return session.status === 'running' || session.status === 'paused';
+              })) {
                 invalid = true;
-                fail(new Error('Los datos del taller cambiaron después del resumen. Revisa los registros y descarga un nuevo respaldo.'));
+                fail(new Error('Hay sesiones del cronómetro activas o pausadas. Finalízalas antes de restablecer el taller.'));
                 return;
               }
-              remaining -= 1;
-              if (remaining !== 0) return;
-              // A single readwrite transaction serializes all local writes.
-              for (const name of stores) tx.objectStore(name).clear();
+              if (rows.length !== expectedSnapshot[name] ||
+                  fingerprintWorkshopRecords(rows) !== expectedSnapshot[`__fingerprint_${name}`]) {
+                invalid = true;
+                fail(new Error('Los datos cambiaron después del resumen o respaldo. Revisa los registros y descarga una nueva copia.'));
+                return;
+              }
+              if (--remaining !== 0) return;
+              // All reads and destructive writes share one readwrite transaction.
+              for (const storeName of stores) tx.objectStore(storeName).clear();
               const defaults = createDefaultWorkshopSettings();
               const updated: WorkshopSettings = {
                 ...defaults,
@@ -5762,7 +5777,6 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
               done(updated);
             };
           }
-          };
         };
       },
     );
