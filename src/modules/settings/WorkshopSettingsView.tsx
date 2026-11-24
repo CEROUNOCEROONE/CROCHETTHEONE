@@ -25,6 +25,7 @@ import { BRAND_CONFIG } from '@/src/config/brand.ts';
 import type {
   BackupImportStrategy,
   BackupInspectionResult,
+  WorkshopResetInspection,
 } from '@/src/data/ports/DataStorePort.ts';
 import { useWorkshopData } from '@/src/data/DataContext.tsx';
 import {
@@ -161,6 +162,8 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     updateSettings,
     loadDemoData,
     purgeDemoData,
+    inspectWorkshopReset,
+    resetWorkshop,
     exportBackup,
     inspectBackup,
     importBackup,
@@ -215,6 +218,86 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
   const [demoBusy, setDemoBusy] = useState(false);
   const [confirmPurgeDemoOpen, setConfirmPurgeDemoOpen] = useState(false);
 
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetCounts, setResetCounts] = useState<WorkshopResetInspection | null>(null);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetBackupReady, setResetBackupReady] = useState(false);
+  const [resetBackupConfirmed, setResetBackupConfirmed] = useState(false);
+  const [resetPhrase, setResetPhrase] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const resetInFlight = useRef(false);
+
+  const openWorkshopReset = async () => {
+    setResetBusy(true);
+    setResetError(null);
+    setResetCounts(null);
+    setResetBackupReady(false);
+    setResetBackupConfirmed(false);
+    setResetPhrase('');
+    try {
+      setResetCounts(await inspectWorkshopReset());
+      setResetOpen(true);
+    } catch (err) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'No se pudo inspeccionar el taller.' });
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const downloadResetBackup = async () => {
+    setResetBusy(true);
+    setResetBackupReady(false);
+    setResetBackupConfirmed(false);
+    setResetError(null);
+    try {
+      const envelope = await exportBackup(true);
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `crochettheone-antes-de-restablecer-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(link);
+        try { link.click(); } finally { link.remove(); }
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      // The backup itself must cover the exact snapshot being confirmed.
+      const currentCounts = await inspectWorkshopReset();
+      if (!resetCounts || Object.keys(currentCounts.signatures).some(key => currentCounts.signatures[key] !== resetCounts.signatures[key])) {
+        setResetCounts(currentCounts);
+        throw new Error('Los registros cambiaron mientras se generaba el respaldo. Revisa el nuevo resumen y vuelve a descargarlo.');
+      }
+      setResetBackupReady(true);
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'No se pudo descargar el respaldo.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const executeWorkshopReset = async () => {
+    if (resetInFlight.current || resetBusy || !resetCounts || !resetBackupReady || !resetBackupConfirmed || resetPhrase !== 'RESTABLECER') return;
+    resetInFlight.current = true;
+    setResetBusy(true);
+    setResetError(null);
+    try {
+      await resetWorkshop(resetCounts, settings.workshopInstanceId);
+      setResetOpen(false);
+      setResetCounts(null);
+      setResetBackupReady(false);
+      setResetBackupConfirmed(false);
+      setResetPhrase('');
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'No se pudo restablecer el taller.');
+      setResetBackupReady(false);
+      setResetBackupConfirmed(false);
+    } finally {
+      resetInFlight.current = false;
+      setResetBusy(false);
+    }
+  };
+
   const [includeDemoInExport, setIncludeDemoInExport] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
 
@@ -224,6 +307,11 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     useState<BackupImportStrategy>('append_new');
   const [confirmImportOpen, setConfirmImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [safetyBackupBusy, setSafetyBackupBusy] = useState(false);
+  const [safetyBackupGenerated, setSafetyBackupGenerated] = useState(false);
+  const [safetyBackupSaved, setSafetyBackupSaved] = useState(false);
+  const [safetyBackupRecordCount, setSafetyBackupRecordCount] = useState<number | null>(null);
+  const [safetyBackupError, setSafetyBackupError] = useState<string | null>(null);
 
   useEffect(() => {
     setWorkshopName(settings.workshopName);
@@ -406,6 +494,48 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     }
   };
 
+  const resetSafetyBackupConfirmation = () => {
+    setSafetyBackupGenerated(false);
+    setSafetyBackupSaved(false);
+    setSafetyBackupRecordCount(null);
+    setSafetyBackupError(null);
+  };
+
+  const handleDownloadSafetyBackup = async () => {
+    setSafetyBackupBusy(true);
+    setSafetyBackupSaved(false);
+    setSafetyBackupGenerated(false);
+    setSafetyBackupError(null);
+    try {
+      // A complete snapshot includes demo records; never rely on the optional export filter.
+      const envelope = await exportBackup(true);
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `crochettheone-antes-de-reemplazar-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+        }
+      } finally {
+        // Give the browser time to process the initiated download.
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      setSafetyBackupRecordCount(Object.values(envelope.recordCounts ?? {}).reduce<number>((sum, count) => sum + (count ?? 0), 0));
+      setSafetyBackupGenerated(true);
+    } catch (err) {
+      setSafetyBackupError(err instanceof Error ? err.message : 'No se pudo preparar el respaldo de seguridad.');
+    } finally {
+      setSafetyBackupBusy(false);
+    }
+  };
+
   const handleBackupFileSelected = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -414,12 +544,27 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
     if (!file) return;
 
     setFeedback(null);
+    resetSafetyBackupConfirmation();
+    const inspectionStarted = performance.now();
+    let fileReadMs: number | null = null;
     try {
       const rawText = await file.text();
+      fileReadMs = Math.round(performance.now() - inspectionStarted);
       const result = await inspectBackup(rawText);
+      console.info('[CrochetTheOne perf] backup.inspect', {
+        fileReadMs,
+        inspectionMs: Math.round(performance.now() - inspectionStarted - fileReadMs),
+        totalMs: Math.round(performance.now() - inspectionStarted),
+        fileBytes: file.size,
+        valid: result.isValid,
+      });
       setInspection(result);
       setSelectedStrategy('append_new');
     } catch (err) {
+      console.warn('[CrochetTheOne perf] backup.inspect failed', {
+        totalMs: Math.round(performance.now() - inspectionStarted),
+        fileReadMs,
+      });
       setFeedback({
         type: 'error',
         message:
@@ -432,13 +577,24 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
 
   const handleExecuteImport = async () => {
     if (!inspection || !inspection.isValid) return;
+    if (selectedStrategy === 'replace_all' && (!safetyBackupGenerated || !safetyBackupSaved || safetyBackupBusy)) return;
     setImportBusy(true);
     setFeedback(null);
+    const importStarted = performance.now();
     try {
       await importBackup(inspection, selectedStrategy);
+      console.info('[CrochetTheOne perf] backup.import completed', {
+        strategy: selectedStrategy,
+        totalMs: Math.round(performance.now() - importStarted),
+      });
       setConfirmImportOpen(false);
       setInspection(null);
+      resetSafetyBackupConfirmation();
     } catch (err) {
+      console.warn('[CrochetTheOne perf] backup.import failed', {
+        strategy: selectedStrategy,
+        totalMs: Math.round(performance.now() - importStarted),
+      });
       setConfirmImportOpen(false);
       setFeedback({
         type: 'error',
@@ -1533,7 +1689,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                         </ul>
                         <button
                           type="button"
-                          onClick={() => setInspection(null)}
+                          onClick={() => { setInspection(null); resetSafetyBackupConfirmation(); }}
                           className="mt-3 inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
                         >
                           Cerrar aviso
@@ -1608,7 +1764,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'append_new'}
-                              onChange={() => setSelectedStrategy('append_new')}
+                              onChange={() => { setSelectedStrategy('append_new'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-teal-700"
                             />
                             <span>
@@ -1624,7 +1780,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'merge_overwrite'}
-                              onChange={() => setSelectedStrategy('merge_overwrite')}
+                              onChange={() => { setSelectedStrategy('merge_overwrite'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-teal-700"
                             />
                             <span>
@@ -1640,7 +1796,7 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                               type="radio"
                               name="importStrategy"
                               checked={selectedStrategy === 'replace_all'}
-                              onChange={() => setSelectedStrategy('replace_all')}
+                              onChange={() => { setSelectedStrategy('replace_all'); resetSafetyBackupConfirmation(); }}
                               className="mt-0.5 text-rose-700 accent-rose-700"
                             />
                             <span>
@@ -1753,6 +1909,14 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
                       </button>
                     )}
                   </div>
+                </div>
+
+                <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 sm:p-5">
+                  <h4 className="text-sm font-semibold text-rose-900">Restablecer taller desde cero</h4>
+                  <p className="mt-2 text-xs text-slate-700">Borra todos los registros operativos, incluidos movimientos del Kardex y pagos. Es irreversible sin un respaldo. Disponible en FREE y PRO.</p>
+                  <button type="button" disabled={resetBusy || demoBusy} onClick={() => void openWorkshopReset()} className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-rose-400 bg-white px-4 py-2 text-sm font-semibold text-rose-800 disabled:opacity-50">
+                    <Trash2 className="h-4 w-4" aria-hidden="true" /> Restablecer taller
+                  </button>
                 </div>
 
                 {/* Estado técnico IndexedDB y PWA */}
@@ -1930,6 +2094,40 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
         </SnapSlide>
       </SnapDeck>
 
+      <ConfirmModal
+        isOpen={resetOpen}
+        title="Restablecer taller desde cero"
+        description="Se eliminarán permanentemente todos los registros operativos de este dispositivo. Se conservarán la identidad técnica y el plan de suscripción. La moneda volverá a COP y la tarifa a cero."
+        confirmLabel="Restablecer definitivamente"
+        variant="danger"
+        isBusy={resetBusy}
+        confirmDisabled={!resetCounts || !resetBackupReady || !resetBackupConfirmed || resetPhrase !== 'RESTABLECER'}
+        onConfirm={() => void executeWorkshopReset()}
+        onCancel={() => { if (!resetBusy) { setResetOpen(false); setResetBackupReady(false); setResetBackupConfirmed(false); setResetPhrase(''); } }}
+      >
+        <div className="space-y-3 text-sm text-slate-800">
+          <p className="font-semibold">Registros que se eliminarán:</p>
+          <ul className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-3">
+            {Object.entries(resetCounts?.counts ?? {}).filter(([, count]) => count > 0).map(([store, count]) => (
+              <li key={store}>{STORE_LABELS[store] ?? store}: {count}</li>
+            ))}
+            {resetCounts && Object.values(resetCounts.counts).every(count => count === 0) && <li>El taller ya no contiene registros operativos.</li>}
+          </ul>
+          <button type="button" disabled={resetBusy} onClick={() => void downloadResetBackup()} className="min-h-[44px] rounded-lg border border-rose-300 bg-white px-3 py-2 font-semibold text-rose-800 disabled:opacity-50">
+            {resetBusy ? 'Preparando...' : 'Descargar respaldo JSON completo'}
+          </button>
+          {resetBackupReady && <label className="flex items-start gap-2">
+            <input type="checkbox" checked={resetBackupConfirmed} onChange={e => setResetBackupConfirmed(e.target.checked)} className="mt-1" />
+            <span>He comprobado que el respaldo JSON se guardó fuera de la aplicación.</span>
+          </label>}
+          <label className="block space-y-1">
+            <span>Escribe RESTABLECER para confirmar:</span>
+            <input type="text" value={resetPhrase} onChange={e => setResetPhrase(e.target.value)} autoComplete="off" className="w-full rounded-lg border border-slate-300 p-2" />
+          </label>
+          {resetError && <p role="alert" className="text-rose-800">{resetError}</p>}
+        </div>
+      </ConfirmModal>
+
       {/* Modal de confirmación para eliminar ejemplos */}
       <ConfirmModal
         isOpen={confirmPurgeDemoOpen}
@@ -1959,10 +2157,43 @@ export const WorkshopSettingsView: React.FC<WorkshopSettingsViewProps> = ({
         }
         confirmLabel="Confirmar importación"
         variant={selectedStrategy === 'replace_all' ? 'danger' : 'default'}
-        isBusy={importBusy}
+        isBusy={importBusy || safetyBackupBusy}
+        confirmDisabled={selectedStrategy === 'replace_all' && (!safetyBackupGenerated || !safetyBackupSaved)}
         onConfirm={() => void handleExecuteImport()}
-        onCancel={() => setConfirmImportOpen(false)}
-      />
+        onCancel={() => { setConfirmImportOpen(false); resetSafetyBackupConfirmation(); }}
+      >
+        {selectedStrategy === 'replace_all' && (
+          <div className="space-y-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-slate-800">
+            <p>Se reemplazarán los datos de este dispositivo por los {inspection?.totalRecordsInFile ?? 0} registros del archivo. Los registros locales que no estén en él se eliminarán.</p>
+            <p className="font-semibold">Antes de continuar, guarda una copia completa del taller actual.</p>
+            <button
+              type="button"
+              disabled={safetyBackupBusy || importBusy}
+              onClick={() => void handleDownloadSafetyBackup()}
+              className="inline-flex min-h-[44px] items-center rounded-lg border border-rose-300 bg-white px-3 py-2 font-medium text-rose-800 disabled:opacity-50"
+            >
+              {safetyBackupBusy ? 'Preparando respaldo...' : 'Descargar respaldo de seguridad'}
+            </button>
+            {safetyBackupError && <p role="alert" className="text-rose-800">{safetyBackupError}</p>}
+            {safetyBackupGenerated && (
+              <div className="space-y-2">
+                <p>Descarga solicitada: {safetyBackupRecordCount ?? 0} registros del taller actual. Comprueba que el archivo JSON se haya guardado correctamente.</p>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={safetyBackupSaved}
+                    onChange={(event) => setSafetyBackupSaved(event.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>He comprobado que el respaldo está guardado fuera de la aplicación y puedo recuperarlo.</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmModal>
+      {/* end protected import confirmation */}
+
     </>
   );
 };

@@ -390,11 +390,27 @@ export async function applyBackupImport(
 
   const { envelope } = inspection;
 
+  // Sensitive ledgers can only be carried through a merge unchanged.
+  // Any addition or modification needs a separate domain-aware reconciliation.
+  const sensitiveStores: WorkshopStoreName[] = [
+    'material_variants',
+    'inventory_reservations',
+    'inventory_movements',
+    'purchase_receipts',
+    'pending_materials',
+    'shopping_list_items',
+    'payment_plans',
+    'payment_installments',
+    'financial_transactions',
+  ];
+  const sensitiveSet = new Set<WorkshopStoreName>(sensitiveStores);
+
   return runAtomicTransaction<BackupImportOutcome>(
     DATA_STORES_TOPOLOGICAL_ORDER,
     'readwrite',
     (tx, done, fail) => {
       const existingByStore = new Map<WorkshopStoreName, Set<string>>();
+      const localRecordsByStore = new Map<WorkshopStoreName, BaseEntity[]>();
       let existingLocalSettings: WorkshopSettings | null = null;
       let pending = DATA_STORES_TOPOLOGICAL_ORDER.length + 1;
       let aborted = false;
@@ -417,7 +433,7 @@ export async function applyBackupImport(
       };
 
       for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
-        const req = tx.objectStore(storeName).getAllKeys();
+        const req = tx.objectStore(storeName).getAll();
         req.onerror = () => {
           if (!aborted) {
             aborted = true;
@@ -426,11 +442,9 @@ export async function applyBackupImport(
         };
         req.onsuccess = () => {
           if (aborted) return;
-          const keys = (req.result as IDBValidKey[]) ?? [];
-          existingByStore.set(
-            storeName,
-            new Set(keys.map((k) => String(k))),
-          );
+          const rows = (req.result as BaseEntity[]) ?? [];
+          localRecordsByStore.set(storeName, rows);
+          existingByStore.set(storeName, new Set(rows.map((row) => row.id)));
           pending -= 1;
           if (pending === 0) {
             executeWrite();
@@ -439,6 +453,74 @@ export async function applyBackupImport(
       }
 
       function executeWrite() {
+        if (strategy === 'append_new') {
+          // IDs alone cannot prove that two financial or stock ledger entries
+          // represent different real-world operations. Refuse potentially
+          // duplicating sensitive entries when the destination has user data.
+          // A completely empty workshop can still receive an initial import.
+          const hasExistingWorkshopData = DATA_STORES_TOPOLOGICAL_ORDER.some(
+            (storeName) =>
+              storeName !== 'workshop_settings' &&
+              (localRecordsByStore.get(storeName)?.length ?? 0) > 0,
+          );
+          if (hasExistingWorkshopData) {
+            for (const storeName of sensitiveStores) {
+              const existingIds = existingByStore.get(storeName) ?? new Set<string>();
+              const incoming = envelope.data[storeName] ?? [];
+              if (incoming.some((record) => !existingIds.has(record.id))) {
+                fail(new Error(
+                  `Importación detenida: «Agregar solo nuevos» no puede incorporar operaciones de inventario o pagos de "${storeName}" a un taller con datos existentes sin conciliación de operaciones. No se modificó ningún dato. Para restaurar íntegramente un respaldo, utiliza «Reemplazar todos» después de exportar una copia de seguridad de los datos actuales.`,
+                ));
+                return;
+              }
+            }
+          }
+        }
+
+        if (strategy === 'merge_overwrite') {
+          // Validate against the actual transactional snapshot, not the earlier inspection.
+          const proposed: Partial<Record<WorkshopStoreName, BaseEntity[]>> = {};
+          for (const storeName of DATA_STORES_TOPOLOGICAL_ORDER) {
+            const local = localRecordsByStore.get(storeName) ?? [];
+            const incoming = envelope.data[storeName] ?? [];
+            const merged = new Map(local.map((row) => [row.id, row]));
+            for (const record of incoming) {
+              const current = merged.get(record.id);
+              // Settings have separate merge rules and are changed by backup export itself.
+              if (storeName === 'workshop_settings') continue;
+              if (sensitiveSet.has(storeName)) {
+                if (!current || JSON.stringify(current) !== JSON.stringify(record)) {
+                  fail(new Error(
+                    `Fusión detenida: el inventario o los pagos contienen cambios en "${storeName}" (${record.id}). No se modificó ningún dato.`,
+                  ));
+                  return;
+                }
+                continue;
+              }
+              if (current) {
+                // Identical records are harmless and should not block other updates.
+                if (JSON.stringify(current) === JSON.stringify(record)) continue;
+                const currentTime = Date.parse(current.updatedAt);
+                const incomingTime = Date.parse(record.updatedAt);
+                if (!Number.isFinite(currentTime) || !Number.isFinite(incomingTime) ||
+                    incomingTime <= currentTime) {
+                  fail(new Error(
+                    `Fusión detenida: el registro "${record.id}" de "${storeName}" no es más reciente que el dato local. No se modificó ningún dato.`,
+                  ));
+                  return;
+                }
+              }
+              merged.set(record.id, record);
+            }
+            proposed[storeName] = [...merged.values()];
+          }
+          const errors = validateCrossRecordIntegrity(proposed);
+          if (errors.length > 0) {
+            fail(new Error(`Fusión detenida por integridad: ${errors[0]}. No se modificó ningún dato.`));
+            return;
+          }
+        }
+
         let insertedCount = 0;
         let updatedCount = 0;
         let skippedCount = 0;
@@ -483,6 +565,11 @@ export async function applyBackupImport(
               skippedCount += 1;
               continue;
             }
+            if (strategy === 'merge_overwrite' && exists &&
+                JSON.stringify(localRecordsByStore.get(storeName)?.find((row) => row.id === record.id)) === JSON.stringify(record)) {
+              skippedCount += 1;
+              continue;
+            }
 
             if (exists) {
               updatedCount += 1;
@@ -523,6 +610,16 @@ export async function applyBackupImport(
             incomingId ?? localId ?? createWorkshopInstanceUuid();
 
           if (incomingRawSettings) {
+            if (existingLocalSettings &&
+                JSON.stringify(existingLocalSettings) === JSON.stringify(incomingRawSettings)) {
+              skippedCount += 1;
+            } else if (existingLocalSettings &&
+                (!Number.isFinite(Date.parse(existingLocalSettings.updatedAt)) ||
+                 !Number.isFinite(Date.parse(incomingRawSettings.updatedAt ?? '')) ||
+                 Date.parse(incomingRawSettings.updatedAt ?? '') <= Date.parse(existingLocalSettings.updatedAt))) {
+              // Preserve newer local settings instead of rejecting an otherwise safe merge.
+              skippedCount += 1;
+            } else {
             const mergedSettings = normalizeWorkshopSettings({
               ...incomingRawSettings,
               id: 'default',
@@ -535,6 +632,7 @@ export async function applyBackupImport(
               updatedCount += 1;
             } else {
               insertedCount += 1;
+            }
             }
           } else if (
             !existingLocalSettings ||

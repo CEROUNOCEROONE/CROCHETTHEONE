@@ -61,6 +61,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isDesktopViewport = useIsDesktopViewport();
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const drawerCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mobileDialogRef = useRef<HTMLDialogElement | null>(null);
   const wasDrawerOpenRef = useRef(false);
   const currentRoute = getRouteDefinition(activeRoute);
   const mobileBottomRoutes = MODULE_ROUTES.filter((r) => r.showInMobileBottomBar);
@@ -71,17 +72,28 @@ export const AppShell: React.FC<AppShellProps> = ({
     }
   }, [isDesktopViewport, mobileDrawerOpen]);
 
+  // Native modal top layer provides focus containment and background inertness.
+  // Keep the dialog mounted during the existing 250ms exit animation.
   useEffect(() => {
-    if (!mobileDrawerOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setMobileDrawerOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    const dialog = mobileDialogRef.current;
+    if (!dialog) return;
+    if (mobileDrawerOpen) {
+      if (!dialog.open) dialog.showModal();
+      return;
+    }
+    if (!dialog.open) return;
+    const closeTimer = window.setTimeout(() => {
+      if (dialog.open) dialog.close();
+    }, 250);
+    return () => window.clearTimeout(closeTimer);
   }, [mobileDrawerOpen]);
+
+  useEffect(() => {
+    const dialog = mobileDialogRef.current;
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, []);
 
   useEffect(() => {
     if (mobileDrawerOpen && !wasDrawerOpenRef.current) {
@@ -273,18 +285,18 @@ export const AppShell: React.FC<AppShellProps> = ({
       </nav>
 
       {/* Menú lateral completo para móvil (acceso a todos los módulos del taller) */}
-      <div
+      <dialog
+        ref={mobileDialogRef}
         id="mobile-modules-drawer"
-        className={`fixed inset-0 z-50 flex transition-[visibility] lg:hidden ${
-          mobileDrawerOpen
-            ? 'visible pointer-events-auto duration-0'
-            : 'invisible pointer-events-none duration-250'
-        }`}
-        role="dialog"
-        aria-modal="true"
-        aria-hidden={!mobileDrawerOpen}
+        className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-0 text-slate-900 backdrop:bg-transparent hidden open:flex lg:open:hidden"
         aria-label="Menú completo de módulos"
-        inert={!mobileDrawerOpen}
+        onCancel={(event) => {
+          event.preventDefault();
+          setMobileDrawerOpen(false);
+        }}
+        onClose={() => {
+          setMobileDrawerOpen(false);
+        }}
       >
         <div
           className={`fixed inset-0 bg-slate-900/50 transition-opacity ease-out ${
@@ -372,7 +384,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               })}
             </div>
           </div>
-        </div>
+        </dialog>
     </div>
   );
 };

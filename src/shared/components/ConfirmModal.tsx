@@ -9,6 +9,7 @@ interface ConfirmModalProps {
   readonly cancelLabel?: string;
   readonly variant?: 'default' | 'danger';
   readonly isBusy?: boolean;
+  readonly confirmDisabled?: boolean;
   readonly children?: React.ReactNode;
   onConfirm(): void;
   onCancel(): void;
@@ -22,6 +23,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   cancelLabel = 'Cancelar',
   variant = 'default',
   isBusy = false,
+  confirmDisabled = false,
   children,
   onConfirm,
   onCancel,
@@ -118,7 +120,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             </button>
             <button
               type="button"
-              disabled={isBusy}
+              disabled={isBusy || confirmDisabled}
               onClick={onConfirm}
               className={`inline-flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
                 variant === 'danger'

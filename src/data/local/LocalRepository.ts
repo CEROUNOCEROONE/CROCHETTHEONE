@@ -37,6 +37,7 @@ import type {
   BackupInspectionResult,
   DataStorePort,
   DemoPurgeOutcome,
+  WorkshopResetInspection,
   FinishTimerSessionOptions,
   ManualWorkSessionInput,
   WorkshopDataEngine,
@@ -351,6 +352,17 @@ class IndexedDbStoreRepository<T extends BaseEntity> implements DataStorePort<T>
   }
 }
 
+function fingerprintWorkshopRecords(records: BaseEntity[]): number {
+  // Deterministic 32-bit FNV-1a over all serialized record fields.
+  // This is a stale-snapshot detector, not a cryptographic integrity proof.
+  const value = JSON.stringify(records);
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  }
+  return hash >>> 0;
+}
+
 export class LocalWorkshopEngine implements WorkshopDataEngine {
   readonly settings = new IndexedDbStoreRepository<WorkshopSettings>('workshop_settings');
   readonly projects = new IndexedDbStoreRepository<Project>('projects');
@@ -586,6 +598,83 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
           : (current.quietHoursEnd ?? '07:00'),
       customMaterialCategories: nextCustomCategories,
     };
+    if (nextCurrency !== current.currency) {
+      // Changing the unit of account without converting historical amounts
+      // would silently reinterpret prices, inventory valuation and payments.
+      // Check and write within one transaction so another tab cannot insert
+      // workshop data between the safety check and the currency change.
+      const saved = await runAtomicTransaction<WorkshopSettings>(
+        DATA_STORES_TOPOLOGICAL_ORDER,
+        'readwrite',
+        (tx, done, fail) => {
+          const settingsStore = tx.objectStore('workshop_settings');
+          const settingsReq = settingsStore.get('default');
+          settingsReq.onerror = () => fail(settingsReq.error);
+          settingsReq.onsuccess = () => {
+            const latest = normalizeWorkshopSettings(
+              settingsReq.result as WorkshopSettings | undefined,
+            );
+            if (latest.currency !== current.currency) {
+              fail(new Error('La moneda del taller cambió en otra pestaña. Actualiza la pantalla antes de guardar.'));
+              return;
+            }
+            // The hourly rate lives in workshop_settings, outside the store
+            // count guard. Require an explicit zero value in the SAME save
+            // when changing currency: do not silently relabel an old rate,
+            // but allow the user to clear it without a two-step workflow.
+            if (Number(updated.hourlyRateCOP) !== 0) {
+              fail(new Error(
+                'Para cambiar la moneda sin convertir importes, establece la tarifa por hora en 0 y guarda ambos cambios juntos. Después podrás introducir una nueva tarifa en la moneda elegida.',
+              ));
+              return;
+            }
+            const storesToCheck = DATA_STORES_TOPOLOGICAL_ORDER.filter(
+              (storeName) => storeName !== 'workshop_settings',
+            );
+            let pending = storesToCheck.length;
+            let failed = false;
+            const occupiedStores: Array<{ storeName: WorkshopStoreName; count: number }> = [];
+            if (pending === 0) {
+              settingsStore.put(updated);
+              done(updated);
+              return;
+            }
+            for (const storeName of storesToCheck) {
+              const req = tx.objectStore(storeName).count();
+              req.onerror = () => {
+                if (!failed) {
+                  failed = true;
+                  fail(req.error);
+                }
+              };
+              req.onsuccess = () => {
+                if (failed) return;
+                if (req.result > 0) {
+                  occupiedStores.push({ storeName, count: req.result });
+                }
+                pending -= 1;
+                if (pending === 0) {
+                  if (occupiedStores.length > 0) {
+                    const details = occupiedStores
+                      .map(({ storeName, count }) => `${storeName}: ${count}`)
+                      .join('; ');
+                    fail(new Error(
+                      `No se puede cambiar la moneda porque quedan registros guardados (${details}). No se modificó ningún dato. La eliminación de ejemplos solo borra registros de demostración; no borres información adicional para superar esta protección.`,
+                    ));
+                    return;
+                  }
+                  settingsStore.put(updated);
+                  done(updated);
+                }
+              };
+            }
+          };
+        },
+      );
+      setActiveCurrency(saved.currency);
+      return saved;
+    }
+
     const saved = await this.settings.upsert(updated);
     setActiveCurrency(saved.currency);
     return saved;
@@ -5602,6 +5691,96 @@ export class LocalWorkshopEngine implements WorkshopDataEngine {
 
   purgeDemoData(): Promise<DemoPurgeOutcome> {
     return purgeDemoDataTransaction();
+  }
+
+  /**
+   * Read-only snapshot for destructive reset. Fingerprints include the complete
+   * serialized contents, so same-count edits cannot bypass the guard.
+   */
+  async inspectWorkshopReset(): Promise<WorkshopResetInspection> {
+    return runAtomicTransaction<WorkshopResetInspection>(
+      DATA_STORES_TOPOLOGICAL_ORDER,
+      'readonly',
+      (tx, done, fail) => {
+        const counts: Record<string, number> = {};
+        const signatures: Record<string, string> = {};
+        const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter(name => name !== 'workshop_settings');
+        let remaining = stores.length;
+        for (const name of stores) {
+          const req = tx.objectStore(name).getAll();
+          req.onerror = () => fail(req.error);
+          req.onsuccess = () => {
+            const rows = req.result as BaseEntity[];
+            counts[name] = rows.length;
+            signatures[name] = JSON.stringify(rows);
+            if (--remaining === 0) done({ counts, signatures });
+          };
+        }
+      },
+    );
+  }
+
+  async resetWorkshop(expected: WorkshopResetInspection, expectedInstanceId: string): Promise<void> {
+    const saved = await runAtomicTransaction<WorkshopSettings>(
+      DATA_STORES_TOPOLOGICAL_ORDER,
+      'readwrite',
+      (tx, done, fail) => {
+        const settingsReq = tx.objectStore('workshop_settings').get('default');
+        settingsReq.onerror = () => fail(settingsReq.error);
+        settingsReq.onsuccess = () => {
+          const current = settingsReq.result as WorkshopSettings | undefined;
+          if (!current || current.workshopInstanceId !== expectedInstanceId) {
+            fail(new Error('La identidad del taller cambió. Actualiza la pantalla antes de restablecer.'));
+            return;
+          }
+          const stores = DATA_STORES_TOPOLOGICAL_ORDER.filter(name => name !== 'workshop_settings');
+          const rowsByStore: Record<string, BaseEntity[]> = {};
+          let remaining = stores.length;
+          let invalid = false;
+          for (const name of stores) {
+            const req = tx.objectStore(name).getAll();
+            req.onerror = () => {
+              if (!invalid) { invalid = true; fail(req.error); }
+            };
+            req.onsuccess = () => {
+              if (invalid) return;
+              const rows = req.result as BaseEntity[];
+              if (rows.length !== expected.counts[name] || JSON.stringify(rows) !== expected.signatures[name]) {
+                invalid = true;
+                fail(new Error('Los datos cambiaron desde el resumen. Vuelve a inspeccionar y descargar el respaldo.'));
+                return;
+              }
+              rowsByStore[name] = rows;
+              if (--remaining !== 0) return;
+              const sessions = rowsByStore['work_sessions'] as WorkSession[];
+              if (sessions.some(session => session.status === 'running' || session.status === 'paused')) {
+                fail(new Error('Hay sesiones del cronómetro activas o pausadas. Finalízalas antes de restablecer.'));
+                return;
+              }
+              // All checks and clears share the same readwrite transaction.
+              for (const storeName of stores) tx.objectStore(storeName).clear();
+              const defaults = createDefaultWorkshopSettings();
+              const updated: WorkshopSettings = {
+                ...defaults,
+                id: current.id,
+                ownerId: current.ownerId,
+                syncStatus: current.syncStatus,
+                workshopInstanceId: current.workshopInstanceId,
+                plan: current.plan,
+                createdAt: current.createdAt,
+                version: current.version + 1,
+                updatedAt: new Date().toISOString(),
+                currency: 'COP',
+                hourlyRateCOP: 0,
+              };
+              tx.objectStore('workshop_settings').put(updated);
+              done(updated);
+            };
+          }
+        };
+      },
+    );
+    setActiveCurrency(saved.currency);
   }
 
   exportBackup(options: { includeDemo: boolean }): Promise<BackupEnvelope> {
