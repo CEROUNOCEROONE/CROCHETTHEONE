@@ -98,11 +98,9 @@ function sanitizeMoneyDraft(raw: string, decimals: number): string {
   if (decimals === 0) {
     return raw.replace(/[^\d]/g, '');
   }
-  const normalized = raw.replace(',', '.').replace(/[^\d.]/g, '');
-  const parts = normalized.split('.');
-  if (parts.length <= 1) return parts[0] ?? '';
-  const frac = parts.slice(1).join('').slice(0, decimals);
-  return `${parts[0]}.${frac}`;
+  // Preserve the user's grouping/decimal punctuation while editing.
+  // Parsing and validation happen on submission, not on every keystroke.
+  return raw.replace(/[^\d.,]/g, '');
 }
 
 export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
