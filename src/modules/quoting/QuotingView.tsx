@@ -25,10 +25,10 @@ import type {
 } from '@/src/domain/models/index.ts';
 import {
   getCurrencySpec,
+  parseLocalizedNonNegativeDecimal,
   parseNonNegativeMoney,
   parseNonNegativeUnitCost,
   roundCurrencyAmount,
-  validateNonNegativeDecimalInput,
   type WorkshopCurrencyCode,
 } from '@/src/domain/services/currencyCatalog.ts';
 import {
@@ -101,9 +101,7 @@ function makeLocalKey(): string {
 }
 
 function parseNonNegativeFloat(raw: string): number {
-  const n = Number(raw.replace(',', '.'));
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return n;
+  return parseLocalizedNonNegativeDecimal(raw, 6) ?? 0;
 }
 
 function roundSuggestedForCurrency(
@@ -818,10 +816,11 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
 
     for (const line of activeLines) {
       const lineUnit = (line.unit || 'unit') as MeasurementUnit;
-      const costError = validateNonNegativeDecimalInput(line.unitCostCOP, {
-        required: false,
-        fieldLabel: `El costo por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label.trim() || 'Material'}»`,
-      });
+      const costError =
+        line.unitCostCOP.trim() &&
+        parseLocalizedNonNegativeDecimal(line.unitCostCOP, 2) === null
+          ? `El costo por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label.trim() || 'Material'}» no tiene un formato válido.`
+          : null;
       if (costError) {
         setFeedback({ type: 'error', message: costError });
         return;
@@ -836,12 +835,23 @@ export const QuotingView: React.FC<QuotingViewProps> = ({
       [finalAgreedPriceRaw, 'El precio final acordado'],
     ];
     for (const [rawValue, label] of monetaryChecks) {
-      const err = validateNonNegativeDecimalInput(rawValue, {
-        required: false,
-        fieldLabel: label,
-      });
+      const err =
+        rawValue.trim() &&
+        parseLocalizedNonNegativeDecimal(rawValue, getCurrencySpec(settings.currency).decimals) === null
+          ? `${label} no tiene un formato válido. Revisa los separadores de miles y decimales.`
+          : null;
       if (err) {
         setFeedback({ type: 'error', message: err });
+        return;
+      }
+    }
+
+    for (const line of activeLines) {
+      if (parseLocalizedNonNegativeDecimal(line.quantity, 6) === null) {
+        setFeedback({
+          type: 'error',
+          message: `La cantidad de «${line.label.trim() || 'Material'}» no tiene un formato válido.`,
+        });
         return;
       }
     }
