@@ -32,6 +32,7 @@ import {
   fromMinorUnits,
   getCurrencySpec,
   parseNonNegativeMoney,
+  parseLocalizedNonNegativeDecimal,
   toMinorUnits,
 } from '@/src/domain/services/currencyCatalog.ts';
 import { formatCOP, formatDateCO } from '@/src/domain/services/formatters.ts';
@@ -747,6 +748,20 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPlan = async (e: React.FormEvent) => {
     e.preventDefault();
+    const drafts: Array<[string, string]> = [
+      [planTotalRaw, 'El importe total del plan'],
+      ...planRows.map((row, index): [string, string] => [
+        row.amountRaw ?? String(row.scheduledAmountCOP),
+        `El importe de la cuota ${index + 1}`,
+      ]),
+      ...(includeInitialPayment ? [[initPayAmountRaw, 'El anticipo'] as [string, string]] : []),
+    ];
+    for (const [raw, label] of drafts) {
+      if (parseLocalizedNonNegativeDecimal(raw, currencySpec.decimals) === null) {
+        setFeedback({ type: 'error', message: `${label} no tiene un formato válido. Revisa los separadores de miles y decimales.` });
+        return;
+      }
+    }
     const totalAgreedCOP = parseNonNegativeMoney(planTotalRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
@@ -880,6 +895,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (parseLocalizedNonNegativeDecimal(payAmountRaw, currencySpec.decimals) === null) {
+      setFeedback({ type: 'error', message: 'El importe del abono no tiene un formato válido. Revisa los separadores de miles y decimales.' });
+      return;
+    }
     const amountCOP = parseNonNegativeMoney(payAmountRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
