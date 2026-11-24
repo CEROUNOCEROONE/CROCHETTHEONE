@@ -319,7 +319,7 @@ export function parseLocalizedNonNegativeDecimal(
   const value = raw.trim();
   const maxFractionDigits = Math.max(2, decimals);
   if (!value || !/^[0-9.,]+$/.test(value)) return null;
-  const dots = (value.match(/\\./g) ?? []).length;
+  const dots = (value.match(/\./g) ?? []).length;
   const commas = (value.match(/,/g) ?? []).length;
   const lastDot = value.lastIndexOf('.');
   const lastComma = value.lastIndexOf(',');
