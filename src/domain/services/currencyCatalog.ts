@@ -307,52 +307,78 @@ export function getMoneyInputStep(code?: WorkshopCurrencyCode): string {
   return spec.decimals > 0 ? '0.01' : '1';
 }
 
+/**
+ * Interpreta formatos decimales sin adivinar cuando hay un único separador
+ * seguido de tres dígitos (p. ej. "1.250"). Los grupos de miles deben ser
+ * inequívocos o ajustarse a la precisión de la moneda.
+ */
+export function parseLocalizedNonNegativeDecimal(
+  raw: string,
+  decimals: number,
+): number | null {
+  const value = raw.trim();
+  if (!value || !/^[0-9.,]+$/.test(value)) return null;
+  const dots = (value.match(/\\./g) ?? []).length;
+  const commas = (value.match(/,/g) ?? []).length;
+  const lastDot = value.lastIndexOf('.');
+  const lastComma = value.lastIndexOf(',');
+  let integer = value;
+  let fraction = '';
+
+  if (dots && commas) {
+    const decimalMark = lastDot > lastComma ? '.' : ',';
+    const groupingMark = decimalMark === '.' ? ',' : '.';
+    const splitAt = value.lastIndexOf(decimalMark);
+    integer = value.slice(0, splitAt);
+    fraction = value.slice(splitAt + 1);
+    if (!fraction || fraction.length > decimals) return null;
+    const groups = integer.split(groupingMark);
+    if (groups.length < 2 || !/^[0-9]{1,3}$/.test(groups[0]) ||
+        groups.slice(1).some((group) => !/^[0-9]{3}$/.test(group))) return null;
+    integer = groups.join('');
+  } else if (dots || commas) {
+    const mark = dots ? '.' : ',';
+    const groups = value.split(mark);
+    if (groups.length > 2) {
+      if (!/^[0-9]{1,3}$/.test(groups[0]) ||
+          groups.slice(1).some((group) => !/^[0-9]{3}$/.test(group))) return null;
+      integer = groups.join('');
+    } else {
+      const [whole, tail] = groups;
+      if (!whole || !tail) return null;
+      if (tail.length === 3 && whole.length <= 3) {
+        // Para monedas sin decimales, 15.000 es un millar válido.
+        // Para monedas decimales, 1.250 es ambiguo: rechazar.
+        if (decimals !== 0) return null;
+        integer = whole + tail;
+      } else if (tail.length <= decimals) {
+        integer = whole;
+        fraction = tail;
+      } else {
+        return null;
+      }
+    }
+  }
+
+  if (!/^[0-9]+$/.test(integer)) return null;
+  const parsed = Number(integer + (fraction ? '.' + fraction : ''));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 export function parseNonNegativeMoney(
   raw: string,
   code?: WorkshopCurrencyCode,
 ): number {
-  const spec = getCurrencySpec(code);
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed.startsWith('-')) return 0;
-
-  if (spec.decimals === 0) {
-    const decimalNormalized = trimmed.replace(',', '.');
-    if (
-      /^\d+\.\d{1,2}$/.test(decimalNormalized) ||
-      /^\.\d{1,2}$/.test(decimalNormalized)
-    ) {
-      const n = Number.parseFloat(decimalNormalized);
-      return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
-    }
-    const cleaned = trimmed.replace(/[^\d]/g, '');
-    if (!cleaned) return 0;
-    const n = Number.parseInt(cleaned, 10);
-    return Number.isFinite(n) && n >= 0 ? n : 0;
-  }
-
-  // Permite punto o coma decimal conservando solo el primer separador
-  const normalized = trimmed.replace(',', '.').replace(/[^\d.]/g, '');
-  const parts = normalized.split('.');
-  const rebuilt =
-    parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : parts[0];
-  const n = Number.parseFloat(rebuilt);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.round(n * 100) / 100;
+  const parsed = parseLocalizedNonNegativeDecimal(raw, getCurrencySpec(code).decimals);
+  return parsed === null ? 0 : roundCurrencyAmount(parsed, code);
 }
 
 export function parseNonNegativeUnitCost(
   raw: string,
   code?: WorkshopCurrencyCode,
 ): number {
-  const trimmed = raw.trim();
-  if (!trimmed || trimmed.startsWith('-')) return 0;
-  const normalized = trimmed.replace(',', '.').replace(/[^\d.]/g, '');
-  const parts = normalized.split('.');
-  const rebuilt =
-    parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : parts[0];
-  const n = Number.parseFloat(rebuilt);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return roundUnitCostAmount(n, code);
+  const parsed = parseLocalizedNonNegativeDecimal(raw, Math.max(2, getCurrencySpec(code).decimals));
+  return parsed === null ? 0 : roundUnitCostAmount(parsed, code);
 }
 
 export function validateNonNegativeDecimalInput(
