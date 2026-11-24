@@ -317,6 +317,7 @@ export function parseLocalizedNonNegativeDecimal(
   decimals: number,
 ): number | null {
   const value = raw.trim();
+  const maxFractionDigits = Math.max(2, decimals);
   if (!value || !/^[0-9.,]+$/.test(value)) return null;
   const dots = (value.match(/\\./g) ?? []).length;
   const commas = (value.match(/,/g) ?? []).length;
@@ -331,7 +332,7 @@ export function parseLocalizedNonNegativeDecimal(
     const splitAt = value.lastIndexOf(decimalMark);
     integer = value.slice(0, splitAt);
     fraction = value.slice(splitAt + 1);
-    if (!fraction || fraction.length > decimals) return null;
+    if (!fraction || fraction.length > maxFractionDigits) return null;
     const groups = integer.split(groupingMark);
     if (groups.length < 2 || !/^[0-9]{1,3}$/.test(groups[0]) ||
         groups.slice(1).some((group) => !/^[0-9]{3}$/.test(group))) return null;
@@ -351,7 +352,7 @@ export function parseLocalizedNonNegativeDecimal(
         // Para monedas decimales, 1.250 es ambiguo: rechazar.
         if (decimals !== 0) return null;
         integer = whole + tail;
-      } else if (tail.length <= decimals) {
+      } else if (tail.length <= maxFractionDigits) {
         integer = whole;
         fraction = tail;
       } else {
