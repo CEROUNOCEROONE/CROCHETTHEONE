@@ -28,9 +28,9 @@ import type {
   ShoppingListItem,
 } from '@/src/domain/models/index.ts';
 import {
+  parseLocalizedNonNegativeDecimal,
   parseNonNegativeUnitCost,
   roundCurrencyAmount,
-  validateNonNegativeDecimalInput,
 } from '@/src/domain/services/currencyCatalog.ts';
 import {
   formatCOP,
@@ -518,6 +518,21 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     setPendingModalOpen(true);
   };
 
+  const requirePurchaseQuantity = (raw: string, label: string): number => {
+    const parsed = parseLocalizedNonNegativeDecimal(raw, 6);
+    if (parsed === null || parsed <= 0) {
+      throw new Error(`${label} debe ser un número válido mayor que cero. Revisa los separadores de miles y decimales.`);
+    }
+    return parsed;
+  };
+
+  const purchaseCostError = (raw: string, label: string, required: boolean): string | null => {
+    if (!raw.trim() && !required) return null;
+    return parseLocalizedNonNegativeDecimal(raw, 2) === null
+      ? `${label} debe ser un importe válido. Revisa los separadores de miles y decimales.`
+      : null;
+  };
+
   const handleSavePendingMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -525,7 +540,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     try {
       if (editingPending) {
         await updatePendingMaterial(editingPending.id, {
-          quantityNeeded: Number(pendQuantityNeeded),
+          quantityNeeded: requirePurchaseQuantity(pendQuantityNeeded, 'La cantidad necesaria'),
           provider: pendProvider,
           estimatedArrivalDate: dateInputToIso(pendEstimatedArrival),
           status:
@@ -543,10 +558,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
 
         let targetVariantId = pendVariantId;
         if (quickNewMatOpen) {
-          const quickCostErr = validateNonNegativeDecimalInput(quickVarCostCOP, {
-            required: false,
-            fieldLabel: `El costo estimado por ${getUnitCostDisplayLabel(quickMatUnit)}`,
-          });
+          const quickCostErr = purchaseCostError(quickVarCostCOP, `El costo estimado por ${getUnitCostDisplayLabel(quickMatUnit)}`, false);
           if (quickCostErr) {
             throw new Error(quickCostErr);
           }
@@ -581,7 +593,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           variantId: targetVariantId,
           projectId: pendProjectId,
           componentId: pendComponentId || null,
-          quantityNeeded: Number(pendQuantityNeeded),
+          quantityNeeded: requirePurchaseQuantity(pendQuantityNeeded, 'La cantidad necesaria'),
           provider: pendProvider,
           estimatedArrivalDate: dateInputToIso(pendEstimatedArrival),
           status: pendStatus,
@@ -779,10 +791,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
     setBusy(true);
     setFeedback(null);
     try {
-      const priceErr = validateNonNegativeDecimalInput(itemEstimatedPrice, {
-        required: true,
-        fieldLabel: `El precio estimado por ${getUnitCostDisplayLabel(activeItemUnit)}`,
-      });
+      const priceErr = purchaseCostError(itemEstimatedPrice, `El precio estimado por ${getUnitCostDisplayLabel(activeItemUnit)}`, true);
       if (priceErr) {
         throw new Error(priceErr);
       }
@@ -796,7 +805,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           customName: itemMode === 'custom' ? itemCustomName : undefined,
           colorName: itemMode === 'custom' ? itemColorName : undefined,
           unit: itemMode === 'custom' ? itemUnit : undefined,
-          plannedQuantity: Number(itemPlannedQty),
+          plannedQuantity: requirePurchaseQuantity(itemPlannedQty, 'La cantidad planificada'),
           estimatedUnitPriceCOP: parsedEstimatedPrice,
           provider: itemProvider,
           status:
@@ -814,7 +823,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           customName: itemCustomName,
           colorName: itemColorName,
           unit: itemUnit,
-          plannedQuantity: Number(itemPlannedQty),
+          plannedQuantity: requirePurchaseQuantity(itemPlannedQty, 'La cantidad planificada'),
           estimatedUnitPriceCOP: parsedEstimatedPrice,
           provider: itemProvider,
           status: itemStatus,
@@ -965,12 +974,17 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
       const lineVar = line.variantId ? variantMap.get(line.variantId) : undefined;
       const lineMat = lineVar ? materialMap.get(lineVar.materialId) : undefined;
       const lineUnit: MeasurementUnit = lineMat?.unit ?? 'unit';
-      const costErr = validateNonNegativeDecimalInput(line.unitCostCOP, {
-        required: true,
-        fieldLabel: `El costo real por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label}»`,
-      });
+      const costErr = purchaseCostError(line.unitCostCOP, `El costo real por ${getUnitCostDisplayLabel(lineUnit)} de «${line.label}»`, true);
       if (costErr) {
         setFeedback({ type: 'error', message: costErr });
+        return;
+      }
+    }
+
+    for (const line of selectedLines) {
+      if (parseLocalizedNonNegativeDecimal(line.quantityReceived, 6) === null ||
+          (parseLocalizedNonNegativeDecimal(line.quantityReceived, 6) ?? 0) <= 0) {
+        setFeedback({ type: 'error', message: `La cantidad recibida de «${line.label}» debe ser mayor que cero y tener un formato válido.` });
         return;
       }
     }
@@ -988,7 +1002,7 @@ export const ShoppingAndNotesView: React.FC<ShoppingAndNotesViewProps> = ({
           variantId: line.variantId,
           shoppingListItemId: line.shoppingListItemId,
           pendingMaterialId: line.pendingMaterialId,
-          quantityReceived: Number(line.quantityReceived),
+          quantityReceived: requirePurchaseQuantity(line.quantityReceived, 'La cantidad recibida'),
           unitCostCOP: parseNonNegativeUnitCost(line.unitCostCOP, settings.currency),
           updateVariantUnitCost: line.updateVariantUnitCost,
         })),
