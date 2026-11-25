@@ -28,6 +28,7 @@ import type {
   MeasurementUnit,
 } from '@/src/domain/models/index.ts';
 import {
+  parseLocalizedNonNegativeDecimal,
   parseNonNegativeUnitCost,
   validateNonNegativeDecimalInput,
 } from '@/src/domain/services/currencyCatalog.ts';
@@ -429,7 +430,7 @@ export const InventoryView: React.FC = () => {
 
   const firstWeightedPreview = useMemo(() => {
     if (!matchedExistingVariant) return null;
-    const qty = Math.max(0, Number(firstInitialStock) || 0);
+    const qty = parseLocalizedNonNegativeDecimal(firstInitialStock, 6) ?? 0;
     const cost = parseNonNegativeUnitCost(firstCostCOP, settings.currency);
     return computeWeightedAverageUnitCost({
       previousPhysicalStock: matchedExistingVariant.physicalStock,
@@ -442,7 +443,7 @@ export const InventoryView: React.FC = () => {
 
   const variantWeightedPreview = useMemo(() => {
     if (!matchedParentExistingVariant) return null;
-    const qty = Math.max(0, Number(varInitialStock) || 0);
+    const qty = parseLocalizedNonNegativeDecimal(varInitialStock, 6) ?? 0;
     const cost = parseNonNegativeUnitCost(varCostCOP, settings.currency);
     return computeWeightedAverageUnitCost({
       previousPhysicalStock: matchedParentExistingVariant.physicalStock,
@@ -1046,8 +1047,8 @@ export const InventoryView: React.FC = () => {
           sku: firstSku || null,
           provider: firstProvider,
           unitCostCOP: parseNonNegativeUnitCost(firstCostCOP, settings.currency),
-          initialPhysicalStock: Math.max(0, Number(firstInitialStock) || 0),
-          minStock: Math.max(0, Number(firstMinStock) || 0),
+          initialPhysicalStock: requireQuantity(firstInitialStock, 'El stock inicial', true),
+          minStock: requireQuantity(firstMinStock, 'El stock mínimo', true),
           minStockAlertEnabled: firstMinStockAlertEnabled,
           metadataConflictStrategy: firstMetadataStrategy,
           notes: firstNotes,
@@ -1117,7 +1118,7 @@ export const InventoryView: React.FC = () => {
       }
 
       const parsedUnitCost = parseNonNegativeUnitCost(varCostCOP, settings.currency);
-      const preservedMinStock = Math.max(0, Number(varMinStock) || 0);
+      const preservedMinStock = requireQuantity(varMinStock, 'El stock mínimo', true);
       if (editingVariant) {
         await updateVariantMetadata(editingVariant.id, {
           colorName: varColorName,
@@ -1139,7 +1140,7 @@ export const InventoryView: React.FC = () => {
           sku: varSku || null,
           provider: varProvider,
           unitCostCOP: parsedUnitCost,
-          initialPhysicalStock: Math.max(0, Number(varInitialStock) || 0),
+          initialPhysicalStock: requireQuantity(varInitialStock, 'El stock inicial', true),
           minStock: preservedMinStock,
           minStockAlertEnabled: varMinStockAlertEnabled,
           metadataConflictStrategy: varMetadataStrategy,
@@ -1158,6 +1159,14 @@ export const InventoryView: React.FC = () => {
     }
   };
 
+  const requireQuantity = (raw: string, label: string, allowZero = false): number => {
+    const value = parseLocalizedNonNegativeDecimal(raw, 6);
+    if (value === null || (allowZero ? value < 0 : value <= 0)) {
+      throw new Error(`${label} debe ser un número ${allowZero ? 'no negativo' : 'mayor que cero'} válido. Revisa los separadores de miles y decimales.`);
+    }
+    return value;
+  };
+
   // Ajuste de Stock Físico
   const openAdjustStockModal = (variant: MaterialVariant) => {
     setFeedback(null);
@@ -1170,8 +1179,8 @@ export const InventoryView: React.FC = () => {
   const handleConfirmAdjustStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustStockVariant) return;
-    const rawQty = Number(adjustQty);
-    if (!Number.isFinite(rawQty) || rawQty <= 0) {
+    const rawQty = parseLocalizedNonNegativeDecimal(adjustQty, 6);
+    if (rawQty === null || rawQty <= 0) {
       setFeedback({
         type: 'error',
         message: 'La cantidad del ajuste debe ser mayor a 0.',
@@ -1251,7 +1260,7 @@ export const InventoryView: React.FC = () => {
         variantId: reserveVariantId,
         projectId: reserveProjectId,
         componentId: reserveComponentId || null,
-        quantity: Number(reserveQuantity) || 0,
+        quantity: requireQuantity(reserveQuantity, 'La cantidad de la reserva'),
         notes: reserveNotes,
       });
       setReserveModalOpen(false);
@@ -1289,7 +1298,7 @@ export const InventoryView: React.FC = () => {
       await recordDirectProjectConsumption({
         variantId: directConsumeVariant.id,
         projectId: directProjectId,
-        quantity: Number(directQuantity) || 0,
+        quantity: requireQuantity(directQuantity, 'La cantidad consumida'),
         notes: directNotes,
       });
       setDirectConsumeVariant(null);
@@ -1315,7 +1324,7 @@ export const InventoryView: React.FC = () => {
     try {
       await consumeFromReservation({
         reservationId: consumeResModal.id,
-        quantity: Number(consumeResQty) || 0,
+        quantity: requireQuantity(consumeResQty, 'La cantidad consumida'),
         notes: consumeResNotes,
       });
       setConsumeResModal(null);
@@ -1341,7 +1350,7 @@ export const InventoryView: React.FC = () => {
     try {
       await modifyReservationQuantity(
         modifyResModal.id,
-        Number(modifyResQty) || 0,
+        requireQuantity(modifyResQty, 'La cantidad reservada'),
         modifyResNotes,
       );
       setModifyResModal(null);
@@ -2687,7 +2696,7 @@ export const InventoryView: React.FC = () => {
                                   <strong>
                                     {formatUnitQuantity(
                                       matchedExistingVariant.physicalStock +
-                                        Math.max(0, Number(firstInitialStock) || 0),
+                                        requireQuantity(firstInitialStock, 'El stock inicial', true),
                                       reusedMaterial.unit,
                                     )}
                                   </strong>{' '}
@@ -2816,7 +2825,7 @@ export const InventoryView: React.FC = () => {
                         />
                       ) : (
                         <div className="mt-1.5 flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 text-xs text-slate-500">
-                          Alerta desactivada (umbral guardado: {Math.max(0, Number(firstMinStock) || 0)}{' '}
+                          Alerta desactivada (umbral guardado: {requireQuantity(firstMinStock, 'El stock mínimo', true)}{' '}
                           {getUnitShortLabel(reusedMaterial?.unit ?? matUnit)}).
                         </div>
                       )}
@@ -3094,7 +3103,7 @@ export const InventoryView: React.FC = () => {
                               <strong>
                                 {formatUnitQuantity(
                                   matchedParentExistingVariant.physicalStock +
-                                    Math.max(0, Number(varInitialStock) || 0),
+                                    requireQuantity(varInitialStock, 'El stock inicial', true),
                                   variantParentMaterial.unit,
                                 )}
                               </strong>{' '}
@@ -3219,7 +3228,7 @@ export const InventoryView: React.FC = () => {
                     />
                   ) : (
                     <div className="mt-1.5 flex min-h-[42px] items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 text-xs text-slate-500">
-                      Alerta desactivada (umbral guardado: {Math.max(0, Number(varMinStock) || 0)}{' '}
+                      Alerta desactivada (umbral guardado: {requireQuantity(varMinStock, 'El stock mínimo', true)}{' '}
                       {getUnitShortLabel(variantParentMaterial.unit)}).
                     </div>
                   )}
