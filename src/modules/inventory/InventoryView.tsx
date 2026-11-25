@@ -30,7 +30,6 @@ import type {
 import {
   parseLocalizedNonNegativeDecimal,
   parseNonNegativeUnitCost,
-  validateNonNegativeDecimalInput,
 } from '@/src/domain/services/currencyCatalog.ts';
 import { formatCOP, formatDateTimeCO, formatUnitCost } from '@/src/domain/services/formatters.ts';
 import {
@@ -1002,10 +1001,9 @@ export const InventoryView: React.FC = () => {
           description: matDescription,
         });
       } else {
-        const costError = validateNonNegativeDecimalInput(firstCostCOP, {
-          required: true,
-          fieldLabel: 'El costo unitario',
-        });
+        const costError = parseLocalizedNonNegativeDecimal(firstCostCOP, 2) === null
+          ? 'El costo unitario debe ser un número válido. Revisa los separadores de miles y decimales.'
+          : null;
         if (costError) {
           throw new Error(costError);
         }
@@ -1109,10 +1107,9 @@ export const InventoryView: React.FC = () => {
     setBusy(true);
     setFeedback(null);
     try {
-      const costError = validateNonNegativeDecimalInput(varCostCOP, {
-        required: true,
-        fieldLabel: 'El costo unitario',
-      });
+      const costError = parseLocalizedNonNegativeDecimal(varCostCOP, 2) === null
+          ? 'El costo unitario debe ser un número válido. Revisa los separadores de miles y decimales.'
+          : null;
       if (costError) {
         throw new Error(costError);
       }
