@@ -95,10 +95,9 @@ function makeLocalKey(prefix = 'inst_row'): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function sanitizeMoneyDraft(raw: string, decimals: number): string {
-  if (decimals === 0) {
-    return raw.replace(/[^\d]/g, '');
-  }
+function sanitizeMoneyDraft(raw: string, _decimals: number): string {
+  // Keep separators even for zero-decimal currencies (e.g. COP).
+  // Removing them would silently turn "12,50" into "1250" before validation.
   // Preserve the user's grouping/decimal punctuation while editing.
   // Parsing and validation happen on submission, not on every keystroke.
   return raw.replace(/[^\d.,]/g, '');
