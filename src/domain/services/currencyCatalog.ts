@@ -259,7 +259,7 @@ export function roundCurrencyAmount(
 ): number {
   if (!Number.isFinite(amount)) return 0;
   const spec = getCurrencySpec(code);
-  if (spec.decimals === 0) {
+  if (spec.decimals === 0 && spec.code !== 'COP') {
     return Math.round(amount);
   }
   return Math.round(amount * 100) / 100;
@@ -286,7 +286,7 @@ export function toMinorUnits(
 ): number {
   if (!Number.isFinite(amount)) return 0;
   const spec = getCurrencySpec(code);
-  const factor = spec.decimals === 2 ? 100 : 1;
+  const factor = spec.decimals === 2 || spec.code === 'COP' ? 100 : 1;
   return Math.round(amount * factor);
 }
 
@@ -296,7 +296,7 @@ export function fromMinorUnits(
 ): number {
   if (!Number.isFinite(minor)) return 0;
   const spec = getCurrencySpec(code);
-  if (spec.decimals === 0) {
+  if (spec.decimals === 0 && spec.code !== 'COP') {
     return Math.round(minor);
   }
   return Math.round(minor) / 100;
@@ -304,7 +304,7 @@ export function fromMinorUnits(
 
 export function getMoneyInputStep(code?: WorkshopCurrencyCode): string {
   const spec = getCurrencySpec(code);
-  return spec.decimals > 0 ? '0.01' : '1';
+  return spec.decimals > 0 || spec.code === 'COP' ? '0.01' : '1';
 }
 
 /**
