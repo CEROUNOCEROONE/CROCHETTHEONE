@@ -46,7 +46,7 @@ function getNumberFormatter(
   const maxFrac =
     maxDecimalsOverride !== undefined
       ? Math.max(spec.decimals, maxDecimalsOverride)
-      : spec.decimals;
+      : spec.code === 'COP' ? 2 : spec.decimals;
   const minFrac = includeDecimals ? maxFrac : 0;
   const key = `${spec.code}_${minFrac}_${maxFrac}`;
   let fmt = formatterCache.get(key);
