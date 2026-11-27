@@ -32,6 +32,7 @@ import {
   fromMinorUnits,
   getCurrencySpec,
   parseNonNegativeMoney,
+  parseLocalizedNonNegativeDecimal,
   toMinorUnits,
 } from '@/src/domain/services/currencyCatalog.ts';
 import { formatCOP, formatDateCO } from '@/src/domain/services/formatters.ts';
@@ -94,15 +95,12 @@ function makeLocalKey(prefix = 'inst_row'): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function sanitizeMoneyDraft(raw: string, decimals: number): string {
-  if (decimals === 0) {
-    return raw.replace(/[^\d]/g, '');
-  }
-  const normalized = raw.replace(',', '.').replace(/[^\d.]/g, '');
-  const parts = normalized.split('.');
-  if (parts.length <= 1) return parts[0] ?? '';
-  const frac = parts.slice(1).join('').slice(0, decimals);
-  return `${parts[0]}.${frac}`;
+function sanitizeMoneyDraft(raw: string, _decimals: number): string {
+  // Keep separators even for zero-decimal currencies (e.g. COP).
+  // Removing them would silently turn "12,50" into "1250" before validation.
+  // Preserve the user's grouping/decimal punctuation while editing.
+  // Parsing and validation happen on submission, not on every keystroke.
+  return raw.replace(/[^\d.,]/g, '');
 }
 
 export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
@@ -749,6 +747,20 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPlan = async (e: React.FormEvent) => {
     e.preventDefault();
+    const drafts: Array<[string, string]> = [
+      [planTotalRaw, 'El importe total del plan'],
+      ...planRows.map((row, index): [string, string] => [
+        row.amountRaw ?? String(row.scheduledAmountCOP),
+        `El importe de la cuota ${index + 1}`,
+      ]),
+      ...(includeInitialPayment ? [[initPayAmountRaw, 'El anticipo'] as [string, string]] : []),
+    ];
+    for (const [raw, label] of drafts) {
+      if (parseLocalizedNonNegativeDecimal(raw, currencySpec.decimals) === null) {
+        setFeedback({ type: 'error', message: `${label} no tiene un formato válido. Revisa los separadores de miles y decimales.` });
+        return;
+      }
+    }
     const totalAgreedCOP = parseNonNegativeMoney(planTotalRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
@@ -882,6 +894,10 @@ export const ClientsAndPaymentsView: React.FC<ClientsAndPaymentsViewProps> = ({
 
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (parseLocalizedNonNegativeDecimal(payAmountRaw, currencySpec.decimals) === null) {
+      setFeedback({ type: 'error', message: 'El importe del abono no tiene un formato válido. Revisa los separadores de miles y decimales.' });
+      return;
+    }
     const amountCOP = parseNonNegativeMoney(payAmountRaw, settings.currency);
     setBusy(true);
     setFeedback(null);
